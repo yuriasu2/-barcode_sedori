@@ -1,11 +1,13 @@
 'use strict';
 
 const http = require('http');
+const { URL } = require('url');
 const { loadEnv } = require('./env');
 
 loadEnv();
 
 const routes = require('./routes');
+const { tryServeStatic } = require('./staticServer');
 
 const PORT = process.env.PORT || 3000;
 
@@ -16,6 +18,14 @@ const server = http.createServer((req, res) => {
     res.end(JSON.stringify({ status: 'ok' }));
     return;
   }
+
+  // ランディングページ(/)と静的アセット(/assets/*)を配信する。
+  // /api/* /oauth/* はここに該当しないため、既存ルーティングへそのままフォールバックする。
+  const { pathname } = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+  if (tryServeStatic(req, res, pathname)) {
+    return;
+  }
+
   routes.handler()(req, res);
 });
 

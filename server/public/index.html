@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>hondana(バーコードせどり) - バーコードをかざすだけでAmazon価格が一瞬でわかる</title>
+<meta name="description" content="hondanaは出品者向けの本せどりiPhoneアプリ。バーコードをかざすだけでAmazonのカート価格・新品/中古最安値・損益分岐点が一瞬でわかります。">
+<style>
+  :root {
+    --accent: #2563eb;
+    --accent-dark: #1d4ed8;
+    --accent-light: #e8f0fe;
+    --text-main: #1a1a1a;
+    --text-sub: #555555;
+    --bg: #ffffff;
+    --bg-alt: #f7f9fc;
+    --border: #e2e8f0;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans",
+      "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, sans-serif;
+    color: var(--text-main);
+    background: var(--bg);
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  a {
+    color: var(--accent);
+  }
+
+  img {
+    max-width: 100%;
+    display: block;
+  }
+
+  .container {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 0 20px;
+  }
+
+  /* Header */
+  header.site-header {
+    padding: 16px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .site-header .container {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .logo-mark {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: -0.02em;
+  }
+
+  .logo-sub {
+    font-size: 12px;
+    color: var(--text-sub);
+  }
+
+  /* Hero */
+  .hero {
+    background: linear-gradient(180deg, var(--accent-light) 0%, var(--bg) 100%);
+    padding: 56px 0 40px;
+    text-align: center;
+  }
+
+  .hero h1 {
+    font-size: clamp(28px, 6vw, 44px);
+    font-weight: 800;
+    margin: 0 0 16px;
+    letter-spacing: -0.02em;
+  }
+
+  .hero .catch {
+    font-size: clamp(16px, 4vw, 20px);
+    color: var(--text-sub);
+    margin: 0 auto 28px;
+    max-width: 560px;
+  }
+
+  .hero-badge {
+    display: inline-block;
+    background: var(--accent);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 6px 14px;
+    border-radius: 999px;
+    margin-bottom: 20px;
+  }
+
+  .cta-button {
+    display: inline-block;
+    background: var(--accent);
+    color: #fff;
+    font-weight: 700;
+    font-size: 16px;
+    padding: 14px 32px;
+    border-radius: 10px;
+    text-decoration: none;
+    transition: background 0.15s ease;
+  }
+
+  .cta-button:hover {
+    background: var(--accent-dark);
+  }
+
+  /* Sections */
+  section {
+    padding: 48px 0;
+  }
+
+  section.alt {
+    background: var(--bg-alt);
+  }
+
+  h2.section-title {
+    text-align: center;
+    font-size: clamp(22px, 5vw, 30px);
+    font-weight: 800;
+    margin: 0 0 36px;
+    letter-spacing: -0.01em;
+  }
+
+  /* Features */
+  .features {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 20px;
+  }
+
+  .feature-card {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 24px 20px;
+    text-align: left;
+  }
+
+  .feature-icon {
+    font-size: 32px;
+    margin-bottom: 12px;
+    line-height: 1;
+  }
+
+  .feature-card h3 {
+    font-size: 17px;
+    font-weight: 700;
+    margin: 0 0 8px;
+  }
+
+  .feature-card p {
+    font-size: 14px;
+    color: var(--text-sub);
+    margin: 0;
+  }
+
+  /* Screenshots */
+  .screens {
+    display: flex;
+    justify-content: center;
+    gap: 28px;
+    flex-wrap: wrap;
+  }
+
+  .phone-frame {
+    width: 240px;
+    max-width: 80vw;
+    border: 10px solid #111;
+    border-radius: 36px;
+    overflow: hidden;
+    background: #111;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.15);
+  }
+
+  .phone-frame img {
+    width: 100%;
+    height: auto;
+    display: block;
+    background: var(--bg-alt);
+    min-height: 420px;
+    object-fit: cover;
+  }
+
+  .screen-caption {
+    text-align: center;
+    font-size: 13px;
+    color: var(--text-sub);
+    margin-top: 10px;
+  }
+
+  .screen-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  /* Final CTA */
+  .final-cta {
+    text-align: center;
+  }
+
+  .final-cta p {
+    color: var(--text-sub);
+    margin-bottom: 24px;
+  }
+
+  /* Footer */
+  footer.site-footer {
+    border-top: 1px solid var(--border);
+    padding: 28px 0;
+    text-align: center;
+    font-size: 13px;
+    color: var(--text-sub);
+  }
+
+  footer.site-footer a {
+    color: var(--text-sub);
+    text-decoration: underline;
+  }
+
+  @media (max-width: 480px) {
+    .hero {
+      padding: 40px 0 32px;
+    }
+
+    section {
+      padding: 36px 0;
+    }
+  }
+</style>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="container">
+      <span class="logo-mark">hondana</span>
+      <span class="logo-sub">バーコードせどり</span>
+    </div>
+  </header>
+
+  <section class="hero">
+    <div class="container">
+      <span class="hero-badge">出品者向け iPhoneアプリ</span>
+      <h1>hondana</h1>
+      <p class="catch">バーコードをかざすだけ、Amazon価格が一瞬でわかる</p>
+      <a class="cta-button" href="#features">できることを見る</a>
+    </div>
+  </section>
+
+  <section id="features">
+    <div class="container">
+      <h2 class="section-title">hondanaの特徴</h2>
+      <div class="features">
+        <div class="feature-card">
+          <div class="feature-icon">🆓</div>
+          <h3>無料で利用できる</h3>
+          <p>基本機能はすべて無料。追加費用なしで今すぐ使い始められます。</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">⚡</div>
+          <h3>高速バーコード読み取り</h3>
+          <p>連続スキャンに対応し、次々と商品を読み取ってテンポよくリサーチできます。</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🔎</div>
+          <h3>OCRでも検索可能</h3>
+          <p>バーコードが読めない本もOCRでISBN-10/13を認識して検索できます。</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">💰</div>
+          <h3>価格・損益分岐点を表示</h3>
+          <p>カート価格・新品/中古の最安値に加え、損益分岐点まで一目で確認できます。</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🔗</div>
+          <h3>SP-API連携</h3>
+          <p>自分のAmazonアカウントとSP-APIで連携し、より正確な価格情報を取得します。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="alt">
+    <div class="container">
+      <h2 class="section-title">アプリ画面</h2>
+      <div class="screens">
+        <div class="screen-item">
+          <div class="phone-frame">
+            <img src="/assets/screen-search.png" alt="バーコードスキャン画面のスクリーンショット">
+          </div>
+          <p class="screen-caption">バーコードスキャン画面</p>
+        </div>
+        <div class="screen-item">
+          <div class="phone-frame">
+            <img src="/assets/screen-detail.png" alt="商品価格詳細画面のスクリーンショット">
+          </div>
+          <p class="screen-caption">価格詳細画面</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="final-cta">
+    <div class="container">
+      <h2 class="section-title">今すぐhondanaを試してみる</h2>
+      <p>バーコードをかざすだけで、リサーチのスピードが変わります。</p>
+      <a class="cta-button" href="mailto:saastids2025@gmail.com">お問い合わせはこちら</a>
+    </div>
+  </section>
+
+  <footer class="site-footer">
+    <div class="container">
+      <p>&copy; 2026 hondana</p>
+      <p>お問い合わせ: <a href="mailto:saastids2025@gmail.com">saastids2025@gmail.com</a></p>
+    </div>
+  </footer>
+
+</body>
+</html>
