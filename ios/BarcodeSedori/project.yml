@@ -1,0 +1,47 @@
+name: BarcodeSedori
+options:
+  bundleIdPrefix: com.example
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+    TARGETED_DEVICE_FAMILY: "1"
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+
+targets:
+  BarcodeSedori:
+    type: application
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: Sources
+    resources:
+      - path: Resources
+        optional: true
+    info:
+      path: Generated/Info.plist
+      properties:
+        CFBundleDisplayName: バーコードせどり
+        CFBundleShortVersionString: "1.0"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        NSCameraUsageDescription: "バーコードをスキャンして商品を検索するためにカメラを使用します。"
+        NSLocalNetworkUsageDescription: "同一Wi-Fi内のPCで動作する価格検索サーバーに接続するためにローカルネットワークを使用します。"
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        CFBundleURLTypes:
+          - CFBundleURLSchemes:
+              - barcodesedori
+            CFBundleURLName: com.example.barcodesedori
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.barcodesedori
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"

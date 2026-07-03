@@ -1,0 +1,15 @@
+# 機密情報(server/.gitignoreでも除外済みだが念のため)
+.env
+server/.env
+
+# Node
+node_modules/
+
+# Xcode / XcodeGen生成物
+*.xcodeproj
+xcuserdata/
+DerivedData/
+build/
+
+# macOS
+.DS_Store

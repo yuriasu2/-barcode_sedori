@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: barcode-sedori-api
+    runtime: node
+    rootDir: server
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: LWA_CLIENT_ID
+        sync: false
+      - key: LWA_CLIENT_SECRET
+        sync: false
+      - key: LWA_REFRESH_TOKEN
+        sync: false
+      - key: SPAPI_APP_ID
+        sync: false
+      - key: OAUTH_BASE_URL
+        sync: false
+      - key: MARKETPLACE_ID
+        value: A1VC38T7YXB528
+      - key: SPAPI_ENDPOINT
+        value: https://sellingpartnerapi-fe.amazon.com
