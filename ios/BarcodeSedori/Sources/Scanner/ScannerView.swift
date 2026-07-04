@@ -91,6 +91,11 @@ final class ScannerContainerView: UIView {
     /// Vision処理中に多重実行しないためのフラグ(videoDataQueue上でのみアクセス)
     private var isProcessingOCR = false
 
+    /// 直近フレームの「アップライト画像」のアスペクト比(幅/高さ)。
+    /// .rightで起こすため upright幅=バッファ高さ, upright高さ=バッファ幅。
+    /// videoDataQueue上でのみ更新し、OCR確定時に値としてmainへ渡す(共有状態にしない)。
+    private var lastUprightAspect: CGFloat = 1080.0 / 1920.0
+
     /// ISBN: 97[89] + 10桁 = 13桁。ハイフン・スペース除去後の文字列に対してマッチ。
     private static let isbnRegex = try! NSRegularExpression(pattern: "97[89]\\d{10}")
     /// JAN: 4始まり13桁。
@@ -241,22 +246,44 @@ final class ScannerContainerView: UIView {
     }
 
     /// Visionの認識テキスト境界ボックスをプレビュー座標(UIKit)へ変換する。
-    /// VisionのboundingBoxは正規化(0..1)・原点左下・.rightで起こしたアップライト画像座標。
-    /// metadataOutput座標系(正規化・原点左上・表示向き)とは軸・向きが一致しY軸のみ反転差があるため、
-    /// Y反転してから layerRectConverted(fromMetadataOutputRect:) に渡す。
-    /// これによりresizeAspectFillのクロップ/スケールも含めて正しくプレビュー座標へ写像できる。
-    private func previewRect(fromVisionBoundingBox bb: CGRect) -> CGRect? {
-        guard let previewLayer else { return nil }
-        let metadataRect = CGRect(
-            x: bb.minX,
-            y: 1 - bb.maxY,
-            width: bb.width,
-            height: bb.height
+    /// VisionのboundingBoxは正規化(0..1)・原点左下・.rightで起こした「アップライト画像」座標で、
+    /// プレビュー(resizeAspectFill)に表示される向きと一致する。よって layerRectConverted は使わず
+    /// (内部でランドスケープ→ポートレート回転が入り二重回転になるため)、
+    /// aspectFillのスケール・中央クロップを手計算して直接写像する。
+    /// - Parameter uprightAspect: アップライト画像の幅/高さ。
+    private func previewRect(fromVisionBoundingBox bb: CGRect, uprightAspect: CGFloat) -> CGRect? {
+        let viewW = bounds.width
+        let viewH = bounds.height
+        guard viewW > 0, viewH > 0, uprightAspect > 0 else { return nil }
+
+        // resizeAspectFill: アップライト画像をbounds全体を覆うようスケールし中央寄せ(はみ出しはクロップ)。
+        let viewRatio = viewW / viewH
+        let dispW: CGFloat
+        let dispH: CGFloat
+        if uprightAspect > viewRatio {
+            // 画像がビューより横長 → 高さ基準で埋め、幅がはみ出す
+            dispH = viewH
+            dispW = viewH * uprightAspect
+        } else {
+            // 画像がビューより縦長 → 幅基準で埋め、高さがはみ出す
+            dispW = viewW
+            dispH = viewW / uprightAspect
+        }
+        let offsetX = (viewW - dispW) / 2
+        let offsetY = (viewH - dispH) / 2
+
+        // Vision(原点左下) → 正規化top-left へY反転
+        let nx = bb.minX
+        let ny = 1 - bb.maxY
+
+        let rect = CGRect(
+            x: nx * dispW + offsetX,
+            y: ny * dispH + offsetY,
+            width: bb.width * dispW,
+            height: bb.height * dispH
         )
-        let rect = previewLayer.layerRectConverted(fromMetadataOutputRect: metadataRect)
         guard rect.width > 0, rect.height > 0,
-              rect.origin.x.isFinite, rect.origin.y.isFinite,
-              rect.width.isFinite, rect.height.isFinite else {
+              rect.origin.x.isFinite, rect.origin.y.isFinite else {
             return nil
         }
         // 細い1行だと枠が薄くなるので、少しだけ外側に広げて見やすくする。
@@ -351,6 +378,13 @@ extension ScannerContainerView: AVCaptureVideoDataOutputSampleBufferDelegate {
         lastOCRRequestTime = now
         isProcessingOCR = true
 
+        // アップライト画像(.right起こし)のアスペクト比を更新。緑枠の座標変換に使う。
+        let bufW = CVPixelBufferGetWidth(pixelBuffer)
+        let bufH = CVPixelBufferGetHeight(pixelBuffer)
+        if bufW > 0, bufH > 0 {
+            lastUprightAspect = CGFloat(bufH) / CGFloat(bufW)
+        }
+
         // VNImageRequestHandler.perform(_:)は同期実行のため、この完了ハンドラは
         // perform呼び出しと同じスレッド(videoDataQueue)上で呼ばれる。
         // そのためisProcessingOCRへの読み書きはvideoDataQueueに閉じており競合しない。
@@ -384,13 +418,16 @@ extension ScannerContainerView: AVCaptureVideoDataOutputSampleBufferDelegate {
         for observation in observations {
             guard let candidate = observation.topCandidates(1).first else { continue }
             if let code = Self.extractCode(fromRaw: candidate.string) {
-                // 認識したISBN/JANを含むテキスト行の境界ボックス(Vision座標)を控えておく。
+                // 認識したISBN/JANを含むテキスト行の境界ボックス(Vision座標)と、
+                // 変換に必要なアップライト画像アスペクト比を控えておく(どちらもvideoDataQueue上で読む)。
                 let boundingBox = observation.boundingBox
+                let aspect = lastUprightAspect
                 DispatchQueue.main.async { [weak self] in
                     guard let self else { return }
                     // バーコードモードと同様に、OCRで確定したコードのテキストを緑枠で囲む。
                     // 変換に失敗した場合のみスキャン領域全体にフォールバックする。
-                    let rect = self.previewRect(fromVisionBoundingBox: boundingBox) ?? self.scanRectInBounds()
+                    let rect = self.previewRect(fromVisionBoundingBox: boundingBox, uprightAspect: aspect)
+                        ?? self.scanRectInBounds()
                     self.highlight(rect: rect)
                     self.emit(code: code, symbology: .ean13)
                 }
