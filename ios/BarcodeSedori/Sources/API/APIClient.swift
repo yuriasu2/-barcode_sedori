@@ -132,15 +132,19 @@ final class APIClient {
         return try await perform(request, as: OffersResult.self)
     }
 
-    /// Keepaグラフ画像のURL({サーバーURL}/api/graph?asin=)を組み立てる。
+    /// Keepaグラフ画像のURL({サーバーURL}/api/graph?asin=&range=)を組み立てる。
     /// AsyncImageに直接渡せるよう throws にはせず、失敗時は nil を返す。
-    func graphURL(asin: String) -> URL? {
+    /// - Parameter range: グラフ期間(日数)。省略時は90(サーバー側デフォルトと同じ)。
+    func graphURL(asin: String, range: Int = 90) -> URL? {
         do {
             let base = try baseURL()
             guard var components = URLComponents(url: base.appendingPathComponent("/api/graph"), resolvingAgainstBaseURL: false) else {
                 return nil
             }
-            components.queryItems = [URLQueryItem(name: "asin", value: asin)]
+            components.queryItems = [
+                URLQueryItem(name: "asin", value: asin),
+                URLQueryItem(name: "range", value: String(range)),
+            ]
             return components.url
         } catch {
             return nil

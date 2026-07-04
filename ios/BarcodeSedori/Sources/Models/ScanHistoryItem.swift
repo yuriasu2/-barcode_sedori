@@ -13,12 +13,18 @@ struct ScanHistoryItem: Codable, Equatable, Identifiable {
     let imageUrl: String?
     let salesRank: Int?
     let prices: SearchPrices?
+    /// CHANGES-v6.1.md: 検索タブで第2段階(/api/offers)取得が完了した時点で保存されるオファー一覧。
+    /// 商品タブ(履歴)からの詳細表示はAPIを再度呼ばず、この保存済みデータのみで描画する。
+    /// 旧形式で保存された履歴データにはこのキーが存在しないため、Optionalにして後方互換を保つ
+    /// (自動合成のDecodableはOptionalプロパティのキー欠如を許容するため、旧データも履歴が消えずに読める)。
+    var offersResult: OffersResult?
 
     init(
         id: UUID = UUID(),
         scannedAt: Date = Date(),
         scannedCode: String,
-        result: SearchResult
+        result: SearchResult,
+        offersResult: OffersResult? = nil
     ) {
         self.id = id
         self.scannedAt = scannedAt
@@ -30,5 +36,6 @@ struct ScanHistoryItem: Codable, Equatable, Identifiable {
         self.imageUrl = result.imageUrl
         self.salesRank = result.salesRank
         self.prices = result.prices
+        self.offersResult = offersResult
     }
 }

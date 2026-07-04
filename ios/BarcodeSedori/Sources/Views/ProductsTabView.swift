@@ -1,9 +1,11 @@
 import SwiftUI
 
 /// 「商品」タブ: これまでにスキャンした履歴の一覧。
+/// CHANGES-v6.1.md: 履歴タップ時はスキャン時に取得済みのデータ(SearchResult + OffersResult)のみで
+/// 詳細画面を描画し、APIを再度呼び出さない。そのため選択状態はASIN文字列ではなくScanHistoryItem全体を保持する。
 struct ProductsTabView: View {
     @ObservedObject private var historyStore = ScanHistoryStore.shared
-    @State private var selectedASIN: String?
+    @State private var selectedItem: ScanHistoryItem?
 
     var body: some View {
         NavigationView {
@@ -16,8 +18,8 @@ struct ProductsTabView: View {
                             HistoryRow(item: item)
                                 .contentShape(Rectangle())
                                 .onTapGesture {
-                                    if let asin = item.asin {
-                                        selectedASIN = asin
+                                    if item.asin != nil {
+                                        selectedItem = item
                                     }
                                 }
                         }
@@ -39,8 +41,8 @@ struct ProductsTabView: View {
                 NavigationLink(
                     destination: destinationView,
                     isActive: Binding(
-                        get: { selectedASIN != nil },
-                        set: { if !$0 { selectedASIN = nil } }
+                        get: { selectedItem != nil },
+                        set: { if !$0 { selectedItem = nil } }
                     ),
                     label: { EmptyView() }
                 )
@@ -52,10 +54,15 @@ struct ProductsTabView: View {
 
     @ViewBuilder
     private var destinationView: some View {
-        if let selectedASIN {
-            let title = historyStore.items.first(where: { $0.asin == selectedASIN })?.title
-            // ScanHistoryItemはsourceを保持していないため、履歴タブからの遷移はnilを渡す。
-            ProductDetailView(asin: selectedASIN, title: title, source: nil)
+        if let selectedItem, let asin = selectedItem.asin {
+            // 静的モード: スキャン時に保存済みのOffersResultのみで描画し、APIは一切呼ばない。
+            // JANコードは isbn13 ?? スキャンコード。
+            ProductDetailView(
+                asin: asin,
+                title: selectedItem.title,
+                cachedOffers: selectedItem.offersResult,
+                janCode: selectedItem.isbn13 ?? selectedItem.scannedCode
+            )
         } else {
             EmptyView()
         }

@@ -12,6 +12,23 @@ enum ScanMode: String, CaseIterable, Identifiable {
     var isOCRMode: Bool { self == .ocr }
 }
 
+/// CHANGES-v6.1.md: Keepaグラフの期間切替セグメント(90日/1年/3年)。初期値は90日。
+enum GraphRange: Int, CaseIterable, Identifiable {
+    case ninetyDays = 90
+    case oneYear = 365
+    case threeYears = 1095
+
+    var id: Int { rawValue }
+
+    var label: String {
+        switch self {
+        case .ninetyDays: return "90日"
+        case .oneYear: return "1年"
+        case .threeYears: return "3年"
+        }
+    }
+}
+
 /// CHANGES-v6.md: 検索タブ全面刷新。
 /// リスト表示をやめ、最新1件のスキャン結果カード+オファーパネル+Keepaグラフの単一状態に置き換える。
 @MainActor
@@ -35,6 +52,9 @@ final class SearchTabViewModel: ObservableObject {
     private let apiClient: APIClient
     private let historyStore: ScanHistoryStore
 
+    /// 直近history追加したエントリのid。第2段階(offers)完了時にこのidの履歴を更新するために保持する。
+    private var pendingHistoryItemId: UUID?
+
     init(apiClient: APIClient = .shared, historyStore: ScanHistoryStore = .shared) {
         self.apiClient = apiClient
         self.historyStore = historyStore
@@ -51,6 +71,7 @@ final class SearchTabViewModel: ObservableObject {
         latestResult = nil
         offersResult = nil
         isLoadingOffers = false
+        pendingHistoryItemId = nil
 
         Task { await self.search(code: code) }
     }
@@ -62,7 +83,9 @@ final class SearchTabViewModel: ObservableObject {
             isSearching = false
 
             if result.codeType != .unresolved {
-                historyStore.add(ScanHistoryItem(scannedCode: code, result: result))
+                let historyItem = ScanHistoryItem(scannedCode: code, result: result)
+                pendingHistoryItemId = historyItem.id
+                historyStore.add(historyItem)
             }
 
             if let asin = result.asin, !asin.isEmpty {
@@ -77,7 +100,15 @@ final class SearchTabViewModel: ObservableObject {
     private func loadOffers(asin: String, source: String?) async {
         isLoadingOffers = true
         do {
-            offersResult = try await apiClient.offers(asin: asin, source: source)
+            let offers = try await apiClient.offers(asin: asin, source: source)
+            offersResult = offers
+
+            // CHANGES-v6.1.md: 第2段階(offers)取得完了時点で、該当履歴エントリを更新して保存する。
+            if let pendingHistoryItemId {
+                historyStore.update(id: pendingHistoryItemId) { item in
+                    item.offersResult = offers
+                }
+            }
         } catch {
             // オファー取得失敗はカード自体の表示を妨げないよう致命的エラーにしない。
             offersResult = nil
@@ -92,6 +123,8 @@ struct SearchTabView: View {
     @State private var selectedResult: SearchResult?
     @State private var searchBarText: String = ""
     @State private var showsKeywordUnsupportedAlert = false
+    /// CHANGES-v6.1.md: Keepaグラフの期間切替。初期値は90日。
+    @State private var selectedGraphRange: GraphRange = .ninetyDays
 
     var body: some View {
         NavigationView {
@@ -118,7 +151,6 @@ struct SearchTabView: View {
 
                     latestResultCard
                         .padding(.horizontal)
-                        .padding(.top, 4)
 
                     offersPanels
                         .padding(.horizontal)
@@ -153,7 +185,12 @@ struct SearchTabView: View {
     @ViewBuilder
     private var destinationView: some View {
         if let selectedResult, let asin = selectedResult.asin {
-            ProductDetailView(asin: asin, title: selectedResult.title, source: selectedResult.source)
+            ProductDetailView(
+                asin: asin,
+                title: selectedResult.title,
+                source: selectedResult.source,
+                janCode: selectedResult.isbn13 ?? viewModel.latestScannedCode
+            )
         } else {
             EmptyView()
         }
@@ -285,29 +322,63 @@ struct SearchTabView: View {
 
     @ViewBuilder
     private var keepaGraph: some View {
-        if let asin = viewModel.latestResult?.asin, let url = APIClient.shared.graphURL(asin: asin) {
-            AsyncImage(url: url) { phase in
-                switch phase {
-                case .success(let image):
-                    image
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(maxWidth: .infinity)
-                        .cornerRadius(10)
-                case .failure:
-                    EmptyView()
-                case .empty:
-                    HStack {
-                        Spacer()
-                        ProgressView()
-                        Spacer()
+        if let asin = viewModel.latestResult?.asin,
+           let url = APIClient.shared.graphURL(asin: asin, range: selectedGraphRange.rawValue) {
+            VStack(spacing: 8) {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(maxWidth: .infinity)
+                            .cornerRadius(10)
+                    case .failure:
+                        EmptyView()
+                    case .empty:
+                        HStack {
+                            Spacer()
+                            ProgressView()
+                            Spacer()
+                        }
+                        .frame(height: 80)
+                    @unknown default:
+                        EmptyView()
                     }
-                    .frame(height: 80)
-                @unknown default:
-                    EmptyView()
                 }
+                // urlが変わるたびにAsyncImageを再生成させ、期間切替時に確実に再ロードする。
+                .id(url)
+
+                graphRangeSegment
             }
         }
+    }
+
+    /// グラフ画像の直下に置く期間切替セグメント(90日/1年/3年)。
+    private var graphRangeSegment: some View {
+        HStack(spacing: 0) {
+            ForEach(GraphRange.allCases) { range in
+                let isSelected = selectedGraphRange == range
+                Button {
+                    selectedGraphRange = range
+                } label: {
+                    Text(range.label)
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .foregroundColor(isSelected ? .white : .accentColor)
+                        .background(isSelected ? Color.accentColor : Color.clear)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .background(Color(.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.accentColor, lineWidth: 1)
+        )
     }
 }
 
@@ -367,9 +438,10 @@ private struct LatestResultCardView: View {
             }
             Spacer()
         }
-        .padding()
-        .background(Color(.secondarySystemBackground))
-        .cornerRadius(10)
+        // CHANGES-v6.1.md: カードの上下余白を0にし、薄灰色の囲み枠(background/cornerRadius)を削除。
+        // 左右は現状維持(呼び出し元のScrollView側で.padding(.horizontal)を付与)。
+        .padding(.horizontal, 0)
+        .padding(.vertical, 0)
     }
 }
 

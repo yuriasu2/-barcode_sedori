@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-function withEnv(vars, fn) {
+async function withEnv(vars, fn) {
   const saved = {};
   for (const key of Object.keys(vars)) {
     saved[key] = process.env[key];
@@ -14,7 +14,7 @@ function withEnv(vars, fn) {
     }
   }
   try {
-    return fn();
+    return await fn();
   } finally {
     for (const key of Object.keys(saved)) {
       if (saved[key] === undefined) delete process.env[key];
@@ -508,5 +508,116 @@ test('/api/graph: asin未指定は400', async () => {
     const route = routes.match('GET', '/api/graph');
     await route.handler(req, res);
     assert.equal(res.statusCode, 400);
+  });
+});
+
+test('/api/graph: range未指定はKeepaへ90として渡す', async (t) => {
+  await withEnv({ KEEPA_API_KEY: 'test-keepa-key' }, async () => {
+    const routes = freshRoutes();
+    const keepa = require('../src/keepa/client');
+
+    const fakeBuffer = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+    let receivedRange;
+    keepa.getGraphImage = async (asin, range) => {
+      receivedRange = range;
+      return { buffer: fakeBuffer, contentType: 'image/png' };
+    };
+
+    const req = { query: { asin: 'B000TEST' }, headers: {} };
+    const res = createMockRes();
+    const route = routes.match('GET', '/api/graph');
+    await route.handler(req, res);
+
+    assert.equal(receivedRange, 90);
+
+    t.after(() => {
+      routes.graphCache.clear();
+    });
+  });
+});
+
+test('/api/graph: range=365/1095は許可値としてそのままKeepaへ渡す', async (t) => {
+  await withEnv({ KEEPA_API_KEY: 'test-keepa-key' }, async () => {
+    const routes = freshRoutes();
+    const keepa = require('../src/keepa/client');
+
+    const fakeBuffer = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+    const receivedRanges = [];
+    keepa.getGraphImage = async (asin, range) => {
+      receivedRanges.push(range);
+      return { buffer: fakeBuffer, contentType: 'image/png' };
+    };
+
+    const route = routes.match('GET', '/api/graph');
+
+    const res365 = createMockRes();
+    await route.handler({ query: { asin: 'B000TEST', range: '365' }, headers: {} }, res365);
+    const res1095 = createMockRes();
+    await route.handler({ query: { asin: 'B000TEST', range: '1095' }, headers: {} }, res1095);
+
+    assert.deepEqual(receivedRanges, [365, 1095]);
+
+    t.after(() => {
+      routes.graphCache.clear();
+    });
+  });
+});
+
+test('/api/graph: 不正なrange値(例:30,abc,負数)は90として扱う', async (t) => {
+  await withEnv({ KEEPA_API_KEY: 'test-keepa-key' }, async () => {
+    const routes = freshRoutes();
+    const keepa = require('../src/keepa/client');
+
+    const fakeBuffer = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+    const receivedRanges = [];
+    keepa.getGraphImage = async (asin, range) => {
+      receivedRanges.push(range);
+      return { buffer: fakeBuffer, contentType: 'image/png' };
+    };
+
+    const route = routes.match('GET', '/api/graph');
+
+    // asinを毎回変えてキャッシュヒットを避け、正規化ロジック自体(不正値→90)を検証する。
+    for (const invalid of ['30', 'abc', '-1', '9999']) {
+      const res = createMockRes();
+      await route.handler({ query: { asin: `B000TEST_${invalid}`, range: invalid }, headers: {} }, res);
+    }
+
+    assert.deepEqual(receivedRanges, [90, 90, 90, 90]);
+
+    t.after(() => {
+      routes.graphCache.clear();
+    });
+  });
+});
+
+test('/api/graph: キャッシュキーはrangeごとに分離される(range違いは別々にKeepaを呼ぶ)', async (t) => {
+  await withEnv({ KEEPA_API_KEY: 'test-keepa-key' }, async () => {
+    const routes = freshRoutes();
+    const keepa = require('../src/keepa/client');
+
+    let callCount = 0;
+    keepa.getGraphImage = async (asin, range) => {
+      callCount += 1;
+      return { buffer: Buffer.from([callCount]), contentType: 'image/png' };
+    };
+
+    const route = routes.match('GET', '/api/graph');
+
+    const res90a = createMockRes();
+    await route.handler({ query: { asin: 'B000TEST', range: '90' }, headers: {} }, res90a);
+    const res90b = createMockRes();
+    await route.handler({ query: { asin: 'B000TEST', range: '90' }, headers: {} }, res90b);
+    const res365 = createMockRes();
+    await route.handler({ query: { asin: 'B000TEST', range: '365' }, headers: {} }, res365);
+
+    // 同じrange(90)への2回目はキャッシュヒットしKeepaを呼ばない → callCountは2のまま(90用に1回、365用に1回)
+    assert.equal(callCount, 2);
+    assert.deepEqual(res90a.binaryBody, res90b.binaryBody);
+    assert.notDeepEqual(res90a.binaryBody, res365.binaryBody);
+
+    t.after(() => {
+      routes.graphCache.clear();
+    });
   });
 });

@@ -548,7 +548,22 @@ router.get('/api/offers', async (req, res) => {
   }
 });
 
-// GET /api/graph?asin= — Keepaグラフ画像プロキシ(APIキーをアプリに晒さないため必須)
+// range クエリの許可値(CHANGES-v6.1.md)。それ以外・未指定は90扱い。
+const ALLOWED_GRAPH_RANGES = [90, 365, 1095];
+
+/**
+ * range クエリパラメータを検証し、許可値(90/365/1095)のいずれかに正規化する。
+ * 不正値・未指定は90を返す。
+ * @param {*} rawRange req.query.range
+ * @returns {number}
+ */
+function normalizeGraphRange(rawRange) {
+  const parsed = parseInt(rawRange, 10);
+  if (ALLOWED_GRAPH_RANGES.includes(parsed)) return parsed;
+  return 90;
+}
+
+// GET /api/graph?asin=&range= — Keepaグラフ画像プロキシ(APIキーをアプリに晒さないため必須)
 router.get('/api/graph', async (req, res) => {
   const asin = String(req.query.asin || '').trim();
   if (!asin) {
@@ -559,14 +574,16 @@ router.get('/api/graph', async (req, res) => {
     return res.status(404).json({ error: 'keepa_not_configured' });
   }
 
-  const cacheKey = `graph:${asin}`;
+  const range = normalizeGraphRange(req.query.range);
+
+  const cacheKey = `graph:${asin}:${range}`;
   const cached = graphCache.get(cacheKey);
   if (cached) {
     return res.binary(cached.buffer, cached.contentType);
   }
 
   try {
-    const { buffer, contentType } = await keepa.getGraphImage(asin);
+    const { buffer, contentType } = await keepa.getGraphImage(asin, range);
     graphCache.set(cacheKey, { buffer, contentType });
     res.binary(buffer, contentType);
   } catch (err) {

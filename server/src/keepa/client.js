@@ -344,9 +344,10 @@ function extractOffersFromProduct(product) {
  * Keepaグラフ画像を取得する(プロキシ用)。
  * GET /graphimage?key=&domain=5&asin=&salesrank=1&amazon=1&new=1&used=1&range=90&width=1000&height=400
  * @param {string} asin
+ * @param {number} [range] グラフ期間(日数)。省略時は90。
  * @returns {Promise<{buffer: Buffer, contentType: string}>}
  */
-async function getGraphImage(asin) {
+async function getGraphImage(asin, range) {
   const apiKey = getApiKey();
   if (!apiKey) {
     const err = new Error('keepa_api_key_missing');
@@ -362,7 +363,7 @@ async function getGraphImage(asin) {
     amazon: '1',
     new: '1',
     used: '1',
-    range: '90',
+    range: String(range || 90),
     width: '1000',
     height: '400',
   });

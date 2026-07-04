@@ -31,6 +31,17 @@ final class ScanHistoryStore: ObservableObject {
         save()
     }
 
+    /// 指定したidの履歴エントリを更新する(見つからなければ何もしない)。
+    /// CHANGES-v6.1.md: 検索タブで第2段階(offers)取得が完了した時点で、
+    /// 該当履歴エントリにOffersResultを追記保存するために使用する。
+    func update(id: UUID, transform: (inout ScanHistoryItem) -> Void) {
+        guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+        var updated = items[index]
+        transform(&updated)
+        items[index] = updated
+        save()
+    }
+
     func clear() {
         items.removeAll()
         save()
