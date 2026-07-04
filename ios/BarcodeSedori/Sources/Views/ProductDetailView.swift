@@ -152,7 +152,7 @@ private struct OfferRow: View {
                     .font(.caption2)
                     .foregroundColor(.secondary)
                 if let breakEven = offer.breakEven {
-                    Text("¥\(breakEven)")
+                    Text("¥\(Int(breakEven.rounded()))")
                         .font(.subheadline)
                         .fontWeight(.semibold)
                         .foregroundColor(.blue)

@@ -9,7 +9,9 @@ struct Offer: Codable, Equatable, Identifiable {
     let landed: Int?
     let isBuyBox: Bool?
     let sameCount: Int?
-    let breakEven: Int?
+    /// 損益分岐点。サーバー(Keepa経路)は小数(例: 5822.3)で返すためDoubleで受ける。
+    /// Int?にすると小数のデコードに失敗し、オファー全体のデコードが落ちてstage-2が表示されなくなる。
+    let breakEven: Double?
 
     // レスポンスにIDは無いため、内容から安定した合成IDを作る
     var id: String {
@@ -20,7 +22,8 @@ struct Offer: Codable, Equatable, Identifiable {
             String(landed ?? -1),
             String(isBuyBox ?? false),
             String(sameCount ?? -1),
-            String(breakEven ?? -1)
+            String(breakEven ?? -1)  // Double。id用途のため書式は問わない
+
         ].joined(separator: "|")
     }
 
