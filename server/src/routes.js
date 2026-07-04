@@ -460,8 +460,10 @@ async function buildOffersResponseViaKeepa(asin) {
     };
   }
 
-  const newDtos = newOffers.map(toDto);
-  const usedDtos = usedOffers.map(toDto);
+  // 価格(landed)の安い順に並べる(パネル表示を最安値から見せる)。
+  const byLandedAsc = (a, b) => (a.landed ?? Infinity) - (b.landed ?? Infinity);
+  const newDtos = newOffers.map(toDto).sort(byLandedAsc);
+  const usedDtos = usedOffers.map(toDto).sort(byLandedAsc);
 
   // フォールバック: Keepaが個別オファーを返さない、または鮮度フィルタで全除外された場合でも、
   // stats.current の新品/中古最安値でパネルに価格を表示する(価格が全く出ない事態を防ぐ)。

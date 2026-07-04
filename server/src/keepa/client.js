@@ -297,12 +297,24 @@ function extractOffersFromProduct(product) {
   const buyBoxPrice = normalizePrice(current[CSV_TYPE.BUY_BOX_SHIPPING]);
   const referencePrice = buyBoxPrice != null ? buyBoxPrice : normalizePrice(current[CSV_TYPE.NEW]);
 
+  // 現在有効なオファーの選択。
+  // Keepaのoffers配列には過去(現在は存在しない)のオファーも含まれる。
+  // liveOffersOrder は「現在Amazon上で有効なオファーのindex順」を示す公式フィールドのため、これを最優先で使う。
+  // (以前の24時間 lastSeen フィルタは有効なオファーまで巻き込んで全除外していた)
+  // liveOffersOrder が無い古い応答向けに、lastSeen鮮度フィルタをフォールバックとして残す。
+  let selectedOffers;
+  if (Array.isArray(product.liveOffersOrder) && product.liveOffersOrder.length) {
+    selectedOffers = product.liveOffersOrder
+      .map((idx) => product.offers[idx])
+      .filter(Boolean);
+  } else {
+    selectedOffers = product.offers.filter((o) => isOfferFresh(o.lastSeen));
+  }
+
   const newOffers = [];
   const usedOffers = [];
 
-  for (const offer of product.offers) {
-    if (!isOfferFresh(offer.lastSeen)) continue;
-
+  for (const offer of selectedOffers) {
     const { price, shipping } = extractLatestOfferPrice(offer.offerCSV);
     if (price == null) continue;
 
