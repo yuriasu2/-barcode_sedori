@@ -255,7 +255,9 @@ struct SearchTabView: View {
                     title: "新品(出品者数\(viewModel.offersResult?.newCount ?? viewModel.offersResult?.new?.count ?? 0)人)",
                     color: Color(red: 0.13, green: 0.59, blue: 0.95),
                     offers: viewModel.offersResult?.new ?? [],
-                    isLoading: viewModel.isLoadingOffers
+                    isLoading: viewModel.isLoadingOffers,
+                    simplePrice: viewModel.latestResult?.prices?.new,
+                    simpleLabel: "新品"
                 )
                 .onTapGesture { handlePanelTap() }
 
@@ -263,7 +265,9 @@ struct SearchTabView: View {
                     title: "中古(出品者数\(viewModel.offersResult?.usedCount ?? viewModel.offersResult?.used?.count ?? 0)人)",
                     color: Color(red: 1.0, green: 0.60, blue: 0.0),
                     offers: viewModel.offersResult?.used ?? [],
-                    isLoading: viewModel.isLoadingOffers
+                    isLoading: viewModel.isLoadingOffers,
+                    simplePrice: viewModel.latestResult?.prices?.used,
+                    simpleLabel: "中古"
                 )
                 .onTapGesture { handlePanelTap() }
             }
@@ -376,6 +380,10 @@ private struct OffersPanelView: View {
     let color: Color
     let offers: [Offer]
     let isLoading: Bool
+    /// 第1段階(/api/search)で取得した簡易価格。リスト最上部に太字・大きめで表示する。
+    let simplePrice: Int?
+    /// 簡易価格行のラベル("新品"/"中古")。
+    let simpleLabel: String
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -388,20 +396,32 @@ private struct OffersPanelView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(color)
 
-            if isLoading {
-                HStack {
-                    Spacer()
-                    ProgressView()
-                        .padding(.vertical, 16)
-                    Spacer()
+            VStack(alignment: .leading, spacing: 4) {
+                // 第1段階の簡易価格を一番上に太字・大きめで表示
+                if let simplePrice {
+                    HStack(spacing: 4) {
+                        Text(simpleLabel)
+                            .font(.caption)
+                            .fontWeight(.bold)
+                            .foregroundColor(.white)
+                        Text("¥\(simplePrice)")
+                            .font(.subheadline)
+                            .fontWeight(.bold)
+                            .foregroundColor(.white)
+                            .monospacedDigit()
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                    }
                 }
-            } else if offers.isEmpty {
-                Text("オファーがありません")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                    .padding(8)
-            } else {
-                VStack(alignment: .leading, spacing: 4) {
+
+                // 第2段階のオファー(その後に読み込む)
+                if isLoading {
+                    HStack {
+                        Spacer()
+                        ProgressView()
+                            .padding(.vertical, 8)
+                        Spacer()
+                    }
+                } else {
                     ForEach(offers.prefix(5)) { offer in
                         HStack(spacing: 4) {
                             Text(offer.conditionDisplayName)
@@ -423,8 +443,15 @@ private struct OffersPanelView: View {
                         }
                     }
                 }
-                .padding(8)
+
+                // 簡易価格もオファーも無いときのみ空表示
+                if simplePrice == nil && !isLoading && offers.isEmpty {
+                    Text("オファーがありません")
+                        .font(.caption2)
+                        .foregroundColor(.white.opacity(0.85))
+                }
             }
+            .padding(8)
         }
         .background(color.opacity(0.85))
         .cornerRadius(10)
