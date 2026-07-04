@@ -242,14 +242,18 @@ final class ScannerContainerView: UIView {
             layer.addSublayer(guideLayer)
             didAddGuideLayer = true
         }
-        let rect = CGRect(
+        guideLayer.path = UIBezierPath(roundedRect: scanRectInBounds(), cornerRadius: 8).cgPath
+        guideLayer.frame = bounds
+    }
+
+    /// スキャン枠(scanRectRatio)を現在のbounds座標系の矩形に変換して返す。
+    private func scanRectInBounds() -> CGRect {
+        CGRect(
             x: bounds.width * scanRectRatio.minX,
             y: bounds.height * scanRectRatio.minY,
             width: bounds.width * scanRectRatio.width,
             height: bounds.height * scanRectRatio.height
         )
-        guideLayer.path = UIBezierPath(roundedRect: rect, cornerRadius: 8).cgPath
-        guideLayer.frame = bounds
     }
 
     /// 検出したバーコードの枠を緑でハイライトし、一定時間後に消す。
@@ -374,7 +378,12 @@ extension ScannerContainerView: AVCaptureVideoDataOutputSampleBufferDelegate {
             guard let candidate = observation.topCandidates(1).first else { continue }
             if let code = Self.extractCode(fromRaw: candidate.string) {
                 DispatchQueue.main.async { [weak self] in
-                    self?.emit(code: code, symbology: .ean13)
+                    guard let self else { return }
+                    // OCRで確定した際もバーコードモードと同様に緑枠を表示する。
+                    // テキストのバウンディングボックス変換は座標系(向き・アスペクト)の誤りを招きやすいため、
+                    // スキャン案内枠の領域を緑でハイライトして読み取りフィードバックとする。
+                    self.highlight(rect: self.scanRectInBounds())
+                    self.emit(code: code, symbology: .ean13)
                 }
                 return
             }

@@ -78,6 +78,14 @@ final class APIClient {
     /// SP-APIを呼び出す(サーバーには保存しない)。
     private func addSpApiHeadersIfNeeded(to request: inout URLRequest) {
         let settings = SettingsStore.shared
+
+        // Render側SP-APIが無効なら、サーバーにSP-APIを一切使わせない指示ヘッダーを付与して即return。
+        // (サーバーは.env/ヘッダーのSP-API認証を無視しKeepaへフォールバックする)
+        guard settings.renderSpApiEnabled else {
+            request.setValue("1", forHTTPHeaderField: "X-Disable-Spapi")
+            return
+        }
+
         guard settings.isSpApiLinkUsable else { return }
         request.setValue(settings.spapiRefreshToken, forHTTPHeaderField: "X-Spapi-Refresh-Token")
     }

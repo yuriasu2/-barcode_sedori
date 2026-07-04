@@ -9,6 +9,7 @@ final class SettingsStore: ObservableObject {
         static let serverURL = "settings.serverURL"
         static let spapiLinkEnabled = "settings.spapiLinkEnabled"
         static let spapiRefreshToken = "settings.spapiRefreshToken"
+        static let renderSpApiEnabled = "settings.renderSpApiEnabled"
     }
 
     private let defaults: UserDefaults
@@ -33,11 +34,22 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    /// サーバー(Render)側のSP-APIを使用するか。
+    /// オフにするとリクエストにX-Disable-Spapiヘッダーを付与し、サーバーはSP-APIを一切使わずKeepaへフォールバックする。
+    /// Keepaの動作確認をRender登録済みのSP-APIキーに邪魔されずに行うためのトグル。既定はオン。
+    @Published var renderSpApiEnabled: Bool {
+        didSet {
+            defaults.set(renderSpApiEnabled, forKey: Keys.renderSpApiEnabled)
+        }
+    }
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         self.serverURLString = defaults.string(forKey: Keys.serverURL) ?? "http://192.168.1.10:3000"
         self.spapiLinkEnabled = defaults.bool(forKey: Keys.spapiLinkEnabled)
         self.spapiRefreshToken = defaults.string(forKey: Keys.spapiRefreshToken) ?? ""
+        // 未設定時は既定でオン(Render SP-APIを使う従来動作)にする。
+        self.renderSpApiEnabled = (defaults.object(forKey: Keys.renderSpApiEnabled) as? Bool) ?? true
     }
 
     /// SP-API連携が利用可能か(有効かつリフレッシュトークンが非空)

@@ -130,7 +130,8 @@ struct SearchTabView: View {
                         .padding(.bottom, 24)
                 }
             }
-            .navigationTitle("検索")
+            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarHidden(true)
             .alert("キーワード検索は今後対応予定です", isPresented: $showsKeywordUnsupportedAlert) {
                 Button("OK", role: .cancel) {}
             }
@@ -397,20 +398,22 @@ private struct OffersPanelView: View {
             } else {
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(offers.prefix(7)) { offer in
-                        HStack {
+                        HStack(spacing: 4) {
                             Text(offer.conditionDisplayName)
                                 .font(.caption2)
                                 .foregroundColor(.white)
-                            Spacer()
                             if let price = offer.price {
                                 Text("¥\(price)")
                                     .font(.caption)
                                     .fontWeight(.bold)
                                     .foregroundColor(.white)
+                                    .monospacedDigit()
+                                    .frame(maxWidth: .infinity, alignment: .trailing)
                             } else {
                                 Text("-")
                                     .font(.caption)
                                     .foregroundColor(.white)
+                                    .frame(maxWidth: .infinity, alignment: .trailing)
                             }
                         }
                     }

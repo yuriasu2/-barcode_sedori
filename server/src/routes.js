@@ -27,6 +27,12 @@ const SPAPI_CREDENTIALS_MISSING_MESSAGE = 'SP-API連携またはサーバーのK
  * いずれか一つでも欠ければnull。
  */
 function resolveSpApiCredentials(headers) {
+  // アプリ設定でRender側SP-APIをオフにした場合、X-Disable-Spapiヘッダーが送られる。
+  // このときは.envのSP-API認証情報も含め一切使わずnullを返し、呼び出し側をKeepaへフォールバックさせる。
+  const disableSpApi =
+    headers && (headers['x-disable-spapi'] || headers['X-Disable-Spapi']);
+  if (disableSpApi) return null;
+
   const clientId = process.env.LWA_CLIENT_ID || null;
   const clientSecret = process.env.LWA_CLIENT_SECRET || null;
   const refreshToken =

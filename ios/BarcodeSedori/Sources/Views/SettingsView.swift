@@ -23,6 +23,13 @@ final class SettingsViewModel: ObservableObject {
         }
     }
 
+    /// Render側SP-APIを使うか。オフでKeepa動作確認用にSP-APIを読み込ませない。
+    @Published var renderSpApiEnabled: Bool {
+        didSet {
+            settingsStore.renderSpApiEnabled = renderSpApiEnabled
+        }
+    }
+
     @Published var spapiTestAlert: SpApiTestAlert?
 
     struct SpApiTestAlert: Identifiable {
@@ -47,6 +54,7 @@ final class SettingsViewModel: ObservableObject {
         self.serverURLString = settingsStore.serverURLString
         self.spapiLinkEnabled = settingsStore.spapiLinkEnabled
         self.spapiRefreshToken = settingsStore.spapiRefreshToken
+        self.renderSpApiEnabled = settingsStore.renderSpApiEnabled
     }
 
     func testConnection() async {
@@ -124,6 +132,13 @@ struct SettingsView: View {
 
                 Section {
                     Text("同一Wi-Fi上のPCで動作しているサーバーのURLを指定してください。例: http://192.168.1.10:3000")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                }
+
+                Section("開発者向け") {
+                    Toggle("Render側SP-APIを使用する", isOn: $viewModel.renderSpApiEnabled)
+                    Text("オフにするとサーバーのSP-APIを読み込まず、Keepaのみで価格を取得します。Keepaの動作確認用の一時トグルです。")
                         .font(.footnote)
                         .foregroundColor(.secondary)
                 }
