@@ -158,7 +158,7 @@ async function keepaFetch(path, params) {
 }
 
 /**
- * imagesCSV先頭の画像ファイル名からフルURLを組み立てる。
+ * imagesCSV先頭の画像ファイル名からフルURLを組み立てる(旧形式フォールバック)。
  * @param {string|null|undefined} imagesCsv
  */
 function buildImageUrl(imagesCsv) {
@@ -166,6 +166,25 @@ function buildImageUrl(imagesCsv) {
   const first = imagesCsv.split(',')[0];
   if (!first) return null;
   return `https://images-na.ssl-images-amazon.com/images/I/${first}`;
+}
+
+/**
+ * Keepa Product から画像URLを解決する。
+ * Keepaは旧 `imagesCSV`(カンマ区切りファイル名)を廃止し、構造化された `images` 配列
+ * (Image{ l: 大, m: 中 }) へ移行済み。そのため現在の応答では imagesCSV が null になり画像が出ない。
+ * 新形式(images[0].l)を優先し、無ければ旧形式(imagesCSV)にフォールバックする。
+ * @param {object|null|undefined} product Keepa Product Object
+ */
+function resolveImageUrl(product) {
+  if (!product) return null;
+  if (Array.isArray(product.images) && product.images.length) {
+    const img = product.images[0] || {};
+    const name = img.l || img.m || null;
+    if (name && typeof name === 'string') {
+      return `https://images-na.ssl-images-amazon.com/images/I/${name}`;
+    }
+  }
+  return buildImageUrl(product.imagesCSV);
 }
 
 /**
@@ -253,7 +272,7 @@ function mapProductToSearchResult(product) {
   return {
     asin: product.asin || null,
     title: product.title || null,
-    imageUrl: buildImageUrl(product.imagesCSV),
+    imageUrl: resolveImageUrl(product),
     salesRank,
     prices: {
       cart: null, // BuyBox取得には追加トークンが必要なため第1段階ではnull
@@ -373,6 +392,7 @@ module.exports = {
   getApiKey,
   normalizePrice,
   buildImageUrl,
+  resolveImageUrl,
   extractLatestOfferPrice,
   isOfferFresh,
   conditionToString,

@@ -193,12 +193,29 @@ struct SearchTabView: View {
     }
 
     private var modeToggle: some View {
-        Picker("スキャンモード", selection: $viewModel.scanMode) {
+        HStack(spacing: 0) {
             ForEach(ScanMode.allCases) { mode in
-                Text(mode.rawValue).tag(mode)
+                let isSelected = viewModel.scanMode == mode
+                Button {
+                    viewModel.scanMode = mode
+                } label: {
+                    Text(mode.rawValue)
+                        .font(.subheadline)
+                        .fontWeight(.bold)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .foregroundColor(isSelected ? .white : .accentColor)
+                        .background(isSelected ? Color.accentColor : Color.clear)
+                }
+                .buttonStyle(.plain)
             }
         }
-        .pickerStyle(.segmented)
+        .background(Color(.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(Color.accentColor, lineWidth: 1.5)
+        )
     }
 
     // MARK: - 最新スキャン結果カード
@@ -233,7 +250,7 @@ struct SearchTabView: View {
     @ViewBuilder
     private var offersPanels: some View {
         if viewModel.latestResult != nil {
-            HStack(spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
                 OffersPanelView(
                     title: "新品(出品者数\(viewModel.offersResult?.newCount ?? viewModel.offersResult?.new?.count ?? 0)人)",
                     color: Color(red: 0.13, green: 0.59, blue: 0.95),
@@ -298,36 +315,24 @@ private struct LatestResultCardView: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            ZStack(alignment: .topLeading) {
-                AsyncImage(url: result.imageUrl.flatMap(URL.init(string:))) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image.resizable().aspectRatio(contentMode: .fit)
-                    case .failure:
-                        Image(systemName: "photo")
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .foregroundColor(.secondary)
-                    case .empty:
-                        ProgressView()
-                    @unknown default:
-                        Color.clear
-                    }
-                }
-                .frame(width: 80, height: 80)
-                .background(Color(.secondarySystemBackground))
-                .cornerRadius(8)
-
-                if result.codeType == .isbn {
-                    Text("本")
-                        .font(.caption2)
-                        .fontWeight(.bold)
-                        .foregroundColor(.white)
-                        .padding(6)
-                        .background(Circle().fill(Color.blue))
-                        .padding(4)
+            AsyncImage(url: result.imageUrl.flatMap(URL.init(string:))) { phase in
+                switch phase {
+                case .success(let image):
+                    image.resizable().aspectRatio(contentMode: .fit)
+                case .failure:
+                    Image(systemName: "photo")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .foregroundColor(.secondary)
+                case .empty:
+                    ProgressView()
+                @unknown default:
+                    Color.clear
                 }
             }
+            .frame(width: 80, height: 80)
+            .background(Color(.secondarySystemBackground))
+            .cornerRadius(8)
 
             VStack(alignment: .leading, spacing: 6) {
                 if result.codeType == .unresolved {
@@ -397,7 +402,7 @@ private struct OffersPanelView: View {
                     .padding(8)
             } else {
                 VStack(alignment: .leading, spacing: 4) {
-                    ForEach(offers.prefix(7)) { offer in
+                    ForEach(offers.prefix(5)) { offer in
                         HStack(spacing: 4) {
                             Text(offer.conditionDisplayName)
                                 .font(.caption2)

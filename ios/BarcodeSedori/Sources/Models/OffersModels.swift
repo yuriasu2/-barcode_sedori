@@ -66,6 +66,8 @@ extension Offer {
             return "良い"
         case "acceptable":
             return "可"
+        case "used":
+            return "中古"
         default:
             return condition
         }

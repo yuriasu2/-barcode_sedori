@@ -463,13 +463,31 @@ async function buildOffersResponseViaKeepa(asin) {
   const newDtos = newOffers.map(toDto);
   const usedDtos = usedOffers.map(toDto);
 
+  // フォールバック: Keepaが個別オファーを返さない、または鮮度フィルタで全除外された場合でも、
+  // stats.current の新品/中古最安値でパネルに価格を表示する(価格が全く出ない事態を防ぐ)。
+  const current = (product && product.stats && product.stats.current) || [];
+  const statsNew = keepa.normalizePrice(current[keepa.CSV_TYPE.NEW]);
+  const statsUsed = keepa.normalizePrice(current[keepa.CSV_TYPE.USED]);
+  function statsOffer(price, condition) {
+    return {
+      price,
+      shipping: 0,
+      landed: price,
+      condition,
+      isBuyBox: false,
+      breakEven: computeBreakEven(price),
+    };
+  }
+  const finalNew = newDtos.length ? newDtos : statsNew != null ? [statsOffer(statsNew, 'new')] : [];
+  const finalUsed = usedDtos.length ? usedDtos : statsUsed != null ? [statsOffer(statsUsed, 'used')] : [];
+
   return {
     source: 'keepa',
     referencePrice: referencePrice != null ? referencePrice : null,
-    newCount: newDtos.length,
-    usedCount: usedDtos.length,
-    new: newDtos,
-    used: usedDtos,
+    newCount: finalNew.length,
+    usedCount: finalUsed.length,
+    new: finalNew,
+    used: finalUsed,
   };
 }
 
