@@ -113,10 +113,30 @@ final class APIClient {
         return try await perform(request, as: SearchResult.self)
     }
 
-    /// GET /api/offers?asin={ASIN}
-    func offers(asin: String) async throws -> OffersResult {
-        let request = try makeRequest(path: "/api/offers", queryItems: [URLQueryItem(name: "asin", value: asin)])
+    /// GET /api/offers?asin={ASIN}&source={source}
+    /// sourceが非nilならクエリに追加する。nilの場合はクエリ自体を付けない。
+    func offers(asin: String, source: String?) async throws -> OffersResult {
+        var queryItems = [URLQueryItem(name: "asin", value: asin)]
+        if let source {
+            queryItems.append(URLQueryItem(name: "source", value: source))
+        }
+        let request = try makeRequest(path: "/api/offers", queryItems: queryItems)
         return try await perform(request, as: OffersResult.self)
+    }
+
+    /// Keepaグラフ画像のURL({サーバーURL}/api/graph?asin=)を組み立てる。
+    /// AsyncImageに直接渡せるよう throws にはせず、失敗時は nil を返す。
+    func graphURL(asin: String) -> URL? {
+        do {
+            let base = try baseURL()
+            guard var components = URLComponents(url: base.appendingPathComponent("/api/graph"), resolvingAgainstBaseURL: false) else {
+                return nil
+            }
+            components.queryItems = [URLQueryItem(name: "asin", value: asin)]
+            return components.url
+        } catch {
+            return nil
+        }
     }
 
     /// GET /api/spapi/test

@@ -43,7 +43,7 @@ test('tryServeStatic: GET / はindex.htmlをtext/htmlで返す', async () => {
   await waitEnded(res);
   assert.equal(res.statusCode, 200);
   assert.match(res.headers['Content-Type'], /text\/html/);
-  assert.match(res.body.toString('utf8'), /hondana/);
+  assert.match(res.body.toString("utf8"), /バーコードせどり/);
 });
 
 test('tryServeStatic: GET /other は静的配信対象外でfalseを返す(既存ルーティングへフォールバック)', () => {

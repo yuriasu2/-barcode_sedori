@@ -12,10 +12,25 @@ enum ScanMode: String, CaseIterable, Identifiable {
     var isOCRMode: Bool { self == .ocr }
 }
 
+/// CHANGES-v6.md: 検索タブ全面刷新。
+/// リスト表示をやめ、最新1件のスキャン結果カード+オファーパネル+Keepaグラフの単一状態に置き換える。
 @MainActor
 final class SearchTabViewModel: ObservableObject {
-    @Published var rows: [SearchRow] = []
     @Published var scanMode: ScanMode = .barcode
+
+    /// 最新のスキャン/検索結果(第1段階: /api/search)
+    @Published var latestResult: SearchResult?
+    /// 最新にスキャンされたコード文字列(カード内のコード表示に使う)
+    @Published var latestScannedCode: String?
+    /// 検索中(第1段階)フラグ
+    @Published var isSearching = false
+    /// 検索(第1段階)失敗時のエラーメッセージ
+    @Published var searchErrorMessage: String?
+
+    /// オファー(第2段階: /api/offers)結果
+    @Published var offersResult: OffersResult?
+    /// オファー読み込み中フラグ
+    @Published var isLoadingOffers = false
 
     private let apiClient: APIClient
     private let historyStore: ScanHistoryStore
@@ -25,71 +40,100 @@ final class SearchTabViewModel: ObservableObject {
         self.historyStore = historyStore
     }
 
-    /// スキャンされたバーコード/OCR認識コードを処理する。
+    /// スキャンされたバーコード/OCR認識コード、または検索バーから入力されたコードを処理する。
     /// 192/191始まりの除外やデデュープはScannerView側で完結しているため、
     /// ここに届いた時点でそのまま検索パイプラインへ流す。
     func handleScan(_ code: String) {
-        insertLoadingRow(for: code)
-        Task { await self.search(code: code) }
-    }
+        // 新しいスキャンが来たらカード・パネル・グラフ用の状態を全てリセットしてから再取得する。
+        isSearching = true
+        searchErrorMessage = nil
+        latestScannedCode = code
+        latestResult = nil
+        offersResult = nil
+        isLoadingOffers = false
 
-    private func insertLoadingRow(for code: String) {
-        let row = SearchRow(scannedCode: code, state: .loading)
-        rows.insert(row, at: 0)
+        Task { await self.search(code: code) }
     }
 
     private func search(code: String) async {
         do {
             let result = try await apiClient.search(code: code)
-            replaceRow(scannedCode: code, with: .loaded(result))
+            latestResult = result
+            isSearching = false
 
             if result.codeType != .unresolved {
                 historyStore.add(ScanHistoryItem(scannedCode: code, result: result))
             }
+
+            if let asin = result.asin, !asin.isEmpty {
+                await loadOffers(asin: asin, source: result.source)
+            }
         } catch {
-            replaceRow(scannedCode: code, with: .failed(error.localizedDescription))
+            isSearching = false
+            searchErrorMessage = error.localizedDescription
         }
     }
 
-    private func replaceRow(scannedCode: String, with state: SearchRowState) {
-        guard let index = rows.firstIndex(where: { $0.scannedCode == scannedCode && isLoading($0.state) }) else {
-            // 該当するローディング行が見つからない場合は先頭に追加
-            rows.insert(SearchRow(scannedCode: scannedCode, state: state), at: 0)
-            return
+    private func loadOffers(asin: String, source: String?) async {
+        isLoadingOffers = true
+        do {
+            offersResult = try await apiClient.offers(asin: asin, source: source)
+        } catch {
+            // オファー取得失敗はカード自体の表示を妨げないよう致命的エラーにしない。
+            offersResult = nil
+            print("オファー取得に失敗しました: \(error.localizedDescription)")
         }
-        rows[index].state = state
-    }
-
-    private func isLoading(_ state: SearchRowState) -> Bool {
-        if case .loading = state { return true }
-        return false
+        isLoadingOffers = false
     }
 }
 
 struct SearchTabView: View {
     @StateObject private var viewModel = SearchTabViewModel()
     @State private var selectedResult: SearchResult?
+    @State private var searchBarText: String = ""
+    @State private var showsKeywordUnsupportedAlert = false
 
     var body: some View {
         NavigationView {
-            VStack(spacing: 0) {
-                ScannerView(
-                    onScan: { scanned in
-                        viewModel.handleScan(scanned.code)
-                    },
-                    isOCRMode: viewModel.scanMode.isOCRMode
-                )
-                .frame(maxWidth: .infinity)
-                .frame(height: UIScreen.main.bounds.height * 0.42)
-                .clipped()
+            ScrollView {
+                VStack(spacing: 0) {
+                    searchBar
+                        .padding(.horizontal)
+                        .padding(.top, 8)
+                        .padding(.bottom, 4)
 
-                modeToggle
-                    .padding(.horizontal)
-                    .padding(.vertical, 8)
+                    ScannerView(
+                        onScan: { scanned in
+                            viewModel.handleScan(scanned.code)
+                        },
+                        isOCRMode: viewModel.scanMode.isOCRMode
+                    )
+                    .frame(maxWidth: .infinity)
+                    .frame(height: UIScreen.main.bounds.height * 0.35)
+                    .clipped()
 
-                resultList
+                    modeToggle
+                        .padding(.horizontal)
+                        .padding(.vertical, 8)
+
+                    latestResultCard
+                        .padding(.horizontal)
+                        .padding(.top, 4)
+
+                    offersPanels
+                        .padding(.horizontal)
+                        .padding(.top, 12)
+
+                    keepaGraph
+                        .padding(.horizontal)
+                        .padding(.top, 12)
+                        .padding(.bottom, 24)
+                }
             }
             .navigationTitle("検索")
+            .alert("キーワード検索は今後対応予定です", isPresented: $showsKeywordUnsupportedAlert) {
+                Button("OK", role: .cancel) {}
+            }
             .background {
                 NavigationLink(
                     destination: destinationView,
@@ -108,9 +152,42 @@ struct SearchTabView: View {
     @ViewBuilder
     private var destinationView: some View {
         if let selectedResult, let asin = selectedResult.asin {
-            ProductDetailView(asin: asin, title: selectedResult.title)
+            ProductDetailView(asin: asin, title: selectedResult.title, source: selectedResult.source)
         } else {
             EmptyView()
+        }
+    }
+
+    // MARK: - 検索バー
+
+    private var searchBar: some View {
+        HStack {
+            Image(systemName: "magnifyingglass")
+                .foregroundColor(.secondary)
+            TextField("商品名、JANコードで検索", text: $searchBarText)
+                .textFieldStyle(.plain)
+                .onSubmit {
+                    submitSearchBarText()
+                }
+                .submitLabel(.search)
+        }
+        .padding(8)
+        .background(Color(.secondarySystemBackground))
+        .cornerRadius(10)
+    }
+
+    /// 数字のみかつ10桁または13桁ならコード検索(/api/search)、それ以外はキーワード非対応アラート。
+    private func submitSearchBarText() {
+        let trimmed = searchBarText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        let isDigitsOnly = trimmed.allSatisfy { $0.isNumber }
+        let isValidLength = trimmed.count == 10 || trimmed.count == 13
+
+        if isDigitsOnly && isValidLength {
+            viewModel.handleScan(trimmed)
+        } else {
+            showsKeywordUnsupportedAlert = true
         }
     }
 
@@ -123,169 +200,227 @@ struct SearchTabView: View {
         .pickerStyle(.segmented)
     }
 
-    private var resultList: some View {
-        List {
-            ForEach(viewModel.rows) { row in
-                rowView(for: row)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        if case .loaded(let result) = row.state, result.asin != nil {
-                            selectedResult = result
-                        }
-                    }
-            }
-        }
-        .listStyle(.plain)
-    }
+    // MARK: - 最新スキャン結果カード
 
     @ViewBuilder
-    private func rowView(for row: SearchRow) -> some View {
-        switch row.state {
-        case .loading:
-            LoadingResultRow(code: row.scannedCode)
-        case .loaded(let result):
-            SearchResultRow(result: result)
-        case .failed(let message):
-            FailedResultRow(code: row.scannedCode, message: message)
-        }
-    }
-}
-
-// MARK: - Rows
-
-private struct LoadingResultRow: View {
-    let code: String
-
-    var body: some View {
-        HStack(spacing: 12) {
-            ProgressView()
-                .frame(width: 60, height: 60)
-            VStack(alignment: .leading, spacing: 4) {
-                Text("検索中…")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                Text(code)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+    private var latestResultCard: some View {
+        if viewModel.isSearching {
+            HStack {
+                Spacer()
+                ProgressView("検索中…")
+                Spacer()
             }
-            Spacer()
-        }
-        .padding(.vertical, 4)
-    }
-}
-
-private struct FailedResultRow: View {
-    let code: String
-    let message: String
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "exclamationmark.triangle")
+            .padding()
+            .background(Color(.secondarySystemBackground))
+            .cornerRadius(10)
+        } else if let result = viewModel.latestResult {
+            LatestResultCardView(result: result, scannedCode: viewModel.latestScannedCode ?? "")
+        } else if let errorMessage = viewModel.searchErrorMessage {
+            Text(errorMessage)
+                .font(.footnote)
                 .foregroundColor(.red)
-                .frame(width: 60, height: 60)
-            VStack(alignment: .leading, spacing: 4) {
-                Text("取得失敗")
-                    .font(.subheadline)
-                    .foregroundColor(.red)
-                Text(code)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                Text(message)
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                    .lineLimit(2)
-            }
-            Spacer()
+                .padding()
+                .background(Color(.secondarySystemBackground))
+                .cornerRadius(10)
+        } else {
+            EmptyView()
         }
-        .padding(.vertical, 4)
+    }
+
+    // MARK: - オファーパネル
+
+    @ViewBuilder
+    private var offersPanels: some View {
+        if viewModel.latestResult != nil {
+            HStack(spacing: 12) {
+                OffersPanelView(
+                    title: "新品(出品者数\(viewModel.offersResult?.newCount ?? viewModel.offersResult?.new?.count ?? 0)人)",
+                    color: Color(red: 0.13, green: 0.59, blue: 0.95),
+                    offers: viewModel.offersResult?.new ?? [],
+                    isLoading: viewModel.isLoadingOffers
+                )
+                .onTapGesture { handlePanelTap() }
+
+                OffersPanelView(
+                    title: "中古(出品者数\(viewModel.offersResult?.usedCount ?? viewModel.offersResult?.used?.count ?? 0)人)",
+                    color: Color(red: 1.0, green: 0.60, blue: 0.0),
+                    offers: viewModel.offersResult?.used ?? [],
+                    isLoading: viewModel.isLoadingOffers
+                )
+                .onTapGesture { handlePanelTap() }
+            }
+        }
+    }
+
+    /// source=spapiのときのみ商品詳細画面へ遷移する。
+    private func handlePanelTap() {
+        guard let result = viewModel.latestResult, result.asin != nil else { return }
+        guard result.source == "spapi" else { return }
+        selectedResult = result
+    }
+
+    // MARK: - Keepaグラフ
+
+    @ViewBuilder
+    private var keepaGraph: some View {
+        if let asin = viewModel.latestResult?.asin, let url = APIClient.shared.graphURL(asin: asin) {
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let image):
+                    image
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(maxWidth: .infinity)
+                        .cornerRadius(10)
+                case .failure:
+                    EmptyView()
+                case .empty:
+                    HStack {
+                        Spacer()
+                        ProgressView()
+                        Spacer()
+                    }
+                    .frame(height: 80)
+                @unknown default:
+                    EmptyView()
+                }
+            }
+        }
     }
 }
 
-struct SearchResultRow: View {
+// MARK: - 最新スキャン結果カード View
+
+private struct LatestResultCardView: View {
     let result: SearchResult
+    let scannedCode: String
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            AsyncImage(url: result.imageUrl.flatMap(URL.init(string:))) { phase in
-                switch phase {
-                case .success(let image):
-                    image.resizable().aspectRatio(contentMode: .fit)
-                case .failure:
-                    Image(systemName: "photo")
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .foregroundColor(.secondary)
-                case .empty:
-                    ProgressView()
-                @unknown default:
-                    Color.clear
+            ZStack(alignment: .topLeading) {
+                AsyncImage(url: result.imageUrl.flatMap(URL.init(string:))) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image.resizable().aspectRatio(contentMode: .fit)
+                    case .failure:
+                        Image(systemName: "photo")
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .foregroundColor(.secondary)
+                    case .empty:
+                        ProgressView()
+                    @unknown default:
+                        Color.clear
+                    }
+                }
+                .frame(width: 80, height: 80)
+                .background(Color(.secondarySystemBackground))
+                .cornerRadius(8)
+
+                if result.codeType == .isbn {
+                    Text("本")
+                        .font(.caption2)
+                        .fontWeight(.bold)
+                        .foregroundColor(.white)
+                        .padding(6)
+                        .background(Circle().fill(Color.blue))
+                        .padding(4)
                 }
             }
-            .frame(width: 60, height: 60)
-            .background(Color(.secondarySystemBackground))
-            .cornerRadius(6)
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 6) {
                 if result.codeType == .unresolved {
                     Text("対応していないコードです")
                         .font(.subheadline)
                         .foregroundColor(.orange)
                 } else {
-                    HStack(spacing: 6) {
-                        Text(result.title ?? "(タイトル不明)")
-                            .font(.subheadline)
-                            .fontWeight(.medium)
-                            .lineLimit(2)
-                    }
+                    Text(result.title ?? "(タイトル不明)")
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                        .lineLimit(2)
+                }
 
-                    HStack(spacing: 8) {
-                        if let isbn = result.isbn13 {
-                            Text("ISBN: \(isbn)")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                        if let rank = result.salesRank {
-                            Text("ランキング: \(rank)")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
+                HStack(spacing: 6) {
+                    Image(systemName: "barcode.viewfinder")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text(scannedCode)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
 
-                    priceLine
+                if let rank = result.salesRank {
+                    Text("ランキング: \(rank)位")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
             }
             Spacer()
         }
-        .padding(.vertical, 4)
+        .padding()
+        .background(Color(.secondarySystemBackground))
+        .cornerRadius(10)
     }
+}
 
-    private var priceLine: some View {
-        HStack(spacing: 12) {
-            priceBlock(label: "カート", price: result.prices?.cart, points: result.prices?.points?.cart)
-            priceBlock(label: "新品", price: result.prices?.new, points: result.prices?.points?.new)
-            priceBlock(label: "中古", price: result.prices?.used, points: result.prices?.points?.used)
-        }
-    }
+// MARK: - オファーパネル View
 
-    private func priceBlock(label: String, price: Int?, points: Int?) -> some View {
-        VStack(alignment: .leading, spacing: 1) {
-            Text(label)
-                .font(.caption2)
-                .foregroundColor(.secondary)
-            if let price {
-                Text("¥\(price)")
-                    .font(.caption)
-                    .fontWeight(.semibold)
-            } else {
-                Text("-")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-            if let points {
-                Text("+\(points)pt")
+private struct OffersPanelView: View {
+    let title: String
+    let color: Color
+    let offers: [Offer]
+    let isLoading: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(title)
+                .font(.caption)
+                .fontWeight(.bold)
+                .foregroundColor(.white)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(color)
+
+            if isLoading {
+                HStack {
+                    Spacer()
+                    ProgressView()
+                        .padding(.vertical, 16)
+                    Spacer()
+                }
+            } else if offers.isEmpty {
+                Text("オファーがありません")
                     .font(.caption2)
-                    .foregroundColor(.green)
+                    .foregroundColor(.secondary)
+                    .padding(8)
+            } else {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(offers.prefix(7)) { offer in
+                        HStack {
+                            Text(offer.conditionDisplayName)
+                                .font(.caption2)
+                                .foregroundColor(.white)
+                            Spacer()
+                            if let price = offer.price {
+                                Text("¥\(price)")
+                                    .font(.caption)
+                                    .fontWeight(.bold)
+                                    .foregroundColor(.white)
+                            } else {
+                                Text("-")
+                                    .font(.caption)
+                                    .foregroundColor(.white)
+                            }
+                        }
+                    }
+                }
+                .padding(8)
             }
         }
+        .background(color.opacity(0.85))
+        .cornerRadius(10)
+        .frame(maxWidth: .infinity)
+        .contentShape(Rectangle())
     }
 }

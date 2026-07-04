@@ -54,6 +54,11 @@ class MiniRouter {
           res.end(str);
           return jsonRes;
         },
+        binary(buf, contentType) {
+          res.setHeader('Content-Type', contentType || 'application/octet-stream');
+          res.end(buf);
+          return jsonRes;
+        },
       };
 
       if (!route) {

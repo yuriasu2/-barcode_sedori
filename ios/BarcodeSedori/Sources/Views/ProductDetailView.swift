@@ -8,9 +8,11 @@ final class ProductDetailViewModel: ObservableObject {
 
     private let apiClient: APIClient
     let asin: String
+    let source: String?
 
-    init(asin: String, apiClient: APIClient = .shared) {
+    init(asin: String, source: String? = nil, apiClient: APIClient = .shared) {
         self.asin = asin
+        self.source = source
         self.apiClient = apiClient
     }
 
@@ -18,7 +20,7 @@ final class ProductDetailViewModel: ObservableObject {
         isLoading = true
         errorMessage = nil
         do {
-            offers = try await apiClient.offers(asin: asin)
+            offers = try await apiClient.offers(asin: asin, source: source)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -30,8 +32,8 @@ struct ProductDetailView: View {
     @StateObject private var viewModel: ProductDetailViewModel
     let title: String?
 
-    init(asin: String, title: String?) {
-        _viewModel = StateObject(wrappedValue: ProductDetailViewModel(asin: asin))
+    init(asin: String, title: String?, source: String? = nil) {
+        _viewModel = StateObject(wrappedValue: ProductDetailViewModel(asin: asin, source: source))
         self.title = title
     }
 
@@ -40,8 +42,8 @@ struct ProductDetailView: View {
             productInfoSection
 
             if let offers = viewModel.offers {
-                offersSection(title: "新品(\(offers.new?.count ?? 0)件)", offers: offers.new ?? [])
-                offersSection(title: "中古(\(offers.used?.count ?? 0)件)", offers: offers.used ?? [])
+                offersSection(title: "新品(\(offers.newCount ?? offers.new?.count ?? 0)件)", offers: offers.new ?? [])
+                offersSection(title: "中古(\(offers.usedCount ?? offers.used?.count ?? 0)件)", offers: offers.used ?? [])
             } else if viewModel.isLoading {
                 HStack {
                     Spacer()
@@ -111,8 +113,8 @@ private struct OfferRow: View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
-                    if let condition = offer.condition {
-                        Text(condition)
+                    if offer.condition != nil {
+                        Text(offer.conditionDisplayName)
                             .font(.caption2)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)

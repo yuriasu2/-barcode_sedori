@@ -54,7 +54,8 @@ struct ProductsTabView: View {
     private var destinationView: some View {
         if let selectedASIN {
             let title = historyStore.items.first(where: { $0.asin == selectedASIN })?.title
-            ProductDetailView(asin: selectedASIN, title: title)
+            // ScanHistoryItemはsourceを保持していないため、履歴タブからの遷移はnilを渡す。
+            ProductDetailView(asin: selectedASIN, title: title, source: nil)
         } else {
             EmptyView()
         }

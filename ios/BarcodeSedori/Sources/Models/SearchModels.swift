@@ -41,6 +41,8 @@ struct SearchResult: Codable, Equatable {
     let imageUrl: String?
     let salesRank: Int?
     let prices: SearchPrices?
+    /// オファー取得元("spapi"等)。CHANGES-v6.mdで追加。旧サーバー互換のためオプショナル。
+    let source: String?
 }
 
 /// サーバーエラーレスポンス(想定: {"error": "..."} 形式にも対応できるよう緩めに定義)
