@@ -214,7 +214,6 @@ final class ScannerContainerView: UIView {
         super.layoutSubviews()
         previewLayer?.frame = bounds
         updateRectOfInterest()
-        updateScanRectPath()
     }
 
     /// rectOfInterestはプレビュー座標(0..1, 原点左上、AVFoundation内部表現は入れ替わることに注意)で指定する。
@@ -230,23 +229,8 @@ final class ScannerContainerView: UIView {
         }
     }
 
-    /// スキャン枠の白い案内線を描画(常時表示)。検出時ハイライトとは別レイヤーで簡易的に矩形を出す。
-    private let guideLayer = CAShapeLayer()
-    private var didAddGuideLayer = false
-
-    private func updateScanRectPath() {
-        if !didAddGuideLayer {
-            guideLayer.strokeColor = UIColor.white.withAlphaComponent(0.8).cgColor
-            guideLayer.fillColor = UIColor.clear.cgColor
-            guideLayer.lineWidth = 2
-            layer.addSublayer(guideLayer)
-            didAddGuideLayer = true
-        }
-        guideLayer.path = UIBezierPath(roundedRect: scanRectInBounds(), cornerRadius: 8).cgPath
-        guideLayer.frame = bounds
-    }
-
     /// スキャン枠(scanRectRatio)を現在のbounds座標系の矩形に変換して返す。
+    /// OCR確定時のフォールバック用ハイライト領域として使用する。
     private func scanRectInBounds() -> CGRect {
         CGRect(
             x: bounds.width * scanRectRatio.minX,
@@ -254,6 +238,29 @@ final class ScannerContainerView: UIView {
             width: bounds.width * scanRectRatio.width,
             height: bounds.height * scanRectRatio.height
         )
+    }
+
+    /// Visionの認識テキスト境界ボックスをプレビュー座標(UIKit)へ変換する。
+    /// VisionのboundingBoxは正規化(0..1)・原点左下・.rightで起こしたアップライト画像座標。
+    /// metadataOutput座標系(正規化・原点左上・表示向き)とは軸・向きが一致しY軸のみ反転差があるため、
+    /// Y反転してから layerRectConverted(fromMetadataOutputRect:) に渡す。
+    /// これによりresizeAspectFillのクロップ/スケールも含めて正しくプレビュー座標へ写像できる。
+    private func previewRect(fromVisionBoundingBox bb: CGRect) -> CGRect? {
+        guard let previewLayer else { return nil }
+        let metadataRect = CGRect(
+            x: bb.minX,
+            y: 1 - bb.maxY,
+            width: bb.width,
+            height: bb.height
+        )
+        let rect = previewLayer.layerRectConverted(fromMetadataOutputRect: metadataRect)
+        guard rect.width > 0, rect.height > 0,
+              rect.origin.x.isFinite, rect.origin.y.isFinite,
+              rect.width.isFinite, rect.height.isFinite else {
+            return nil
+        }
+        // 細い1行だと枠が薄くなるので、少しだけ外側に広げて見やすくする。
+        return rect.insetBy(dx: -6, dy: -6)
     }
 
     /// 検出したバーコードの枠を緑でハイライトし、一定時間後に消す。
@@ -377,12 +384,14 @@ extension ScannerContainerView: AVCaptureVideoDataOutputSampleBufferDelegate {
         for observation in observations {
             guard let candidate = observation.topCandidates(1).first else { continue }
             if let code = Self.extractCode(fromRaw: candidate.string) {
+                // 認識したISBN/JANを含むテキスト行の境界ボックス(Vision座標)を控えておく。
+                let boundingBox = observation.boundingBox
                 DispatchQueue.main.async { [weak self] in
                     guard let self else { return }
-                    // OCRで確定した際もバーコードモードと同様に緑枠を表示する。
-                    // テキストのバウンディングボックス変換は座標系(向き・アスペクト)の誤りを招きやすいため、
-                    // スキャン案内枠の領域を緑でハイライトして読み取りフィードバックとする。
-                    self.highlight(rect: self.scanRectInBounds())
+                    // バーコードモードと同様に、OCRで確定したコードのテキストを緑枠で囲む。
+                    // 変換に失敗した場合のみスキャン領域全体にフォールバックする。
+                    let rect = self.previewRect(fromVisionBoundingBox: boundingBox) ?? self.scanRectInBounds()
+                    self.highlight(rect: rect)
                     self.emit(code: code, symbology: .ean13)
                 }
                 return
