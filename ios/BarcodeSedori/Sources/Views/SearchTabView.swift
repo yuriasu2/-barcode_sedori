@@ -153,26 +153,33 @@ struct SearchTabView: View {
 
     var body: some View {
         NavigationView {
-            Group {
-                if entitlements.isPro {
-                    // Pro: 従来どおりスクロール可能。実グラフを表示。
-                    ScrollView {
+            VStack(spacing: 0) {
+                // 検索バーはスクロール/リサイズ領域の外に固定ヘッダーとして置く。
+                // これにより、結果表示中にキーボードが出ても検索バーが動かず隠れない。
+                searchBar
+                    .padding(.horizontal)
+
+                Group {
+                    if entitlements.isPro {
+                        // Pro: 従来どおりスクロール可能。実グラフを表示。
+                        ScrollView {
+                            VStack(spacing: 0) {
+                                topContent
+                                keepaGraph
+                                    .padding(.horizontal)
+                            }
+                        }
+                    } else {
+                        // 無料: スクロール無効の1画面固定。下の余白を広告で埋める。
                         VStack(spacing: 0) {
                             topContent
-                            keepaGraph
+                            freeAdArea
                                 .padding(.horizontal)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                         }
+                        // 高さが縮んでも中央寄せで上に上がらないよう、常に上詰めで固定する。
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     }
-                } else {
-                    // 無料: スクロール無効の1画面固定。下の余白を広告で埋める。
-                    VStack(spacing: 0) {
-                        topContent
-                        freeAdArea
-                            .padding(.horizontal)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                    }
-                    // 高さが縮んでも中央寄せで上に上がらないよう、常に上詰めで固定する。
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
@@ -203,12 +210,10 @@ struct SearchTabView: View {
         .ignoresSafeArea(.keyboard, edges: .bottom)
     }
 
-    /// Pro/無料で共通の上部(検索バー・カメラ・モード切替・結果カード・オファーパネル)。
+    /// Pro/無料で共通の中身(カメラ・モード切替・結果カード・オファーパネル)。
+    /// 検索バーは固定ヘッダーとして body 側に置くためここには含めない。
     @ViewBuilder
     private var topContent: some View {
-        searchBar
-            .padding(.horizontal)
-
         ScannerView(
             onScan: { scanned in
                 // フリーミアム: 無料プランは1日100件まで。上限超過でペイウォール。
