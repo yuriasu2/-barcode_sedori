@@ -171,11 +171,10 @@ struct SearchTabView: View {
                             .padding(.horizontal)
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     }
+                    // 高さが縮んでも中央寄せで上に上がらないよう、常に上詰めで固定する。
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 }
             }
-            // キーボード表示時にレイアウト全体が上へ押し上げられ、上部の検索バーが画面外に
-            // 消えるのを防ぐ(検索バーは元々キーボードに隠れない位置にあるため回避不要)。
-            .ignoresSafeArea(.keyboard, edges: .bottom)
             .navigationBarTitleDisplayMode(.inline)
             .navigationBarHidden(true)
             // navigationBarHiddenだけだと上部に余白が残ることがあるため、ツールバー自体を隠して詰める。
@@ -199,6 +198,9 @@ struct SearchTabView: View {
             }
         }
         .navigationViewStyle(.stack)
+        // キーボード表示でレイアウトが上へ押し上げられ、上部の検索バーが画面外へ消えるのを防ぐ。
+        // NavigationView自体に付けないと(Group等の内側では)効かないことがある。
+        .ignoresSafeArea(.keyboard, edges: .bottom)
     }
 
     /// Pro/無料で共通の上部(検索バー・カメラ・モード切替・結果カード・オファーパネル)。
