@@ -1,8 +1,17 @@
 import SwiftUI
+import GoogleMobileAds
+import AppTrackingTransparency
 
 @main
 struct BarcodeSedoriApp: App {
     @StateObject private var entitlements = EntitlementStore.shared
+
+    init() {
+        // AdMob(Google Mobile Ads)を初期化する。
+        if AdsConfig.enabled {
+            GADMobileAds.sharedInstance().start(completionHandler: nil)
+        }
+    }
 
     var body: some Scene {
         WindowGroup {
@@ -11,7 +20,18 @@ struct BarcodeSedoriApp: App {
                 .task {
                     // 起動時にPro状態(StoreKit)を初期化・監視開始する。
                     entitlements.start()
+                    await requestTrackingIfNeeded()
                 }
+        }
+    }
+
+    /// ATT(トラッキング許可)を要求する。起動直後は他のシステムダイアログと競合しやすいため少し待つ。
+    /// 許可の有無に関わらず広告は表示できる(未許可時は非パーソナライズ広告)。
+    private func requestTrackingIfNeeded() async {
+        guard AdsConfig.enabled else { return }
+        try? await Task.sleep(nanoseconds: 1_500_000_000)
+        if ATTrackingManager.trackingAuthorizationStatus == .notDetermined {
+            ATTrackingManager.requestTrackingAuthorization { _ in }
         }
     }
 }

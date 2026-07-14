@@ -5,6 +5,12 @@ options:
     iOS: "16.0"
   createIntermediateGroups: true
 
+packages:
+  GoogleMobileAds:
+    # v11系に固定(GADプレフィックスAPI)。最新v12系へ上げる場合はコード側のシンボル名も変更が必要。
+    url: https://github.com/googleads/swift-package-manager-google-mobile-ads.git
+    from: 11.0.0
+
 settings:
   base:
     SWIFT_VERSION: "5.0"
@@ -23,6 +29,8 @@ targets:
     resources:
       - path: Resources
         optional: true
+    dependencies:
+      - package: GoogleMobileAds
     info:
       path: Generated/Info.plist
       properties:
@@ -40,6 +48,13 @@ targets:
           - CFBundleURLSchemes:
               - barcodesedori
             CFBundleURLName: com.example.barcodesedori
+        # AdMob: 現在はGoogleのテスト用アプリID。公開前に自分のAdMobアプリIDへ差し替えること。
+        GADApplicationIdentifier: "ca-app-pub-3940256099942544~1458002511"
+        NSUserTrackingUsageDescription: "広告をあなたに合わせて最適化するために使用します。許可しなくてもアプリは利用できます。"
+        # SKAdNetwork: Google広告の主要ID。最適化のため公式ドキュメントの全リストを追加推奨。
+        SKAdNetworkItems:
+          - SKAdNetworkIdentifier: cstr6suwn9.skadnetwork
+          - SKAdNetworkIdentifier: 4fzdc2evr5.skadnetwork
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.example.barcodesedori

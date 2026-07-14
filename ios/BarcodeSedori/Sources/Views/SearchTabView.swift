@@ -411,7 +411,15 @@ struct SearchTabView: View {
                     }
                 }
             } else {
-                LockedGraphView { showPaywall = true }
+                // 無料: ぼかしグラフ+鍵。さらにその下にAdMobバナー広告を表示(Phase 2)。
+                VStack(spacing: 8) {
+                    LockedGraphView { showPaywall = true }
+                    if AdsConfig.enabled {
+                        BannerAdView()
+                            .frame(height: 50)
+                            .frame(maxWidth: .infinity)
+                    }
+                }
             }
         }
     }
