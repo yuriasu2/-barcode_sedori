@@ -113,7 +113,12 @@ final class SearchTabViewModel: ObservableObject {
             }
         } catch {
             isSearching = false
-            searchErrorMessage = error.localizedDescription
+            // サーバー側デバイス日次バックストップに達した場合は分かりやすい案内にする。
+            if case APIClientError.httpError(let status, _) = error, status == 429 {
+                searchErrorMessage = "本日の無料スキャン上限に達しました。Proにアップグレードすると無制限に使えます。"
+            } else {
+                searchErrorMessage = error.localizedDescription
+            }
         }
     }
 

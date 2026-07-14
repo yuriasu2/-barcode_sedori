@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 enum APIClientError: Error, LocalizedError {
     case invalidBaseURL
@@ -31,6 +32,9 @@ final class APIClient {
 
     private let session: URLSession
     private let decoder: JSONDecoder
+    /// 端末識別子(identifierForVendor)。サーバー側の無料デバイス日次バックストップに使う。
+    /// 端末ごとに安定・アンインストールでリセットされるランダムUUID(PIIではない)。
+    private let deviceId: String? = UIDevice.current.identifierForVendor?.uuidString
 
     init(session: URLSession = .shared) {
         self.session = session
@@ -70,8 +74,16 @@ final class APIClient {
         request.timeoutInterval = 10
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         addPlanHeader(to: &request)
+        addDeviceHeader(to: &request)
         addSpApiHeadersIfNeeded(to: &request)
         return request
+    }
+
+    /// 端末識別子ヘッダー(X-Device-Id)を付与する。サーバー側の無料デバイス日次バックストップ用。
+    private func addDeviceHeader(to request: inout URLRequest) {
+        if let deviceId {
+            request.setValue(deviceId, forHTTPHeaderField: "X-Device-Id")
+        }
     }
 
     /// フリーミアム: 自己申告のプランヘッダー(X-App-Plan)を付与する。

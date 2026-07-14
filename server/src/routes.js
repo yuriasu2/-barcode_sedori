@@ -9,6 +9,14 @@ const pricing = require('./spapi/pricing');
 const spapiAuth = require('./spapi/auth');
 const oauth = require('./oauth');
 const keepa = require('./keepa/client');
+const deviceRateLimit = require('./deviceRateLimit');
+
+/**
+ * 無料プランのデバイス単位・日次バックストップ上限。
+ * クライアントの100件/日より高め(手動検索・リトライを吸収し誤ブロックを避ける)。
+ * env FREE_DEVICE_DAILY_LIMIT で上書き可能。
+ */
+const FREE_DEVICE_DAILY_LIMIT = parseInt(process.env.FREE_DEVICE_DAILY_LIMIT, 10) || 150;
 
 const searchCache = new LruCache();
 const offersCache = new LruCache();
@@ -323,6 +331,21 @@ router.get('/api/search', async (req, res) => {
   const code = String(req.query.code || '').trim();
   if (!code) {
     return res.status(400).json({ error: 'code query parameter is required' });
+  }
+
+  // 無料プランのデバイス単位・日次バックストップ(クライアント改ざん対策)。Proは無制限。
+  if (!isProRequest(req.headers)) {
+    const deviceId = req.headers['x-device-id'] || req.headers['X-Device-Id'];
+    const check = deviceRateLimit.registerAndCheck(
+      deviceId ? String(deviceId) : null,
+      FREE_DEVICE_DAILY_LIMIT
+    );
+    if (!check.allowed) {
+      return res.status(429).json({
+        error: 'daily_limit_exceeded',
+        message: '本日の無料検索の上限に達しました。Proにアップグレードすると無制限に使えます。',
+      });
+    }
   }
 
   const credentials = resolveSpApiCredentials(req.headers);
