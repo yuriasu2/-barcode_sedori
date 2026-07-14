@@ -173,6 +173,9 @@ struct SearchTabView: View {
                     }
                 }
             }
+            // キーボード表示時にレイアウト全体が上へ押し上げられ、上部の検索バーが画面外に
+            // 消えるのを防ぐ(検索バーは元々キーボードに隠れない位置にあるため回避不要)。
+            .ignoresSafeArea(.keyboard, edges: .bottom)
             .navigationBarTitleDisplayMode(.inline)
             .navigationBarHidden(true)
             // navigationBarHiddenだけだと上部に余白が残ることがあるため、ツールバー自体を隠して詰める。
