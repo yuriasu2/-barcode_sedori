@@ -8,11 +8,13 @@ import GoogleMobileAds
 struct BannerAdView: UIViewRepresentable {
     enum Size {
         case banner            // 320x50
+        case largeBanner       // 320x100
         case mediumRectangle   // 300x250
 
         var gadSize: GADAdSize {
             switch self {
             case .banner: return GADAdSizeBanner
+            case .largeBanner: return GADAdSizeLargeBanner
             case .mediumRectangle: return GADAdSizeMediumRectangle
             }
         }
@@ -21,12 +23,13 @@ struct BannerAdView: UIViewRepresentable {
         var height: CGFloat {
             switch self {
             case .banner: return 50
+            case .largeBanner: return 100
             case .mediumRectangle: return 250
             }
         }
     }
 
-    var size: Size = .mediumRectangle
+    var size: Size = .largeBanner
 
     func makeUIView(context: Context) -> GADBannerView {
         let banner = GADBannerView(adSize: size.gadSize)

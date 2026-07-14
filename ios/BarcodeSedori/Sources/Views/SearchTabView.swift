@@ -260,8 +260,8 @@ struct SearchTabView: View {
             .buttonStyle(.plain)
 
             if AdsConfig.enabled {
-                BannerAdView(size: .banner)
-                    .frame(height: 50)
+                BannerAdView(size: .largeBanner)
+                    .frame(height: 100)
                     .frame(maxWidth: .infinity)
             }
 
