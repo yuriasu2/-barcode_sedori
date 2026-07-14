@@ -80,10 +80,27 @@ test('convertCode: 191始まり(書籍JAN2段目)もunresolved(book_jan_second_l
   assert.equal(result.reason, 'book_jan_second_line');
 });
 
-test('convertCode: その他のコードはunresolved(unsupported)になる', () => {
+test('convertCode: チェックデジットが不正な13桁はunresolved(unsupported)になる', () => {
   const result = convertCode('2012345678905');
   assert.equal(result.codeType, CODE_TYPES.UNRESOLVED);
   assert.equal(result.reason, 'unsupported');
+});
+
+test('convertCode: 45/49以外でもチェックデジット有効な13桁はJANになる(全EAN-13対応)', () => {
+  // 3045387245504 はフランス(GS1プレフィックス30)の有効なEAN-13
+  const result = convertCode('3045387245504');
+  assert.equal(result.codeType, CODE_TYPES.JAN);
+  assert.equal(result.jan, '3045387245504');
+  assert.equal(result.checkDigitValid, true);
+});
+
+test('convertCode: 192始まりは全EAN-13対応後もjanに飲まれずunresolvedのまま(順序回帰)', () => {
+  const body12 = '192123456789';
+  const cd = calcEan13CheckDigit(body12); // 有効なCDを付与
+  const code = body12 + String(cd);
+  const result = convertCode(code);
+  assert.equal(result.codeType, CODE_TYPES.UNRESOLVED);
+  assert.equal(result.reason, 'book_jan_second_line');
 });
 
 test('convertCode: 13桁EANでないコードはunresolved(unsupported)になる', () => {

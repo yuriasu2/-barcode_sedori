@@ -4,11 +4,11 @@
  * コード種別判定 (CHANGES-v2.md準拠)
  *
  * インストアコード(ブックオフ99形式・学習テーブル)は機能ごと削除。
- * 判定は以下の4分類のみ:
- *  - 978/979始まり13桁 -> isbn
- *  - 45/49始まり13桁   -> jan
- *  - 192/191始まり13桁 -> unresolved (reason: book_jan_second_line)
- *  - その他             -> unresolved (reason: unsupported)
+ * 判定は以下の分類:
+ *  - 978/979始まり13桁                   -> isbn
+ *  - 192/191始まり13桁                   -> unresolved (reason: book_jan_second_line)
+ *  - 上記以外でチェックデジット有効な13桁 -> jan (45/49の日本JANに限らず全EAN-13を受け入れる)
+ *  - それ以外(桁数不正/CD不正など)        -> unresolved (reason: unsupported)
  */
 
 const CODE_TYPES = {
@@ -69,21 +69,24 @@ const strategies = [
     }),
   },
   {
-    name: 'jan',
-    match: (code) => isEan13(code) && (code.startsWith('45') || code.startsWith('49')),
-    resolve: (code) => ({
-      codeType: CODE_TYPES.JAN,
-      jan: code,
-      checkDigitValid: validateEan13CheckDigit(code),
-    }),
-  },
-  {
     name: 'book_jan_second_line',
     // 書籍JANコード2段目 (192/191始まり)。単独では価格/Cコードのみで商品を一意特定できない。
+    // 全EAN-13をjanに受け入れる前に判定する必要がある(順序重要)。
     match: (code) => isEan13(code) && (code.startsWith('192') || code.startsWith('191')),
     resolve: () => ({
       codeType: CODE_TYPES.UNRESOLVED,
       reason: 'book_jan_second_line',
+    }),
+  },
+  {
+    name: 'jan',
+    // 978/979(ISBN)・192/191(書籍2段目)を除く、チェックデジット有効な全EAN-13をJANとして扱う。
+    // 日本(45/49)に限らず海外GS1プレフィックスの商品もAmazon検索の対象にする。
+    match: (code) => isEan13(code) && validateEan13CheckDigit(code),
+    resolve: (code) => ({
+      codeType: CODE_TYPES.JAN,
+      jan: code,
+      checkDigitValid: true,
     }),
   },
 ];
