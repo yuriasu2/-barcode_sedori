@@ -161,8 +161,6 @@ struct SearchTabView: View {
                             topContent
                             keepaGraph
                                 .padding(.horizontal)
-                                .padding(.top, 12)
-                                .padding(.bottom, 24)
                         }
                     }
                 } else {
@@ -171,14 +169,14 @@ struct SearchTabView: View {
                         topContent
                         freeAdArea
                             .padding(.horizontal)
-                            .padding(.top, 12)
-                            .padding(.bottom, 12)
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     }
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
             .navigationBarHidden(true)
+            // navigationBarHiddenだけだと上部に余白が残ることがあるため、ツールバー自体を隠して詰める。
+            .toolbar(.hidden, for: .navigationBar)
             .alert("キーワード検索は今後対応予定です", isPresented: $showsKeywordUnsupportedAlert) {
                 Button("OK", role: .cancel) {}
             }
@@ -205,8 +203,6 @@ struct SearchTabView: View {
     private var topContent: some View {
         searchBar
             .padding(.horizontal)
-            .padding(.top, 8)
-            .padding(.bottom, 4)
 
         ScannerView(
             onScan: { scanned in
@@ -227,14 +223,12 @@ struct SearchTabView: View {
 
         modeToggle
             .padding(.horizontal)
-            .padding(.vertical, 8)
 
         latestResultCard
             .padding(.horizontal)
 
         offersPanels
             .padding(.horizontal)
-            .padding(.top, 12)
     }
 
     /// 無料プラン用: 鍵アイコン+Pro案内 と、余白を埋める広告。上詰めでオファー直下に配置する。
@@ -338,6 +332,8 @@ struct SearchTabView: View {
                     .padding(.vertical, 12)
                     .foregroundColor(isSelected ? .white : .accentColor)
                     .background(isSelected ? Color.accentColor : Color.clear)
+                    // 透明背景(Color.clear)だと文字部分しか反応しないため、セル全体を当たり判定にする。
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
