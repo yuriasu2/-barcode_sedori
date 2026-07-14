@@ -21,18 +21,22 @@ struct ScannerView: UIViewRepresentable {
     var onScan: (ScannedBarcode) -> Void
     /// true: OCRモード(Visionでテキスト認識) / false: バーコードモード(AVCaptureMetadataOutput)
     var isOCRMode: Bool
+    /// true: 検索タブ表示中でカメラを動かす / false: 非表示なのでセッションを止めて電力節約
+    var isActive: Bool
 
     func makeUIView(context: Context) -> ScannerContainerView {
         let view = ScannerContainerView()
         view.onScan = onScan
         view.isOCRMode = isOCRMode
-        view.startSession()
+        view.isActiveState = isActive
+        if isActive { view.startSession() }
         return view
     }
 
     func updateUIView(_ uiView: ScannerContainerView, context: Context) {
         uiView.onScan = onScan
         uiView.isOCRMode = isOCRMode
+        uiView.setActive(isActive)
     }
 
     static func dismantleUIView(_ uiView: ScannerContainerView, coordinator: ()) {
@@ -43,6 +47,10 @@ struct ScannerView: UIViewRepresentable {
 /// カメラプレビュー+検出枠ハイライトを保持するUIView。
 final class ScannerContainerView: UIView {
     var onScan: ((ScannedBarcode) -> Void)?
+
+    /// 現在セッションを動かすべき状態か(検索タブの表示状態と同期)。メインスレッドからのみアクセス。
+    /// ScannerView(struct)側からmakeUIViewで初期状態を直接代入するため fileprivate。
+    fileprivate var isActiveState = false
 
     /// OCRモードの切り替え。trueにするとバーコード検出を止めてVisionでのテキスト認識を行う。
     /// SwiftUI側(メインスレッド)から書き込まれ、videoDataQueue/sessionQueueから読み取られるため
@@ -160,6 +168,18 @@ final class ScannerContainerView: UIView {
             if self.captureSession.isRunning {
                 self.captureSession.stopRunning()
             }
+        }
+    }
+
+    /// 検索タブの表示状態に応じてセッションを開始/停止する。
+    /// 状態が変わったときのみ実処理を行い、無駄な再起動を避ける。
+    func setActive(_ active: Bool) {
+        guard active != isActiveState else { return }
+        isActiveState = active
+        if active {
+            startSession()
+        } else {
+            stopSession()
         }
     }
 

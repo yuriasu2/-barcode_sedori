@@ -119,6 +119,8 @@ final class SearchTabViewModel: ObservableObject {
 }
 
 struct SearchTabView: View {
+    /// 検索タブが選択中(表示中)かどうか。falseのときはScannerViewへ渡してカメラセッションを停止させる。
+    let isActive: Bool
     @StateObject private var viewModel = SearchTabViewModel()
     @State private var selectedResult: SearchResult?
     @State private var searchBarText: String = ""
@@ -139,7 +141,8 @@ struct SearchTabView: View {
                         onScan: { scanned in
                             viewModel.handleScan(scanned.code)
                         },
-                        isOCRMode: viewModel.scanMode.isOCRMode
+                        isOCRMode: viewModel.scanMode.isOCRMode,
+                        isActive: isActive
                     )
                     .frame(maxWidth: .infinity)
                     .frame(height: UIScreen.main.bounds.height * 0.35)
