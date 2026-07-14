@@ -43,6 +43,9 @@ struct SearchResult: Codable, Equatable {
     let prices: SearchPrices?
     /// オファー取得元("spapi"等)。CHANGES-v6.mdで追加。旧サーバー互換のためオプショナル。
     let source: String?
+    /// SP-API経路は第1段階(/api/search)応答にオファー一覧を同梱する(2段階ロード廃止)。
+    /// Keepa経路や旧サーバーではnil(その場合は従来どおり第2段階/api/offersで取得)。
+    let offers: OffersResult?
 }
 
 /// サーバーエラーレスポンス(想定: {"error": "..."} 形式にも対応できるよう緩めに定義)

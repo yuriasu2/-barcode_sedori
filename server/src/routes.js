@@ -189,12 +189,16 @@ async function handleSearchViaSpApi(req, res, code, credentials, cacheKey) {
       pricing.getItemOffers(asin, 'Used', credentials).catch(() => null),
     ]);
 
-    const newSummary = pricing.extractOffersSummary(newOffersResp);
-    const usedSummary = pricing.extractOffersSummary(usedOffersResp);
+    const newSummary = pricing.extractOffersSummary(newOffersResp, 'New');
+    const usedSummary = pricing.extractOffersSummary(usedOffersResp, 'Used');
 
     const cart = newSummary.buyBoxLandedPrice;
     const newPrice = newSummary.lowestLandedPrice;
     const usedPrice = usedSummary.lowestLandedPrice;
+
+    // SP-APIは第1段階でオファーを取得済みのため、第2段階を待たずにオファー一覧も同梱する
+    // (アプリはsource=spapi時は/api/offersを呼ばない=2段階ロード廃止)。
+    const offers = await buildSpApiOffersPayload(asin, newSummary, usedSummary, credentials);
 
     const responseBody = {
       codeType: converted.codeType,
@@ -213,6 +217,7 @@ async function handleSearchViaSpApi(req, res, code, credentials, cacheKey) {
           used: estimatePoints(usedPrice),
         },
       },
+      offers,
       source: 'spapi',
     };
 
@@ -348,17 +353,12 @@ function subConditionToString(subCondition) {
 }
 
 /**
- * spapi経路: getItemOffers結果を /api/offers 統一契約にマッピングする(既存breakEvenロジック維持)。
+ * spapi: 取得済みのnew/used summaryから /api/offers 契約のオファー本体を組み立てる。
+ * (手数料バッチ見積り + breakEven算出)。第1段階完結(handleSearchViaSpApi)と
+ * /api/offersエンドポイント(buildOffersResponseViaSpApi)の両方から使う共通ヘルパー。
+ * @returns {{referencePrice: number|null, newCount: number, usedCount: number, new: object[], used: object[]}}
  */
-async function buildOffersResponseViaSpApi(asin, credentials) {
-  const [newOffersResp, usedOffersResp] = await Promise.all([
-    pricing.getItemOffers(asin, 'New', credentials).catch(() => null),
-    pricing.getItemOffers(asin, 'Used', credentials).catch(() => null),
-  ]);
-
-  const newSummary = pricing.extractOffersSummary(newOffersResp);
-  const usedSummary = pricing.extractOffersSummary(usedOffersResp);
-
+async function buildSpApiOffersPayload(asin, newSummary, usedSummary, credentials) {
   const allOffers = [
     ...newSummary.offers.map((o) => ({ ...o, _bucket: 'new' })),
     ...usedSummary.offers.map((o) => ({ ...o, _bucket: 'used' })),
@@ -414,13 +414,26 @@ async function buildOffersResponseViaSpApi(asin, credentials) {
   });
 
   return {
-    source: 'spapi',
     referencePrice: newSummary.buyBoxLandedPrice || newSummary.lowestLandedPrice || null,
     newCount: newDtos.length,
     usedCount: usedDtos.length,
     new: newDtos,
     used: usedDtos,
   };
+}
+
+/**
+ * spapi経路: /api/offersエンドポイント用。getItemOffersを取得して共通ヘルパーで組み立てる。
+ */
+async function buildOffersResponseViaSpApi(asin, credentials) {
+  const [newOffersResp, usedOffersResp] = await Promise.all([
+    pricing.getItemOffers(asin, 'New', credentials).catch(() => null),
+    pricing.getItemOffers(asin, 'Used', credentials).catch(() => null),
+  ]);
+  const newSummary = pricing.extractOffersSummary(newOffersResp, 'New');
+  const usedSummary = pricing.extractOffersSummary(usedOffersResp, 'Used');
+  const payload = await buildSpApiOffersPayload(asin, newSummary, usedSummary, credentials);
+  return { source: 'spapi', ...payload };
 }
 
 /**

@@ -94,7 +94,7 @@ function fallbackFees(landedPrice) {
  * getItemOffersのレスポンスから最安値・BuyBox・オファー一覧を抽出する。
  * SP-APIレスポンス構造の揺れに対して防御的に処理する。
  */
-function extractOffersSummary(offersResponse) {
+function extractOffersSummary(offersResponse, condition) {
   const payload = offersResponse && offersResponse.payload;
   if (!payload) {
     return { lowestLandedPrice: null, buyBoxLandedPrice: null, offers: [] };
@@ -103,17 +103,6 @@ function extractOffersSummary(offersResponse) {
   const summary = payload.Summary || {};
   const lowestPrices = summary.LowestPrices || [];
   const buyBoxPrices = summary.BuyBoxPrices || [];
-
-  const lowestLandedPrice = lowestPrices.length
-    ? Math.min(
-        ...lowestPrices.map((p) => (p.LandedPrice ? p.LandedPrice.Amount : Infinity))
-      )
-    : null;
-
-  const buyBoxEntry = buyBoxPrices[0];
-  const buyBoxLandedPrice = buyBoxEntry && buyBoxEntry.LandedPrice
-    ? buyBoxEntry.LandedPrice.Amount
-    : null;
 
   const rawOffers = payload.Offers || [];
   const offers = rawOffers.map((o) => {
@@ -128,6 +117,35 @@ function extractOffersSummary(offersResponse) {
       sellerId: o.SellerId || null,
     };
   });
+
+  // condition指定時はSummaryを該当条件のみに絞る(Amazonのcondition値は小文字 "new"/"used")。
+  // GetItemOffersのSummary.LowestPricesには要求条件と異なる条件が混在することがあり、
+  // 絞らないと新品要求時に中古最安を拾ってしまう(condition未指定は従来動作=全体最小)。
+  const wanted = condition ? String(condition).toLowerCase() : null;
+  const filteredLowest = wanted
+    ? lowestPrices.filter((p) => String(p.condition || '').toLowerCase() === wanted)
+    : lowestPrices;
+
+  let lowestLandedPrice = filteredLowest.length
+    ? Math.min(
+        ...filteredLowest.map((p) => (p.LandedPrice ? p.LandedPrice.Amount : Infinity))
+      )
+    : null;
+  // 該当条件がLowestPricesに無い場合は、取得済みオファー(要求条件で取得)の最安landedで代替
+  if ((lowestLandedPrice == null || !Number.isFinite(lowestLandedPrice)) && offers.length) {
+    lowestLandedPrice = Math.min(...offers.map((o) => o.landed));
+  }
+  if (!Number.isFinite(lowestLandedPrice)) {
+    lowestLandedPrice = null;
+  }
+
+  const filteredBuyBox = wanted
+    ? buyBoxPrices.filter((p) => String(p.condition || '').toLowerCase() === wanted)
+    : buyBoxPrices;
+  const buyBoxEntry = filteredBuyBox[0];
+  const buyBoxLandedPrice = buyBoxEntry && buyBoxEntry.LandedPrice
+    ? buyBoxEntry.LandedPrice.Amount
+    : null;
 
   return { lowestLandedPrice, buyBoxLandedPrice, offers };
 }

@@ -88,7 +88,17 @@ final class SearchTabViewModel: ObservableObject {
                 historyStore.add(historyItem)
             }
 
-            if let asin = result.asin, !asin.isEmpty {
+            // SP-APIは第1段階応答にオファーを同梱するため、第2段階(/api/offers)の通信はしない。
+            // Keepa経路(offersがnil)は従来どおり第2段階で取得する。
+            if let embedded = result.offers {
+                offersResult = embedded
+                isLoadingOffers = false
+                if let pendingHistoryItemId {
+                    historyStore.update(id: pendingHistoryItemId) { item in
+                        item.offersResult = embedded
+                    }
+                }
+            } else if let asin = result.asin, !asin.isEmpty {
                 await loadOffers(asin: asin, source: result.source)
             }
         } catch {
@@ -502,8 +512,8 @@ private struct OffersPanelView: View {
                             Text(offer.conditionDisplayName)
                                 .font(.caption2)
                                 .foregroundColor(.white)
-                            if let price = offer.price {
-                                Text("¥\(price)")
+                            if let landed = offer.landed {
+                                Text("¥\(landed)")
                                     .font(.caption)
                                     .fontWeight(.bold)
                                     .foregroundColor(.white)
