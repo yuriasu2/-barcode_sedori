@@ -173,7 +173,7 @@ struct SearchTabView: View {
                             .padding(.horizontal)
                             .padding(.top, 12)
                             .padding(.bottom, 12)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     }
                 }
             }
@@ -237,11 +237,9 @@ struct SearchTabView: View {
             .padding(.top, 12)
     }
 
-    /// 無料プラン用: 鍵アイコン+Pro案内 と、余白を埋める広告(300x250)。残り空間の中央に配置。
+    /// 無料プラン用: 鍵アイコン+Pro案内 と、余白を埋める広告。上詰めでオファー直下に配置する。
     private var freeAdArea: some View {
         VStack(spacing: 8) {
-            Spacer(minLength: 0)
-
             Button {
                 showPaywall = true
             } label: {
@@ -264,8 +262,6 @@ struct SearchTabView: View {
                     .frame(height: 100)
                     .frame(maxWidth: .infinity)
             }
-
-            Spacer(minLength: 0)
         }
     }
 
