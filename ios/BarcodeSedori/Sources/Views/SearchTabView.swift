@@ -465,10 +465,37 @@ private struct OffersPanelView: View {
     let color: Color
     let offers: [Offer]
     let isLoading: Bool
-    /// 第1段階(/api/search)で取得した簡易価格。リスト最上部に太字・大きめで表示する。
+    /// 第1段階(/api/search)の簡易価格。オファー取得前(Keepa第2段階の読込中や取得0件)の
+    /// 仮表示にのみ使う。オファーが取得できたら下のオファー一覧で上書きする。
     let simplePrice: Int?
     /// 簡易価格行のラベル("新品"/"中古")。
     let simpleLabel: String
+
+    /// landed(送料込)昇順に並べたオファー。landedが無ければprice、いずれも無ければ末尾。
+    private var sortedOffers: [Offer] {
+        offers.sorted { lhs, rhs in
+            (lhs.landed ?? lhs.price ?? Int.max) < (rhs.landed ?? rhs.price ?? Int.max)
+        }
+    }
+
+    /// オファー取得前の仮表示に使う簡易価格行。
+    @ViewBuilder
+    private var simplePriceRow: some View {
+        if let simplePrice {
+            HStack(spacing: 4) {
+                Text(simpleLabel)
+                    .font(.caption)
+                    .fontWeight(.bold)
+                    .foregroundColor(.white)
+                Text("¥\(simplePrice)")
+                    .font(.subheadline)
+                    .fontWeight(.bold)
+                    .foregroundColor(.white)
+                    .monospacedDigit()
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -482,32 +509,10 @@ private struct OffersPanelView: View {
                 .background(color)
 
             VStack(alignment: .leading, spacing: 4) {
-                // 第1段階の簡易価格を一番上に太字・大きめで表示
-                if let simplePrice {
-                    HStack(spacing: 4) {
-                        Text(simpleLabel)
-                            .font(.caption)
-                            .fontWeight(.bold)
-                            .foregroundColor(.white)
-                        Text("¥\(simplePrice)")
-                            .font(.subheadline)
-                            .fontWeight(.bold)
-                            .foregroundColor(.white)
-                            .monospacedDigit()
-                            .frame(maxWidth: .infinity, alignment: .trailing)
-                    }
-                }
-
-                // 第2段階のオファー(その後に読み込む)
-                if isLoading {
-                    HStack {
-                        Spacer()
-                        ProgressView()
-                            .padding(.vertical, 8)
-                        Spacer()
-                    }
-                } else {
-                    ForEach(offers.prefix(5)) { offer in
+                if !offers.isEmpty {
+                    // オファー取得済み(SP-API一括 / Keepa第2段階): 送料込・最安値順・コンディション付きで
+                    // 上から並べる。第1段階の簡易価格はここで上書きされる。
+                    ForEach(sortedOffers.prefix(5)) { offer in
                         HStack(spacing: 4) {
                             Text(offer.conditionDisplayName)
                                 .font(.caption2)
@@ -527,13 +532,24 @@ private struct OffersPanelView: View {
                             }
                         }
                     }
-                }
-
-                // 簡易価格もオファーも無いときのみ空表示
-                if simplePrice == nil && !isLoading && offers.isEmpty {
-                    Text("オファーがありません")
-                        .font(.caption2)
-                        .foregroundColor(.white.opacity(0.85))
+                } else if isLoading {
+                    // Keepa第2段階の読込中: 簡易価格を仮表示しつつスピナー(オファー到着で上書き)。
+                    simplePriceRow
+                    HStack {
+                        Spacer()
+                        ProgressView()
+                            .padding(.vertical, 8)
+                        Spacer()
+                    }
+                } else {
+                    // 取得完了だがオファー0件: 簡易価格があれば表示、無ければ空表示。
+                    if simplePrice != nil {
+                        simplePriceRow
+                    } else {
+                        Text("オファーがありません")
+                            .font(.caption2)
+                            .foregroundColor(.white.opacity(0.85))
+                    }
                 }
             }
             .padding(8)
