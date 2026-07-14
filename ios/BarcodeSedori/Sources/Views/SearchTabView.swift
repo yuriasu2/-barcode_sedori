@@ -153,45 +153,28 @@ struct SearchTabView: View {
 
     var body: some View {
         NavigationView {
-            ScrollView {
-                VStack(spacing: 0) {
-                    searchBar
-                        .padding(.horizontal)
-                        .padding(.top, 8)
-                        .padding(.bottom, 4)
-
-                    ScannerView(
-                        onScan: { scanned in
-                            // フリーミアム: 無料プランは1日100件まで。上限超過でペイウォール。
-                            if entitlements.isPro || ScanQuotaStore.shared.registerScanIfAllowed() {
-                                viewModel.handleScan(scanned.code)
-                            } else {
-                                showPaywall = true
-                            }
-                        },
-                        isOCRMode: viewModel.scanMode.isOCRMode,
-                        isActive: isActive,
-                        emitCooldown: entitlements.isPro ? 1.0 : 5.0
-                    )
-                    .frame(maxWidth: .infinity)
-                    .frame(height: UIScreen.main.bounds.height * 0.35)
-                    .clipped()
-
-                    modeToggle
-                        .padding(.horizontal)
-                        .padding(.vertical, 8)
-
-                    latestResultCard
-                        .padding(.horizontal)
-
-                    offersPanels
-                        .padding(.horizontal)
-                        .padding(.top, 12)
-
-                    keepaGraph
-                        .padding(.horizontal)
-                        .padding(.top, 12)
-                        .padding(.bottom, 24)
+            Group {
+                if entitlements.isPro {
+                    // Pro: 従来どおりスクロール可能。実グラフを表示。
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            topContent
+                            keepaGraph
+                                .padding(.horizontal)
+                                .padding(.top, 12)
+                                .padding(.bottom, 24)
+                        }
+                    }
+                } else {
+                    // 無料: スクロール無効の1画面固定。下の余白を広告で埋める。
+                    VStack(spacing: 0) {
+                        topContent
+                        freeAdArea
+                            .padding(.horizontal)
+                            .padding(.top, 12)
+                            .padding(.bottom, 12)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
@@ -215,6 +198,75 @@ struct SearchTabView: View {
             }
         }
         .navigationViewStyle(.stack)
+    }
+
+    /// Pro/無料で共通の上部(検索バー・カメラ・モード切替・結果カード・オファーパネル)。
+    @ViewBuilder
+    private var topContent: some View {
+        searchBar
+            .padding(.horizontal)
+            .padding(.top, 8)
+            .padding(.bottom, 4)
+
+        ScannerView(
+            onScan: { scanned in
+                // フリーミアム: 無料プランは1日100件まで。上限超過でペイウォール。
+                if entitlements.isPro || ScanQuotaStore.shared.registerScanIfAllowed() {
+                    viewModel.handleScan(scanned.code)
+                } else {
+                    showPaywall = true
+                }
+            },
+            isOCRMode: viewModel.scanMode.isOCRMode,
+            isActive: isActive,
+            emitCooldown: entitlements.isPro ? 1.0 : 5.0
+        )
+        .frame(maxWidth: .infinity)
+        .frame(height: UIScreen.main.bounds.height * 0.35)
+        .clipped()
+
+        modeToggle
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+
+        latestResultCard
+            .padding(.horizontal)
+
+        offersPanels
+            .padding(.horizontal)
+            .padding(.top, 12)
+    }
+
+    /// 無料プラン用: 鍵アイコン+Pro案内 と、余白を埋める広告(300x250)。残り空間の中央に配置。
+    private var freeAdArea: some View {
+        VStack(spacing: 8) {
+            Spacer(minLength: 0)
+
+            Button {
+                showPaywall = true
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "lock.fill")
+                    Text("広告削除とKeepaグラフ表示はProで")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.caption)
+                }
+                .foregroundColor(.primary)
+                .padding(.horizontal, 4)
+            }
+            .buttonStyle(.plain)
+
+            if AdsConfig.enabled {
+                BannerAdView(size: .mediumRectangle)
+                    .frame(height: 250)
+                    .frame(maxWidth: .infinity)
+            }
+
+            Spacer(minLength: 0)
+        }
     }
 
     @ViewBuilder
@@ -375,67 +427,37 @@ struct SearchTabView: View {
 
     // MARK: - Keepaグラフ
 
+    /// Keepa価格推移グラフ(Pro専用。無料は body 側で freeAdArea を表示する)。
     @ViewBuilder
     private var keepaGraph: some View {
-        if let asin = viewModel.latestResult?.asin {
-            // フリーミアム: グラフはKeepa鍵消費(共有コスト)のためPro限定。
-            // 無料はぼかしダミー+鍵(+Phase2で広告)を表示し、タップでペイウォール。
-            if entitlements.isPro {
-                if let url = APIClient.shared.graphURL(asin: asin, range: selectedGraphRange.rawValue) {
-                    VStack(spacing: 8) {
-                        AsyncImage(url: url) { phase in
-                            switch phase {
-                            case .success(let image):
-                                image
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fit)
-                                    .frame(maxWidth: .infinity)
-                                    .cornerRadius(10)
-                            case .failure:
-                                EmptyView()
-                            case .empty:
-                                HStack {
-                                    Spacer()
-                                    ProgressView()
-                                    Spacer()
-                                }
-                                .frame(height: 80)
-                            @unknown default:
-                                EmptyView()
-                            }
-                        }
-                        // urlが変わるたびにAsyncImageを再生成させ、期間切替時に確実に再ロードする。
-                        .id(url)
-
-                        graphRangeSegment
-                    }
-                }
-            } else {
-                // 無料: グラフ枠全体を広告で埋め、その上に鍵アイコン+Pro案内を置く。
-                VStack(spacing: 8) {
-                    Button {
-                        showPaywall = true
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "lock.fill")
-                            Text("広告削除とKeepaグラフ表示はProで")
-                                .font(.subheadline)
-                                .fontWeight(.semibold)
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.caption)
-                        }
-                        .foregroundColor(.primary)
-                        .padding(.horizontal, 4)
-                    }
-                    .buttonStyle(.plain)
-
-                    if AdsConfig.enabled {
-                        BannerAdView(size: .mediumRectangle)
-                            .frame(height: 250)
+        if let asin = viewModel.latestResult?.asin,
+           let url = APIClient.shared.graphURL(asin: asin, range: selectedGraphRange.rawValue) {
+            VStack(spacing: 8) {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
                             .frame(maxWidth: .infinity)
+                            .cornerRadius(10)
+                    case .failure:
+                        EmptyView()
+                    case .empty:
+                        HStack {
+                            Spacer()
+                            ProgressView()
+                            Spacer()
+                        }
+                        .frame(height: 80)
+                    @unknown default:
+                        EmptyView()
                     }
                 }
+                // urlが変わるたびにAsyncImageを再生成させ、期間切替時に確実に再ロードする。
+                .id(url)
+
+                graphRangeSegment
             }
         }
     }
