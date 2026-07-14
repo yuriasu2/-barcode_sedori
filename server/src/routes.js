@@ -17,6 +17,17 @@ const graphCache = new LruCache({ ttlMs: 60 * 60 * 1000, maxSize: 200 }); // グ
 const router = new MiniRouter();
 
 const SPAPI_CREDENTIALS_MISSING_MESSAGE = 'SP-API連携またはサーバーのKeepa設定が必要です';
+const PLAN_REQUIRED_MESSAGE = 'この機能はProプランでご利用いただけます。';
+
+/**
+ * アプリが自己申告するプランを判定する(フリーミアム Phase 1: X-App-Plan ヘッダー)。
+ * 'pro' のときのみ true。ヘッダー無し/その他は無料(false)扱い(安全側)。
+ * ※自己申告のためPhase 2でサーバー側レシート検証(App Store Server API)に置き換える。
+ */
+function isProRequest(headers) {
+  const plan = headers && (headers['x-app-plan'] || headers['X-App-Plan']);
+  return String(plan || '').toLowerCase() === 'pro';
+}
 
 /**
  * リクエストヘッダーからSP-API(LWA)認証情報を解決する。
@@ -515,6 +526,12 @@ router.get('/api/offers', async (req, res) => {
 
   const source = String(req.query.source || 'spapi').trim().toLowerCase();
 
+  // 無料プランはKeepa経路のオファー(第2段階=getProductのトークン消費が大きい)を制限する。
+  // SP-API経路のオファーは第1段階(/api/search)に同梱済みで、BYO(利用者自身の枠)のため制限しない。
+  if (!isProRequest(req.headers) && source === 'keepa') {
+    return res.status(403).json({ error: 'plan_required', message: PLAN_REQUIRED_MESSAGE });
+  }
+
   if (source === 'keepa') {
     if (!keepa.getApiKey()) {
       return res.status(503).json({ error: 'spapi_credentials_missing', message: SPAPI_CREDENTIALS_MISSING_MESSAGE });
@@ -583,6 +600,11 @@ router.get('/api/graph', async (req, res) => {
     return res.status(400).json({ error: 'asin query parameter is required' });
   }
 
+  // グラフはKeepa鍵消費(サーバー共有コスト)のためPro限定。
+  if (!isProRequest(req.headers)) {
+    return res.status(403).json({ error: 'plan_required', message: 'グラフはProプランでご利用いただけます。' });
+  }
+
   if (!keepa.getApiKey()) {
     return res.status(404).json({ error: 'keepa_not_configured' });
   }
@@ -631,5 +653,7 @@ router.get('/oauth/callback', oauth.handleOAuthCallback);
 router.searchCache = searchCache;
 router.offersCache = offersCache;
 router.graphCache = graphCache;
+// テスト用途にプラン判定関数を公開する。
+router.isProRequest = isProRequest;
 
 module.exports = router;

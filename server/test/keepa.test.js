@@ -54,6 +54,10 @@ function createMockRes() {
   return res;
 }
 
+// フリーミアム: Keepa経路のオファー(第2段階)とグラフはPro限定のため、
+// それらのデータ挙動を検証するテストはPro申告ヘッダーを付けて叩く。
+const PRO = { 'x-app-plan': 'pro' };
+
 // ---------------------------------------------------------------------------
 // keepa/client.js 単体テスト
 // ---------------------------------------------------------------------------
@@ -333,7 +337,7 @@ test('/api/offers: source=keepaで統一契約(source/referencePrice/newCount/us
       };
     };
 
-    const req = { query: { asin: 'B00KEEPATEST', source: 'keepa' }, headers: {} };
+    const req = { query: { asin: 'B00KEEPATEST', source: 'keepa' }, headers: PRO };
     const res = createMockRes();
     const route = routes.match('GET', '/api/offers');
     await route.handler(req, res);
@@ -379,7 +383,7 @@ test('/api/offers: source=keepaで個別オファーが空でもstats.currentの
       };
     };
 
-    const req = { query: { asin: 'B00KEEPAFALLBACK', source: 'keepa' }, headers: {} };
+    const req = { query: { asin: 'B00KEEPAFALLBACK', source: 'keepa' }, headers: PRO };
     const res = createMockRes();
     const route = routes.match('GET', '/api/offers');
     await route.handler(req, res);
@@ -464,7 +468,7 @@ test('/api/offers: source省略時(spapi既定)は既存のbreakEvenロジック
 test('/api/graph: KEEPA_API_KEY未設定なら404', async () => {
   await withEnv({ KEEPA_API_KEY: undefined }, async () => {
     const routes = freshRoutes();
-    const req = { query: { asin: 'B000TEST' }, headers: {} };
+    const req = { query: { asin: 'B000TEST' }, headers: PRO };
     const res = createMockRes();
     const route = routes.match('GET', '/api/graph');
     await route.handler(req, res);
@@ -485,7 +489,7 @@ test('/api/graph: KEEPA_API_KEY設定時はimage/pngのBufferをres.binaryで返
       return { buffer: fakeBuffer, contentType: 'image/png' };
     };
 
-    const req = { query: { asin: 'B000TEST' }, headers: {} };
+    const req = { query: { asin: 'B000TEST' }, headers: PRO };
     const res = createMockRes();
     const route = routes.match('GET', '/api/graph');
     await route.handler(req, res);
@@ -523,7 +527,7 @@ test('/api/graph: range未指定はKeepaへ90として渡す', async (t) => {
       return { buffer: fakeBuffer, contentType: 'image/png' };
     };
 
-    const req = { query: { asin: 'B000TEST' }, headers: {} };
+    const req = { query: { asin: 'B000TEST' }, headers: PRO };
     const res = createMockRes();
     const route = routes.match('GET', '/api/graph');
     await route.handler(req, res);
@@ -551,9 +555,9 @@ test('/api/graph: range=365/1095は許可値としてそのままKeepaへ渡す'
     const route = routes.match('GET', '/api/graph');
 
     const res365 = createMockRes();
-    await route.handler({ query: { asin: 'B000TEST', range: '365' }, headers: {} }, res365);
+    await route.handler({ query: { asin: 'B000TEST', range: '365' }, headers: PRO }, res365);
     const res1095 = createMockRes();
-    await route.handler({ query: { asin: 'B000TEST', range: '1095' }, headers: {} }, res1095);
+    await route.handler({ query: { asin: 'B000TEST', range: '1095' }, headers: PRO }, res1095);
 
     assert.deepEqual(receivedRanges, [365, 1095]);
 
@@ -580,7 +584,7 @@ test('/api/graph: 不正なrange値(例:30,abc,負数)は90として扱う', asy
     // asinを毎回変えてキャッシュヒットを避け、正規化ロジック自体(不正値→90)を検証する。
     for (const invalid of ['30', 'abc', '-1', '9999']) {
       const res = createMockRes();
-      await route.handler({ query: { asin: `B000TEST_${invalid}`, range: invalid }, headers: {} }, res);
+      await route.handler({ query: { asin: `B000TEST_${invalid}`, range: invalid }, headers: PRO }, res);
     }
 
     assert.deepEqual(receivedRanges, [90, 90, 90, 90]);
@@ -605,11 +609,11 @@ test('/api/graph: キャッシュキーはrangeごとに分離される(range違
     const route = routes.match('GET', '/api/graph');
 
     const res90a = createMockRes();
-    await route.handler({ query: { asin: 'B000TEST', range: '90' }, headers: {} }, res90a);
+    await route.handler({ query: { asin: 'B000TEST', range: '90' }, headers: PRO }, res90a);
     const res90b = createMockRes();
-    await route.handler({ query: { asin: 'B000TEST', range: '90' }, headers: {} }, res90b);
+    await route.handler({ query: { asin: 'B000TEST', range: '90' }, headers: PRO }, res90b);
     const res365 = createMockRes();
-    await route.handler({ query: { asin: 'B000TEST', range: '365' }, headers: {} }, res365);
+    await route.handler({ query: { asin: 'B000TEST', range: '365' }, headers: PRO }, res365);
 
     // 同じrange(90)への2回目はキャッシュヒットしKeepaを呼ばない → callCountは2のまま(90用に1回、365用に1回)
     assert.equal(callCount, 2);
