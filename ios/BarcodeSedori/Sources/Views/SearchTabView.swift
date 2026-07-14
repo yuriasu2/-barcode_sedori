@@ -153,34 +153,35 @@ struct SearchTabView: View {
 
     var body: some View {
         NavigationView {
-            VStack(spacing: 0) {
-                // 検索バーはスクロール/リサイズ領域の外に固定ヘッダーとして置く。
-                // これにより、結果表示中にキーボードが出ても検索バーが動かず隠れない。
-                searchBar
-                    .padding(.horizontal)
-
-                Group {
-                    if entitlements.isPro {
-                        // Pro: 従来どおりスクロール可能。実グラフを表示。
-                        ScrollView {
-                            VStack(spacing: 0) {
-                                topContent
-                                keepaGraph
-                                    .padding(.horizontal)
-                            }
-                        }
-                    } else {
-                        // 無料: スクロール無効の1画面固定。下の余白を広告で埋める。
+            Group {
+                if entitlements.isPro {
+                    // Pro: 従来どおりスクロール可能。実グラフを表示。
+                    ScrollView {
                         VStack(spacing: 0) {
                             topContent
-                            freeAdArea
+                            keepaGraph
                                 .padding(.horizontal)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                         }
-                        // 高さが縮んでも中央寄せで上に上がらないよう、常に上詰めで固定する。
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     }
+                } else {
+                    // 無料: スクロール無効の1画面固定。下の余白を広告で埋める。
+                    VStack(spacing: 0) {
+                        topContent
+                        freeAdArea
+                            .padding(.horizontal)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    }
+                    // 高さが縮んでも中央寄せで上に上がらないよう、常に上詰めで固定する。
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 }
+            }
+            // 検索バーは safeAreaInset で上部に固定する。キーボードは下部safe areaなので
+            // 上部insetは影響を受けず、結果表示中でも検索バーが動かない(最も確実な固定方法)。
+            .safeAreaInset(edge: .top, spacing: 0) {
+                searchBar
+                    .padding(.horizontal)
+                    .padding(.vertical, 4)
+                    .background(Color(.systemBackground))
             }
             .navigationBarTitleDisplayMode(.inline)
             .navigationBarHidden(true)
