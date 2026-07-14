@@ -45,3 +45,21 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.example.barcodesedori
         MARKETING_VERSION: "1.0"
         CURRENT_PROJECT_VERSION: "1"
+
+schemes:
+  BarcodeSedori:
+    build:
+      targets:
+        BarcodeSedori: all
+    run:
+      config: Debug
+      # ローカルStoreKitテスト構成。storeKitConfiguration非対応のXcodeGenならこの行を外す。
+      storeKitConfiguration: BarcodeSedori.storekit
+    test:
+      config: Debug
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release
