@@ -411,12 +411,28 @@ struct SearchTabView: View {
                     }
                 }
             } else {
-                // 無料: ぼかしグラフ+鍵。さらにその下にAdMobバナー広告を表示(Phase 2)。
+                // 無料: グラフ枠全体を広告で埋め、その上に鍵アイコン+Pro案内を置く。
                 VStack(spacing: 8) {
-                    LockedGraphView { showPaywall = true }
+                    Button {
+                        showPaywall = true
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "lock.fill")
+                            Text("広告削除とKeepaグラフ表示はProで")
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                        }
+                        .foregroundColor(.primary)
+                        .padding(.horizontal, 4)
+                    }
+                    .buttonStyle(.plain)
+
                     if AdsConfig.enabled {
-                        BannerAdView()
-                            .frame(height: 50)
+                        BannerAdView(size: .mediumRectangle)
+                            .frame(height: 250)
                             .frame(maxWidth: .infinity)
                     }
                 }
@@ -516,44 +532,6 @@ private struct LatestResultCardView: View {
 }
 
 // MARK: - オファーパネル View
-
-/// フリーミアム: 無料プラン用のロックされたグラフ表示(ぼかしダミー+鍵)。タップでペイウォールを開く。
-/// ※ Phase 2 でこの領域に広告バナーを表示する予定。
-private struct LockedGraphView: View {
-    let onTap: () -> Void
-
-    var body: some View {
-        Button(action: onTap) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(Color(.secondarySystemBackground))
-                    .frame(height: 160)
-                    .overlay(
-                        Image(systemName: "chart.xyaxis.line")
-                            .resizable()
-                            .scaledToFit()
-                            .padding(28)
-                            .foregroundColor(Color.secondary.opacity(0.35))
-                    )
-                    .blur(radius: 3)
-
-                VStack(spacing: 6) {
-                    Image(systemName: "lock.fill")
-                        .font(.title3)
-                        .foregroundColor(.primary)
-                    Text("価格推移グラフはProで")
-                        .font(.subheadline)
-                        .fontWeight(.bold)
-                        .foregroundColor(.primary)
-                    Text("タップで詳細")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                }
-            }
-        }
-        .buttonStyle(.plain)
-    }
-}
 
 private struct OffersPanelView: View {
     let title: String
