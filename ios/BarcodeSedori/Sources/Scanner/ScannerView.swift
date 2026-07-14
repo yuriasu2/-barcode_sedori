@@ -92,6 +92,11 @@ final class ScannerContainerView: UIView {
     /// クールダウン秒数。SwiftUI側(ScannerView)から注入する(無料5秒 / Pro1秒)。既定1秒。
     var emitCooldown: TimeInterval = 1.0
 
+    /// クールダウン中に別コードを読み取ろうとしたとき「あと◯秒」を出す小さなオーバーレイ。
+    private let cooldownLabel = UILabel()
+    /// オーバーレイ自動非表示のワークアイテム(再スケジュール時にキャンセルする)。
+    private var hideCooldownOverlayWork: DispatchWorkItem?
+
     /// スキャン枠(画面上部)。0..1の相対座標(表示座標系、y原点は上)
     /// この矩形はUIレイヤーでの枠描画にも、AVCaptureのrectOfInterest計算にも使う。
     private let scanRectRatio = CGRect(x: 0.1, y: 0.12, width: 0.8, height: 0.32)
@@ -121,12 +126,45 @@ final class ScannerContainerView: UIView {
         super.init(frame: frame)
         backgroundColor = .black
         setupHighlightLayer()
+        setupCooldownOverlay()
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
         backgroundColor = .black
         setupHighlightLayer()
+        setupCooldownOverlay()
+    }
+
+    /// 「あと◯秒」オーバーレイ(中央のピル)を用意する。既定は非表示。
+    private func setupCooldownOverlay() {
+        cooldownLabel.textColor = .white
+        cooldownLabel.font = .systemFont(ofSize: 14, weight: .semibold)
+        cooldownLabel.textAlignment = .center
+        cooldownLabel.backgroundColor = UIColor.black.withAlphaComponent(0.6)
+        cooldownLabel.layer.cornerRadius = 14
+        cooldownLabel.layer.masksToBounds = true
+        cooldownLabel.isHidden = true
+        cooldownLabel.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(cooldownLabel)
+        NSLayoutConstraint.activate([
+            cooldownLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
+            cooldownLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            cooldownLabel.heightAnchor.constraint(equalToConstant: 28),
+            cooldownLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 96),
+        ])
+    }
+
+    /// クールダウン残り秒数のオーバーレイを表示し、残り時間後に自動で消す(メインスレッドで呼ぶ)。
+    private func showCooldownOverlay(remaining: Int) {
+        cooldownLabel.text = "あと\(remaining)秒"
+        cooldownLabel.isHidden = false
+        hideCooldownOverlayWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.cooldownLabel.isHidden = true
+        }
+        hideCooldownOverlayWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Double(remaining) + 0.1, execute: work)
     }
 
     private func setupHighlightLayer() {
@@ -334,11 +372,17 @@ final class ScannerContainerView: UIView {
             return
         }
         let now = Date()
-        if now.timeIntervalSince(lastEmitTime) < emitCooldown {
+        let elapsed = now.timeIntervalSince(lastEmitTime)
+        if elapsed < emitCooldown {
+            // クールダウン中に別コードを読み取ろうとした → 残り秒数を表示(無反応で故障に見えるのを防ぐ)。
+            showCooldownOverlay(remaining: max(1, Int(ceil(emitCooldown - elapsed))))
             return
         }
         lastCode = code
         lastEmitTime = now
+        // 読み取り成立時はオーバーレイを消す。
+        cooldownLabel.isHidden = true
+        hideCooldownOverlayWork?.cancel()
 
         let feedback = UINotificationFeedbackGenerator()
         feedback.notificationOccurred(.success)
