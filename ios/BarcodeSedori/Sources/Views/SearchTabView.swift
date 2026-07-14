@@ -153,35 +153,23 @@ struct SearchTabView: View {
 
     var body: some View {
         NavigationView {
-            Group {
-                if entitlements.isPro {
-                    // Pro: 従来どおりスクロール可能。実グラフを表示。
-                    ScrollView {
-                        VStack(spacing: 0) {
-                            topContent
-                            keepaGraph
-                                .padding(.horizontal)
-                        }
-                    }
-                } else {
-                    // 無料: スクロール無効の1画面固定。下の余白を広告で埋める。
-                    VStack(spacing: 0) {
-                        topContent
+            // 全体を1つのScrollViewにする(検索バーも中に含める)。ScrollViewがキーボード回避を
+            // 適切に処理するため、結果表示中にキーボードを出しても検索バーが画面外へ消えない。
+            ScrollView {
+                VStack(spacing: 0) {
+                    searchBar
+                        .padding(.horizontal)
+
+                    topContent
+
+                    if entitlements.isPro {
+                        keepaGraph
+                            .padding(.horizontal)
+                    } else {
                         freeAdArea
                             .padding(.horizontal)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     }
-                    // 高さが縮んでも中央寄せで上に上がらないよう、常に上詰めで固定する。
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 }
-            }
-            // 検索バーは safeAreaInset で上部に固定する。キーボードは下部safe areaなので
-            // 上部insetは影響を受けず、結果表示中でも検索バーが動かない(最も確実な固定方法)。
-            .safeAreaInset(edge: .top, spacing: 0) {
-                searchBar
-                    .padding(.horizontal)
-                    .padding(.vertical, 4)
-                    .background(Color(.systemBackground))
             }
             .navigationBarTitleDisplayMode(.inline)
             .navigationBarHidden(true)
@@ -206,9 +194,6 @@ struct SearchTabView: View {
             }
         }
         .navigationViewStyle(.stack)
-        // キーボード表示でレイアウトが上へ押し上げられ、上部の検索バーが画面外へ消えるのを防ぐ。
-        // NavigationView自体に付けないと(Group等の内側では)効かないことがある。
-        .ignoresSafeArea(.keyboard, edges: .bottom)
     }
 
     /// Pro/無料で共通の中身(カメラ・モード切替・結果カード・オファーパネル)。
