@@ -59,11 +59,33 @@
   - Keepa経路のキャッシュTTLを長めに（未接続の無料はやや古い価格で許容し、サーバーのKeepaコストを削減）。
 - Phase 2 で自己申告を廃し、**App Store Server API によるレシート/トランザクション検証**をサーバーで行う（署名付きトークンをアプリへ返し、以降のAPIはそのトークンで判定）。
 
-### 4.2b SP-API認証情報（BYO / OAuth）
+### 4.2b SP-API認証情報（BYO / OAuth）の保存方針
 
 - 利用者は自分のセラーアカウントを **OAuth（LWA）で接続**し、取得した refresh token をアプリが保持、リクエストヘッダー `X-Spapi-Refresh-Token` で送る（clientId/clientSecret は開発者アプリ共通=サーバー .env）。→ 現行実装済み。
 - **公開前に、試験用の「手動SP-APIキー入力欄」は削除**し、接続導線はOAuthのみにする。
-- **要検討（非ブロッカー）**: refresh token は現状 `UserDefaults` 保存（[SettingsStore.swift]）。セラーアカウントのアクセス権を持つ機微情報のため **Keychain 移行を推奨**。開発者判断で当面は現状維持でも可だが、BYOを広く提供する段階では対応が望ましい。
+
+#### 保存方式は2段階で考える
+
+**Stage A: 端末セキュア保存（当面の推奨・低コスト）**
+- refresh token は現状 `UserDefaults` 保存（`SettingsStore.swift`）だが、セラーアカウントのアクセス権を持つ機微情報のため、**端末のセキュアストレージへ移行する**。
+  - iOS: **Keychain**（`kSecClassGenericPassword` / `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` / 非同期＝Synchronizable=false）。
+  - Android（将来）: **Android Keystore で生成した鍵で暗号化 → EncryptedSharedPreferences もしくは DataStore+Tink に保存**（`security-crypto` はメンテ停滞のため Tink 直利用を優先検討）。`setUnlockedDeviceRequired(true)`、端末バインド。
+- 受け渡し経路も可能なら **ASWebAuthenticationSession（iOS）/ Custom Tabs（Android）** を使い、カスタムURLスキームのクエリでトークンを渡さない設計にする。
+- iOS単独 / 少数ユーザーの段階はこれで十分。
+
+**Stage B: サーバー保管＋セッショントークン（マルチプラットフォーム本格化時に移行）**
+- refresh token を**端末に置かずサーバーに暗号化保存**し、アプリには**失効可能・権限限定のセッショントークン**のみ渡す（端末には引き続きセッショントークンは保存するが、マスター資格情報ではない＝漏洩時の被害限定＋サーバー側で即失効可）。
+- 必要になるもの:
+  - **識別＋セッション管理**（必ずしもID/PWログインではない。最小は匿名デバイスID＋アプリ発行セッション。**機種変更/再インストール復元や iOS↔Android の連携共有**が要るなら **Sign in with Apple / Google Sign-In** を導入）。
+  - サーバーに**ユーザー識別＋永続ストレージ（DB／暗号化保存）**（現状の依存ゼロ・インメモリ構成には無いので新設）。
+  - **セッション期限切れ処理**（401→黙ってセッション再発行→元リクエストを自動リトライ→再発行も失敗なら再認証誘導）。
+  - **OAuth完了の冪等化**（連携中に通信断でも「トークン保存済みだがセッション未受領」等の中途半端が残らないよう再開可能に）。
+- 通信面の注意: 本アプリは元々検索が全面サーバー依存（オフライン不可）で、Stage B でも**追加ホップは無し**（同一サーバーが認証＋API担当）。新たな失敗モードはセッション期限切れのみで、上記リトライ設計で吸収できる。
+
+#### 移行トリガー（このいずれかで Stage A → B へ）
+- Android版を本格展開し、Pro/連携状態を iOS↔Android で共有したくなった。
+- 機種変更・再インストール後に Amazon 再連携なしで復元する体験を提供したくなった。
+- セラー資格情報の端末保存リスクを完全に無くしたくなった。
 
 ### 4.3 スキャン制限
 
