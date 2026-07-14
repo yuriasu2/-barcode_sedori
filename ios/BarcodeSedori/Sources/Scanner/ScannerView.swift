@@ -23,11 +23,14 @@ struct ScannerView: UIViewRepresentable {
     var isOCRMode: Bool
     /// true: 検索タブ表示中でカメラを動かす / false: 非表示なのでセッションを止めて電力節約
     var isActive: Bool
+    /// 読み取り確定から次の読み取りまでのクールダウン秒数(フリーミアム: 無料5秒 / Pro1秒)。
+    var emitCooldown: TimeInterval
 
     func makeUIView(context: Context) -> ScannerContainerView {
         let view = ScannerContainerView()
         view.onScan = onScan
         view.isOCRMode = isOCRMode
+        view.emitCooldown = emitCooldown
         view.isActiveState = isActive
         if isActive { view.startSession() }
         return view
@@ -36,6 +39,7 @@ struct ScannerView: UIViewRepresentable {
     func updateUIView(_ uiView: ScannerContainerView, context: Context) {
         uiView.onScan = onScan
         uiView.isOCRMode = isOCRMode
+        uiView.emitCooldown = emitCooldown
         uiView.setActive(isActive)
     }
 
@@ -83,9 +87,10 @@ final class ScannerContainerView: UIView {
     /// デデュープ管理: 直前に読み取ったコード。別コードを読むまで同じコードは再通知しない。
     /// バーコード/OCR経由で共通の抑止とする。(メインスレッドからのみアクセス)
     private var lastCode: String?
-    /// 最後に読み取りを通知した時刻。次の読み取りまで1秒のクールダウンを設ける。
+    /// 最後に読み取りを通知した時刻。次の読み取りまでクールダウンを設ける。
     private var lastEmitTime: Date = .distantPast
-    private let emitCooldown: TimeInterval = 1.0
+    /// クールダウン秒数。SwiftUI側(ScannerView)から注入する(無料5秒 / Pro1秒)。既定1秒。
+    var emitCooldown: TimeInterval = 1.0
 
     /// スキャン枠(画面上部)。0..1の相対座標(表示座標系、y原点は上)
     /// この矩形はUIレイヤーでの枠描画にも、AVCaptureのrectOfInterest計算にも使う。

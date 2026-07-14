@@ -48,6 +48,9 @@ final class SearchTabViewModel: ObservableObject {
     @Published var offersResult: OffersResult?
     /// オファー読み込み中フラグ
     @Published var isLoadingOffers = false
+    /// フリーミアム: 無料プラン&Keepa経路でオファーがPro限定ロックされている状態。
+    /// このときは実データを取得せず、パネルにぼかしダミー+鍵を表示する。
+    @Published var offersLocked = false
 
     private let apiClient: APIClient
     private let historyStore: ScanHistoryStore
@@ -71,6 +74,7 @@ final class SearchTabViewModel: ObservableObject {
         latestResult = nil
         offersResult = nil
         isLoadingOffers = false
+        offersLocked = false
         pendingHistoryItemId = nil
 
         Task { await self.search(code: code) }
@@ -99,7 +103,13 @@ final class SearchTabViewModel: ObservableObject {
                     }
                 }
             } else if let asin = result.asin, !asin.isEmpty {
-                await loadOffers(asin: asin, source: result.source)
+                // Keepa経路(SP-API未接続)のオファーはPro限定(サーバーも無料は403)。
+                // 無料プランは実取得せずロック表示にする。Proのみ第2段階を取得する。
+                if EntitlementStore.shared.isPro {
+                    await loadOffers(asin: asin, source: result.source)
+                } else {
+                    offersLocked = true
+                }
             }
         } catch {
             isSearching = false
@@ -132,9 +142,12 @@ struct SearchTabView: View {
     /// 検索タブが選択中(表示中)かどうか。falseのときはScannerViewへ渡してカメラセッションを停止させる。
     let isActive: Bool
     @StateObject private var viewModel = SearchTabViewModel()
+    @ObservedObject private var entitlements = EntitlementStore.shared
     @State private var selectedResult: SearchResult?
     @State private var searchBarText: String = ""
     @State private var showsKeywordUnsupportedAlert = false
+    /// フリーミアム: 各ゲート(OCR/オファー/グラフ/日次上限)から提示するペイウォール。
+    @State private var showPaywall = false
     /// CHANGES-v6.1.md: Keepaグラフの期間切替。初期値は90日。
     @State private var selectedGraphRange: GraphRange = .ninetyDays
 
@@ -149,10 +162,16 @@ struct SearchTabView: View {
 
                     ScannerView(
                         onScan: { scanned in
-                            viewModel.handleScan(scanned.code)
+                            // フリーミアム: 無料プランは1日100件まで。上限超過でペイウォール。
+                            if entitlements.isPro || ScanQuotaStore.shared.registerScanIfAllowed() {
+                                viewModel.handleScan(scanned.code)
+                            } else {
+                                showPaywall = true
+                            }
                         },
                         isOCRMode: viewModel.scanMode.isOCRMode,
-                        isActive: isActive
+                        isActive: isActive,
+                        emitCooldown: entitlements.isPro ? 1.0 : 5.0
                     )
                     .frame(maxWidth: .infinity)
                     .frame(height: UIScreen.main.bounds.height * 0.35)
@@ -179,6 +198,9 @@ struct SearchTabView: View {
             .navigationBarHidden(true)
             .alert("キーワード検索は今後対応予定です", isPresented: $showsKeywordUnsupportedAlert) {
                 Button("OK", role: .cancel) {}
+            }
+            .sheet(isPresented: $showPaywall) {
+                PaywallView()
             }
             .background {
                 NavigationLink(
@@ -246,16 +268,28 @@ struct SearchTabView: View {
         HStack(spacing: 0) {
             ForEach(ScanMode.allCases) { mode in
                 let isSelected = viewModel.scanMode == mode
+                // フリーミアム: OCRはPro限定。無料はロック表示し、タップでペイウォール。
+                let isLocked = (mode == .ocr && !entitlements.isPro)
                 Button {
-                    viewModel.scanMode = mode
+                    if isLocked {
+                        showPaywall = true
+                    } else {
+                        viewModel.scanMode = mode
+                    }
                 } label: {
-                    Text(mode.rawValue)
-                        .font(.subheadline)
-                        .fontWeight(.bold)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .foregroundColor(isSelected ? .white : .accentColor)
-                        .background(isSelected ? Color.accentColor : Color.clear)
+                    HStack(spacing: 4) {
+                        Text(mode.rawValue)
+                        if isLocked {
+                            Image(systemName: "lock.fill")
+                                .font(.caption2)
+                        }
+                    }
+                    .font(.subheadline)
+                    .fontWeight(.bold)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .foregroundColor(isSelected ? .white : .accentColor)
+                    .background(isSelected ? Color.accentColor : Color.clear)
                 }
                 .buttonStyle(.plain)
             }
@@ -306,6 +340,7 @@ struct SearchTabView: View {
                     color: Color(red: 0.13, green: 0.59, blue: 0.95),
                     offers: viewModel.offersResult?.new ?? [],
                     isLoading: viewModel.isLoadingOffers,
+                    isLocked: viewModel.offersLocked,
                     simplePrice: viewModel.latestResult?.prices?.new,
                     simpleLabel: "新品"
                 )
@@ -316,6 +351,7 @@ struct SearchTabView: View {
                     color: Color(red: 1.0, green: 0.60, blue: 0.0),
                     offers: viewModel.offersResult?.used ?? [],
                     isLoading: viewModel.isLoadingOffers,
+                    isLocked: viewModel.offersLocked,
                     simplePrice: viewModel.latestResult?.prices?.used,
                     simpleLabel: "中古"
                 )
@@ -324,8 +360,14 @@ struct SearchTabView: View {
         }
     }
 
-    /// source=spapiのときのみ商品詳細画面へ遷移する。
+    /// オファーパネルのタップ処理。
+    /// - ロック中(無料&Keepa)はペイウォールを開く。
+    /// - それ以外は source=spapi のときのみ商品詳細画面へ遷移する。
     private func handlePanelTap() {
+        if viewModel.offersLocked {
+            showPaywall = true
+            return
+        }
         guard let result = viewModel.latestResult, result.asin != nil else { return }
         guard result.source == "spapi" else { return }
         selectedResult = result
@@ -335,34 +377,41 @@ struct SearchTabView: View {
 
     @ViewBuilder
     private var keepaGraph: some View {
-        if let asin = viewModel.latestResult?.asin,
-           let url = APIClient.shared.graphURL(asin: asin, range: selectedGraphRange.rawValue) {
-            VStack(spacing: 8) {
-                AsyncImage(url: url) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(maxWidth: .infinity)
-                            .cornerRadius(10)
-                    case .failure:
-                        EmptyView()
-                    case .empty:
-                        HStack {
-                            Spacer()
-                            ProgressView()
-                            Spacer()
+        if let asin = viewModel.latestResult?.asin {
+            // フリーミアム: グラフはKeepa鍵消費(共有コスト)のためPro限定。
+            // 無料はぼかしダミー+鍵(+Phase2で広告)を表示し、タップでペイウォール。
+            if entitlements.isPro {
+                if let url = APIClient.shared.graphURL(asin: asin, range: selectedGraphRange.rawValue) {
+                    VStack(spacing: 8) {
+                        AsyncImage(url: url) { phase in
+                            switch phase {
+                            case .success(let image):
+                                image
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fit)
+                                    .frame(maxWidth: .infinity)
+                                    .cornerRadius(10)
+                            case .failure:
+                                EmptyView()
+                            case .empty:
+                                HStack {
+                                    Spacer()
+                                    ProgressView()
+                                    Spacer()
+                                }
+                                .frame(height: 80)
+                            @unknown default:
+                                EmptyView()
+                            }
                         }
-                        .frame(height: 80)
-                    @unknown default:
-                        EmptyView()
+                        // urlが変わるたびにAsyncImageを再生成させ、期間切替時に確実に再ロードする。
+                        .id(url)
+
+                        graphRangeSegment
                     }
                 }
-                // urlが変わるたびにAsyncImageを再生成させ、期間切替時に確実に再ロードする。
-                .id(url)
-
-                graphRangeSegment
+            } else {
+                LockedGraphView { showPaywall = true }
             }
         }
     }
@@ -460,16 +509,64 @@ private struct LatestResultCardView: View {
 
 // MARK: - オファーパネル View
 
+/// フリーミアム: 無料プラン用のロックされたグラフ表示(ぼかしダミー+鍵)。タップでペイウォールを開く。
+/// ※ Phase 2 でこの領域に広告バナーを表示する予定。
+private struct LockedGraphView: View {
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color(.secondarySystemBackground))
+                    .frame(height: 160)
+                    .overlay(
+                        Image(systemName: "chart.xyaxis.line")
+                            .resizable()
+                            .scaledToFit()
+                            .padding(28)
+                            .foregroundColor(Color.secondary.opacity(0.35))
+                    )
+                    .blur(radius: 3)
+
+                VStack(spacing: 6) {
+                    Image(systemName: "lock.fill")
+                        .font(.title3)
+                        .foregroundColor(.primary)
+                    Text("価格推移グラフはProで")
+                        .font(.subheadline)
+                        .fontWeight(.bold)
+                        .foregroundColor(.primary)
+                    Text("タップで詳細")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 private struct OffersPanelView: View {
     let title: String
     let color: Color
     let offers: [Offer]
     let isLoading: Bool
+    /// フリーミアム: 無料&Keepa経路でオファーがPro限定ロック中か。trueなら実データを出さず
+    /// ぼかしダミー+鍵を表示する(簡易価格は表示する)。
+    let isLocked: Bool
     /// 第1段階(/api/search)の簡易価格。オファー取得前(Keepa第2段階の読込中や取得0件)の
     /// 仮表示にのみ使う。オファーが取得できたら下のオファー一覧で上書きする。
     let simplePrice: Int?
     /// 簡易価格行のラベル("新品"/"中古")。
     let simpleLabel: String
+
+    /// ロック時に表示するぼかしダミーのオファー行(コンディション, ダミー価格)。実データではない。
+    private static let dummyOffers: [(String, String)] = [
+        ("新品", "¥1,480"),
+        ("非常に良い", "¥1,280"),
+        ("良い", "¥980"),
+    ]
 
     /// landed(送料込)昇順に並べたオファー。landedが無ければprice、いずれも無ければ末尾。
     private var sortedOffers: [Offer] {
@@ -497,6 +594,38 @@ private struct OffersPanelView: View {
         }
     }
 
+    /// ロック時のぼかしダミーオファー + 鍵オーバーレイ(タップはパネルのonTapGestureでペイウォールへ)。
+    private var lockedOffersTeaser: some View {
+        ZStack {
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(0..<Self.dummyOffers.count, id: \.self) { i in
+                    HStack(spacing: 4) {
+                        Text(Self.dummyOffers[i].0)
+                            .font(.caption2)
+                            .foregroundColor(.white)
+                        Text(Self.dummyOffers[i].1)
+                            .font(.caption)
+                            .fontWeight(.bold)
+                            .foregroundColor(.white)
+                            .monospacedDigit()
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                    }
+                }
+            }
+            .blur(radius: 4)
+            .accessibilityHidden(true)
+
+            VStack(spacing: 2) {
+                Image(systemName: "lock.fill")
+                    .foregroundColor(.white)
+                Text("Proで表示")
+                    .font(.caption2)
+                    .fontWeight(.bold)
+                    .foregroundColor(.white)
+            }
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(title)
@@ -509,7 +638,11 @@ private struct OffersPanelView: View {
                 .background(color)
 
             VStack(alignment: .leading, spacing: 4) {
-                if !offers.isEmpty {
+                if isLocked {
+                    // 無料&Keepa: 簡易価格は見せ、オファー一覧はぼかしダミー+鍵でロック(タップでペイウォール)。
+                    simplePriceRow
+                    lockedOffersTeaser
+                } else if !offers.isEmpty {
                     // オファー取得済み(SP-API一括 / Keepa第2段階): 送料込・最安値順・コンディション付きで
                     // 上から並べる。第1段階の簡易価格はここで上書きされる。
                     ForEach(sortedOffers.prefix(5)) { offer in
