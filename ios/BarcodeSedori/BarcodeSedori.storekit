@@ -1,0 +1,49 @@
+{
+  "identifier" : "B5D1A9C0",
+  "nonRenewingSubscriptions" : [],
+  "products" : [],
+  "settings" : {
+    "_failTransactionsEnabled" : false,
+    "_locale" : "ja_JP",
+    "_storefront" : "JPN",
+    "_storeKitErrors" : []
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "21C90001",
+      "localizations" : [],
+      "name" : "Pro",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "1980",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "21C90101",
+          "introductoryOffer" : {
+            "internalID" : "21C90201",
+            "paymentMode" : "free",
+            "subscriptionPeriod" : "P3D"
+          },
+          "localizations" : [
+            {
+              "description" : "全機能・広告なしで利用できます。",
+              "displayName" : "バーコードせどり Pro",
+              "locale" : "ja_JP"
+            }
+          ],
+          "productID" : "com.example.barcodesedori.pro.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Pro Monthly",
+          "subscriptionGroupID" : "21C90001",
+          "type" : "RecurringSubscription"
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 3,
+    "minor" : 0
+  }
+}

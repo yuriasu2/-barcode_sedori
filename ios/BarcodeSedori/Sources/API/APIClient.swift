@@ -69,8 +69,17 @@ final class APIClient {
         var request = URLRequest(url: url)
         request.timeoutInterval = 10
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        addPlanHeader(to: &request)
         addSpApiHeadersIfNeeded(to: &request)
         return request
+    }
+
+    /// フリーミアム: 自己申告のプランヘッダー(X-App-Plan)を付与する。
+    /// Pro状態は EntitlementStore(メインアクター)が UserDefaults にミラーした値を同期で読む。
+    /// キーは EntitlementStore.isProCachedKey と一致させること。
+    private func addPlanHeader(to request: inout URLRequest) {
+        let isPro = UserDefaults.standard.bool(forKey: "settings.isProCached")
+        request.setValue(isPro ? "pro" : "free", forHTTPHeaderField: "X-App-Plan")
     }
 
     /// SP-API連携が有効(Toggle ON かつリフレッシュトークンが非空)であれば、リクエストにSP-API認証ヘッダーを付与する。

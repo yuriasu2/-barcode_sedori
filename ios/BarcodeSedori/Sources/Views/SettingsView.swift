@@ -100,10 +100,39 @@ final class SettingsViewModel: ObservableObject {
 
 struct SettingsView: View {
     @StateObject private var viewModel = SettingsViewModel()
+    @ObservedObject private var entitlements = EntitlementStore.shared
+    @State private var showPaywall = false
 
     var body: some View {
         NavigationView {
             Form {
+                Section("プラン") {
+                    HStack {
+                        Text("現在のプラン")
+                        Spacer()
+                        if entitlements.isPro {
+                            Label("Pro", systemImage: "checkmark.seal.fill")
+                                .foregroundColor(.green)
+                        } else {
+                            Text("無料")
+                                .foregroundColor(.secondary)
+                        }
+                    }
+
+                    if !entitlements.isPro {
+                        Button {
+                            showPaywall = true
+                        } label: {
+                            Text("Proにアップグレード")
+                        }
+                        Button {
+                            Task { await entitlements.restore() }
+                        } label: {
+                            Text("購入を復元")
+                        }
+                    }
+                }
+
                 Section("サーバー設定") {
                     TextField("http://192.168.x.x:3000", text: $viewModel.serverURLString)
                         .keyboardType(.URL)
@@ -196,6 +225,9 @@ struct SettingsView: View {
                     message: Text(alert.message),
                     dismissButton: .default(Text("OK"))
                 )
+            }
+            .sheet(isPresented: $showPaywall) {
+                PaywallView()
             }
         }
         .navigationViewStyle(.stack)

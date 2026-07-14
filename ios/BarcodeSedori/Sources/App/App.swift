@@ -2,9 +2,16 @@ import SwiftUI
 
 @main
 struct BarcodeSedoriApp: App {
+    @StateObject private var entitlements = EntitlementStore.shared
+
     var body: some Scene {
         WindowGroup {
             RootContainerView()
+                .environmentObject(entitlements)
+                .task {
+                    // 起動時にPro状態(StoreKit)を初期化・監視開始する。
+                    entitlements.start()
+                }
         }
     }
 }
