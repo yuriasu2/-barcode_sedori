@@ -153,20 +153,20 @@ final class APIClient {
         return try await perform(request, as: OffersResult.self)
     }
 
-    /// Keepaグラフ画像のURL({サーバーURL}/api/graph?asin=&range=)を組み立てる。
-    /// AsyncImageに直接渡せるよう throws にはせず、失敗時は nil を返す。
-    /// - Parameter range: グラフ期間(日数)。省略時は90(サーバー側デフォルトと同じ)。
-    func graphURL(asin: String, range: Int = 90) -> URL? {
+    /// Keepaグラフ画像を取得する。
+    /// AsyncImageはカスタムヘッダー(X-App-Plan等)を送れず、Proでも /api/graph が403になるため、
+    /// 認証ヘッダー付きのmakeRequest経由で自前取得する。失敗時(403/通信断/非画像)はnil。
+    func graphImage(asin: String, range: Int = 90) async -> UIImage? {
         do {
-            let base = try baseURL()
-            guard var components = URLComponents(url: base.appendingPathComponent("/api/graph"), resolvingAgainstBaseURL: false) else {
-                return nil
-            }
-            components.queryItems = [
+            let request = try makeRequest(path: "/api/graph", queryItems: [
                 URLQueryItem(name: "asin", value: asin),
                 URLQueryItem(name: "range", value: String(range)),
-            ]
-            return components.url
+            ])
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+                return nil
+            }
+            return UIImage(data: data)
         } catch {
             return nil
         }

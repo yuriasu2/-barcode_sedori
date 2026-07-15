@@ -429,33 +429,10 @@ struct SearchTabView: View {
     /// Keepa価格推移グラフ(Pro専用。無料は body 側で freeAdArea を表示する)。
     @ViewBuilder
     private var keepaGraph: some View {
-        if let asin = viewModel.latestResult?.asin,
-           let url = APIClient.shared.graphURL(asin: asin, range: selectedGraphRange.rawValue) {
+        if let asin = viewModel.latestResult?.asin {
             VStack(spacing: 8) {
-                AsyncImage(url: url) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(maxWidth: .infinity)
-                            .cornerRadius(10)
-                    case .failure:
-                        EmptyView()
-                    case .empty:
-                        HStack {
-                            Spacer()
-                            ProgressView()
-                            Spacer()
-                        }
-                        .frame(height: 80)
-                    @unknown default:
-                        EmptyView()
-                    }
-                }
-                // urlが変わるたびにAsyncImageを再生成させ、期間切替時に確実に再ロードする。
-                .id(url)
-
+                // AsyncImageはX-App-Planヘッダーを送れずProでも403になるため、自前ローダで取得する。
+                KeepaGraphImageView(asin: asin, range: selectedGraphRange.rawValue)
                 graphRangeSegment
             }
         }
@@ -553,6 +530,51 @@ private struct LatestResultCardView: View {
 }
 
 // MARK: - オファーパネル View
+
+/// Keepaグラフ画像を認証ヘッダー付きで取得して表示する(AsyncImageの代替)。
+/// asin/range が変わると再取得。失敗時はフォールバック文言を出す。
+private struct KeepaGraphImageView: View {
+    let asin: String
+    let range: Int
+
+    @State private var image: UIImage?
+    @State private var loadFailed = false
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(maxWidth: .infinity)
+                    .cornerRadius(10)
+            } else if loadFailed {
+                Text("グラフを一時的に取得できません")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 20)
+            } else {
+                HStack {
+                    Spacer()
+                    ProgressView()
+                    Spacer()
+                }
+                .frame(height: 80)
+            }
+        }
+        // asin/range が変わるたびに再取得する。
+        .task(id: "\(asin)-\(range)") {
+            image = nil
+            loadFailed = false
+            if let loaded = await APIClient.shared.graphImage(asin: asin, range: range) {
+                image = loaded
+            } else {
+                loadFailed = true
+            }
+        }
+    }
+}
 
 private struct OffersPanelView: View {
     let title: String
