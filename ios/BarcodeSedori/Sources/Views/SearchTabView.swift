@@ -92,8 +92,9 @@ final class SearchTabViewModel: ObservableObject {
                 historyStore.add(historyItem)
             }
 
-            // SP-APIは第1段階応答にオファーを同梱するため、第2段階(/api/offers)の通信はしない。
-            // Keepa経路(offersがnil)は従来どおり第2段階で取得する。
+            // オファー一覧はSP-API連携時のみ表示する(第1段階に同梱)。
+            // Keepa経路(SP-API未接続)は無料/Proとも実取得せずロック表示にする
+            // (Keepa第2段階=getProduct(offers)のトークン消費を避け、Amazon連携を促す)。
             if let embedded = result.offers {
                 offersResult = embedded
                 isLoadingOffers = false
@@ -102,14 +103,8 @@ final class SearchTabViewModel: ObservableObject {
                         item.offersResult = embedded
                     }
                 }
-            } else if let asin = result.asin, !asin.isEmpty {
-                // Keepa経路(SP-API未接続)のオファーはPro限定(サーバーも無料は403)。
-                // 無料プランは実取得せずロック表示にする。Proのみ第2段階を取得する。
-                if EntitlementStore.shared.isPro {
-                    await loadOffers(asin: asin, source: result.source)
-                } else {
-                    offersLocked = true
-                }
+            } else if result.asin != nil {
+                offersLocked = true
             }
         } catch {
             isSearching = false
@@ -120,26 +115,6 @@ final class SearchTabViewModel: ObservableObject {
                 searchErrorMessage = error.localizedDescription
             }
         }
-    }
-
-    private func loadOffers(asin: String, source: String?) async {
-        isLoadingOffers = true
-        do {
-            let offers = try await apiClient.offers(asin: asin, source: source)
-            offersResult = offers
-
-            // CHANGES-v6.1.md: 第2段階(offers)取得完了時点で、該当履歴エントリを更新して保存する。
-            if let pendingHistoryItemId {
-                historyStore.update(id: pendingHistoryItemId) { item in
-                    item.offersResult = offers
-                }
-            }
-        } catch {
-            // オファー取得失敗はカード自体の表示を妨げないよう致命的エラーにしない。
-            offersResult = nil
-            print("オファー取得に失敗しました: \(error.localizedDescription)")
-        }
-        isLoadingOffers = false
     }
 }
 
@@ -412,11 +387,12 @@ struct SearchTabView: View {
     }
 
     /// オファーパネルのタップ処理。
-    /// - ロック中(無料&Keepa)はペイウォールを開く。
+    /// - ロック中(SP-API未接続)は設定タブ(Amazon連携)へ誘導する。
     /// - それ以外は source=spapi のときのみ商品詳細画面へ遷移する。
     private func handlePanelTap() {
         if viewModel.offersLocked {
-            showPaywall = true
+            // オファーはSP-API連携で解放されるため、設定タブへ誘導する。
+            AppNavigation.shared.selectedTab = AppNavigation.settingsTab
             return
         }
         guard let result = viewModel.latestResult, result.asin != nil else { return }
@@ -647,13 +623,10 @@ private struct OffersPanelView: View {
             VStack(spacing: 2) {
                 Image(systemName: "lock.fill")
                     .foregroundColor(.white)
-                Text("Proで表示")
+                Text("設定→Amazon連携で表示")
                     .font(.caption2)
                     .fontWeight(.bold)
                     .foregroundColor(.white)
-                Text("または設定→Amazon連携で表示")
-                    .font(.system(size: 9))
-                    .foregroundColor(.white.opacity(0.9))
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 4)

@@ -2,11 +2,11 @@ import SwiftUI
 
 /// TabView: 検索 / 商品(スキャン履歴) / 仕入れ(プレースホルダ) / 設定
 struct RootTabView: View {
-    @State private var selection = 0
+    @ObservedObject private var nav = AppNavigation.shared
 
     var body: some View {
-        TabView(selection: $selection) {
-            SearchTabView(isActive: selection == 0)
+        TabView(selection: $nav.selectedTab) {
+            SearchTabView(isActive: nav.selectedTab == 0)
                 .tabItem {
                     Label("検索", systemImage: "barcode.viewfinder")
                 }
