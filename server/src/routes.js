@@ -22,6 +22,13 @@ const searchCache = new LruCache();
 const offersCache = new LruCache();
 const graphCache = new LruCache({ ttlMs: 60 * 60 * 1000, maxSize: 200 }); // グラフ画像: 1時間キャッシュ
 
+/**
+ * Keepa経路の結果は長め(30分)にキャッシュする。
+ * KeepaはサーバーのAPIキー(共有コスト・トークン制)を消費するため、
+ * 同一コードの再検索での再取得を抑える。SP-API経路はBYO(各自の枠)のため既定TTL(5分)のまま。
+ */
+const KEEPA_CACHE_TTL_MS = 30 * 60 * 1000;
+
 const router = new MiniRouter();
 
 const SPAPI_CREDENTIALS_MISSING_MESSAGE = 'SP-API連携またはサーバーのKeepa設定が必要です';
@@ -315,7 +322,8 @@ async function handleSearchViaKeepa(req, res, code, cacheKey) {
       source: 'keepa',
     };
 
-    searchCache.set(cacheKey, responseBody);
+    // Keepa結果は長め(30分)にキャッシュしトークン消費を抑える(共有コスト削減)。
+    searchCache.set(cacheKey, responseBody, KEEPA_CACHE_TTL_MS);
     res.json(responseBody);
   } catch (err) {
     if (err.code === 'keepa_tokens_exhausted') {
@@ -566,7 +574,8 @@ router.get('/api/offers', async (req, res) => {
 
     try {
       const responseBody = await buildOffersResponseViaKeepa(asin);
-      offersCache.set(cacheKey, responseBody);
+      // Keepa結果は長め(30分)にキャッシュしトークン消費を抑える(共有コスト削減)。
+      offersCache.set(cacheKey, responseBody, KEEPA_CACHE_TTL_MS);
       res.json(responseBody);
     } catch (err) {
       if (err.code === 'keepa_tokens_exhausted') {

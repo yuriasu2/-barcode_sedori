@@ -28,7 +28,13 @@ class LruCache {
     return entry.value;
   }
 
-  set(key, value) {
+  /**
+   * @param {string} key
+   * @param {*} value
+   * @param {number} [ttlMs] このエントリだけのTTL(省略時はインスタンス既定)。
+   *   Keepa結果を長め(共有コスト削減)にするなど、エントリ単位で上書きするために使う。
+   */
+  set(key, value, ttlMs) {
     if (this.map.has(key)) {
       this.map.delete(key);
     } else if (this.map.size >= this.maxSize) {
@@ -36,7 +42,8 @@ class LruCache {
       const oldestKey = this.map.keys().next().value;
       this.map.delete(oldestKey);
     }
-    this.map.set(key, { value, expiresAt: Date.now() + this.ttlMs });
+    const effectiveTtl = typeof ttlMs === 'number' ? ttlMs : this.ttlMs;
+    this.map.set(key, { value, expiresAt: Date.now() + effectiveTtl });
   }
 
   delete(key) {

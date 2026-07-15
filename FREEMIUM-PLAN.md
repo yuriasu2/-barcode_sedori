@@ -1,14 +1,23 @@
 # フリーミアム化 実装企画書（無料版 / Pro版）
 
-作成: 2026-07-14 / 最終更新: 2026-07-14 / ステータス: **Phase 1 コード実装完了（実機検証中）**
+作成: 2026-07-14 / 最終更新: 2026-07-15 / ステータス: **Phase 1〜2 完了・Phase 3 一部完了（レシート検証は公開準備時）**
 
-## 実装状況
+## 実装状況（2026-07-15 時点・サーバー82テスト/iOSビルド 検証済み）
 
-- **Phase 1: 完了（コード）** — サーバーゲート(8a173e6) / iOS StoreKit基盤+ペイウォール(32794a8) / クライアントゲート(096bb54)。
-  - StoreKit基盤は実機で購入→Pro反映を確認済み。クライアントゲート(OCRロック/5秒クールダウン/日次100件/オファーぼかしダミー/グラフロック)はビルド・実機検証中。
-  - **本番デプロイ前の必須確認**: サーバーの `.env` に `LWA_REFRESH_TOKEN` を**置かない**こと。置くと自分のSP-APIアカウントに全ユーザーがフォールバックし、無料ユーザーにもオファーが出て共有枠を消費してしまう(BYO前提が崩れる)。clientId/clientSecretのみ.envに置く。
-- **Phase 2: 未着手** — AdMob広告(グラフ枠)。
-- **Phase 3: 未着手** — App Store Server APIでのサーバー側レシート検証、デバイス単位レート制限。
+- **Phase 1: 完了** — サーバーゲート(X-App-Plan) / StoreKit2基盤+ペイウォール / クライアントゲート（OCRロック・無料5秒/Pro1秒クールダウン・日次100件・オファーぼかしダミー+鍵・グラフロック）。「あと◯秒」オーバーレイも実装済み。StoreKit基盤は実機で購入→Pro反映を確認済み。
+- **Phase 2: 完了** — AdMobバナー広告。※企画から変更: バナーは**320x100固定**（アダプティブではない）、無料のグラフ枠は**ぼかしダミーグラフを廃止**し「鍵+Pro案内 + 広告バナー」構成。ATT/PrivacyInfo/SKAdNetwork(2件)対応済み。
+- **Phase 3: 一部完了**
+  - ✅ **デバイス単位のサーバー側レート制限**（X-Device-Id、無料の /api/search を日次バックストップ。既定150件=クライアント100の上・env FREE_DEVICE_DAILY_LIMIT）。
+  - ⏳ **App Store Server API によるレシート検証は未着手**（App Store Connect のアプリ・サブスク商品登録＋実トランザクションが前提のため、公開準備フェーズで実施）。
+- **共有コスト削減**: ✅ Keepa経路の検索/オファー結果を **30分キャッシュ**に延長（`KEEPA_CACHE_TTL_MS`）。SP-API経路はBYOのため既定5分のまま。
+
+### 公開前 必須TODO（未対応）
+- サーバー `.env` から `LWA_REFRESH_TOKEN` を外す（置くと全ユーザーが開発者のSP-API枠にフォールバックしBYO前提が崩れる。clientId/clientSecretのみ）。
+- バンドルID `com.example.barcodesedori` → 本番IDへ変更。
+- AdMob を本番IDへ差し替え（現在Googleテストの `GADApplicationIdentifier` / `bannerAdUnitID`）。SKAdNetworkは全リスト追加、PrivacyInfo の TrackingDomains 記載。
+- 試験用の手動SP-APIキー入力欄（`SettingsView` の SecureField）を削除しOAuthのみに。
+- （推奨・非ブロッカー）SP-API refresh token を UserDefaults → Keychain へ移行。
+- （公開前・偽装対策）自己申告 X-App-Plan を廃し、App Store Server API レシート検証を導入。
 
 ## 1. 目的
 
