@@ -207,7 +207,13 @@ struct SearchTabView: View {
     private var topContent: some View {
         ScannerView(
             onScan: { scanned in
-                // フリーミアム: 無料プランは1日100件まで。上限超過でペイウォール。
+                // OCRモードの無料お試し枠(1日3回)。超過でペイウォール。
+                if viewModel.scanMode.isOCRMode && !entitlements.isPro
+                    && !ScanQuotaStore.shared.registerOcrUseIfAllowed() {
+                    showPaywall = true
+                    return
+                }
+                // 無料プランは1日100件まで(OCR/バーコード共通)。上限超過でペイウォール。
                 if entitlements.isPro || ScanQuotaStore.shared.registerScanIfAllowed() {
                     viewModel.handleScan(scanned.code)
                 } else {
@@ -311,10 +317,10 @@ struct SearchTabView: View {
         HStack(spacing: 0) {
             ForEach(ScanMode.allCases) { mode in
                 let isSelected = viewModel.scanMode == mode
-                // フリーミアム: OCRはPro限定。無料はロック表示し、タップでペイウォール。
-                let isLocked = (mode == .ocr && !entitlements.isPro)
+                // フリーミアム: OCRは無料でも1日3回まで試せる。使い切ると鍵表示→タップでペイウォール。
+                let ocrExhausted = (mode == .ocr && !entitlements.isPro && !ScanQuotaStore.shared.canUseOcrToday)
                 Button {
-                    if isLocked {
+                    if ocrExhausted {
                         showPaywall = true
                     } else {
                         viewModel.scanMode = mode
@@ -322,7 +328,7 @@ struct SearchTabView: View {
                 } label: {
                     HStack(spacing: 4) {
                         Text(mode.rawValue)
-                        if isLocked {
+                        if ocrExhausted {
                             Image(systemName: "lock.fill")
                                 .font(.caption2)
                         }
@@ -623,6 +629,12 @@ private struct OffersPanelView: View {
                     .font(.caption2)
                     .fontWeight(.bold)
                     .foregroundColor(.white)
+                Text("または設定→Amazon連携で表示")
+                    .font(.system(size: 9))
+                    .foregroundColor(.white.opacity(0.9))
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 4)
             }
         }
     }
