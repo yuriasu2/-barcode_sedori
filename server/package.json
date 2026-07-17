@@ -9,7 +9,12 @@
   },
   "scripts": {
     "start": "node src/index.js",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "dev:cf": "wrangler dev",
+    "deploy:cf": "wrangler deploy"
   },
-  "dependencies": {}
+  "dependencies": {},
+  "devDependencies": {
+    "wrangler": "^4"
+  }
 }

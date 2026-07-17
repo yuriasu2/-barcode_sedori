@@ -6,10 +6,17 @@
  * - 429 / 5xx は Retry-After ヘッダを尊重した指数バックオフ + ジッターで最大3回リトライ
  */
 
-const https = require('https');
 const auth = require('./auth');
 
-const keepAliveAgent = new https.Agent({ keepAlive: true, maxSockets: 20 });
+// Workers環境等 https.Agent が使えない/不要な実行環境では undefined のままにする
+// (keep-aliveはNode実行時(Render)のみの最適化として扱う)。
+let keepAliveAgent;
+try {
+  const https = require('https');
+  keepAliveAgent = new https.Agent({ keepAlive: true, maxSockets: 20 });
+} catch (err) {
+  keepAliveAgent = undefined;
+}
 
 const MAX_RETRIES = 3;
 const BASE_DELAY_MS = 500;

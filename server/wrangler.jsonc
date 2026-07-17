@@ -1,0 +1,17 @@
+{
+  "name": "barcode-sedori-api",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-07-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": "public",
+    "binding": "ASSETS",
+    "run_worker_first": ["/health", "/api/*", "/oauth/*"]
+  },
+  "vars": {
+    "FREE_DEVICE_DAILY_LIMIT": "150"
+  }
+  // Secrets(LWA_CLIENT_ID/LWA_CLIENT_SECRET/KEEPA_API_KEY/SPAPI_APP_ID)は
+  // `wrangler secret put` で登録する(このファイルに書かない)。
+  // LWA_REFRESH_TOKEN はどの環境にも置かない(BYO前提)。
+}

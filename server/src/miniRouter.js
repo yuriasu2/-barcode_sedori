@@ -85,6 +85,83 @@ class MiniRouter {
       }
     };
   }
+
+  /**
+   * Cloudflare Workers 等、Web標準 Request/Response を使う実行環境向けのハンドラを返す。
+   * (request: Request) => Promise<Response> という関数。
+   * 既存の handler()(Node req/res用)はそのまま残し、これは並行で追加するアダプタ。
+   */
+  fetchHandler() {
+    return async (request) => {
+      const url = new URL(request.url);
+      const route = this.match(request.method, url.pathname);
+
+      let status = 200;
+      let body;
+      let headers = {};
+
+      const resCollector = {
+        status(code) {
+          status = code;
+          return resCollector;
+        },
+        json(payload) {
+          headers['Content-Type'] = 'application/json; charset=utf-8';
+          body = JSON.stringify(payload);
+          return resCollector;
+        },
+        redirect(location) {
+          if (!status || status === 200) status = 302;
+          headers['Location'] = location;
+          body = undefined;
+          return resCollector;
+        },
+        html(str) {
+          headers['Content-Type'] = 'text/html; charset=utf-8';
+          body = str;
+          return resCollector;
+        },
+        binary(buf, contentType) {
+          headers['Content-Type'] = contentType || 'application/octet-stream';
+          body = buf;
+          return resCollector;
+        },
+      };
+
+      if (!route) {
+        resCollector.status(404).json({ error: 'not_found' });
+        return new Response(body, { status, headers });
+      }
+
+      const query = Object.fromEntries(url.searchParams);
+
+      const reqHeaders = {};
+      for (const [key, value] of request.headers) {
+        reqHeaders[key.toLowerCase()] = value;
+      }
+
+      let reqBody = undefined;
+      if (request.method === 'POST') {
+        reqBody = await request.json().catch(() => ({}));
+      }
+
+      const req = {
+        method: request.method,
+        url: request.url,
+        query,
+        body: reqBody,
+        headers: reqHeaders,
+      };
+
+      try {
+        await route.handler(req, resCollector);
+      } catch (err) {
+        resCollector.status(500).json({ error: 'internal_error', message: err.message });
+      }
+
+      return new Response(body, { status, headers });
+    };
+  }
 }
 
 function readJsonBody(req) {
