@@ -8,7 +8,15 @@
     "binding": "ASSETS",
     "run_worker_first": ["/health", "/api/*", "/oauth/*"]
   },
+  // 本番ドメイン。CloudflareがDNSレコードとTLS証明書を自動作成する。
+  // アプリはこのURLを参照するため、将来サーバーを移してもアプリ更新が不要になる。
+  "routes": [
+    { "pattern": "api.sellira.jp", "custom_domain": true }
+  ],
   "vars": {
+    // 秘密ではない公開識別子。コード側にも同じ既定値があるが意図を明示するため置く。
+    "MARKETPLACE_ID": "A1VC38T7YXB528",
+    "SPAPI_ENDPOINT": "https://sellingpartnerapi-fe.amazon.com",
     "FREE_DEVICE_DAILY_LIMIT": "150"
   }
   // Secrets(LWA_CLIENT_ID/LWA_CLIENT_SECRET/KEEPA_API_KEY/SPAPI_APP_ID)は

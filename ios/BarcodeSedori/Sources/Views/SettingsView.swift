@@ -134,7 +134,7 @@ struct SettingsView: View {
                 }
 
                 Section("サーバー設定") {
-                    TextField("http://192.168.x.x:3000", text: $viewModel.serverURLString)
+                    TextField(SettingsStore.defaultServerURL, text: $viewModel.serverURLString)
                         .keyboardType(.URL)
                         .textInputAutocapitalization(.never)
                         .disableAutocorrection(true)
@@ -160,7 +160,7 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    Text("同一Wi-Fi上のPCで動作しているサーバーのURLを指定してください。例: http://192.168.1.10:3000")
+                    Text("通常は変更不要です(既定: \(SettingsStore.defaultServerURL))。開発時にローカルサーバーへ向ける場合のみ変更してください。")
                         .font(.footnote)
                         .foregroundColor(.secondary)
                 }

@@ -43,9 +43,13 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    /// 本番APIの既定URL(独自ドメイン)。
+    /// Cloudflare Workers を指すが、DNSで切替可能なため将来サーバーを移してもアプリ更新は不要。
+    static let defaultServerURL = "https://api.sellira.jp"
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        self.serverURLString = defaults.string(forKey: Keys.serverURL) ?? "http://192.168.1.10:3000"
+        self.serverURLString = defaults.string(forKey: Keys.serverURL) ?? Self.defaultServerURL
         self.spapiLinkEnabled = defaults.bool(forKey: Keys.spapiLinkEnabled)
         self.spapiRefreshToken = defaults.string(forKey: Keys.spapiRefreshToken) ?? ""
         // 未設定時は既定でオン(Render SP-APIを使う従来動作)にする。
