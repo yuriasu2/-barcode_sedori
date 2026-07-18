@@ -46,7 +46,7 @@ struct PaywallView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("バーコードせどり Pro")
+                        Text("アマレンズ Pro")
                             .font(.title2)
                             .fontWeight(.bold)
                         Text("すべての機能を制限なく、広告なしで。")
