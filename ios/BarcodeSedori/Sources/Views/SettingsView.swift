@@ -170,8 +170,8 @@ struct SettingsView: View {
                 }
 
                 Section("開発者向け") {
-                    Toggle("Render側SP-APIを使用する", isOn: $viewModel.renderSpApiEnabled)
-                    Text("オフにするとサーバーのSP-APIを読み込まず、Keepaのみで価格を取得します。Keepaの動作確認用の一時トグルです。")
+                    Toggle("サーバー側SP-APIを使用する", isOn: $viewModel.renderSpApiEnabled)
+                    Text("SP-API未連携のときのみ有効な開発用トグルです。オフにするとサーバーのSP-APIを使わずKeepaのみで価格を取得します。連携済みの場合はご自身のSP-APIが優先されるため、この設定は影響しません。")
                         .font(.footnote)
                         .foregroundColor(.secondary)
                 }

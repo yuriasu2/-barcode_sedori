@@ -100,15 +100,19 @@ final class APIClient {
     private func addSpApiHeadersIfNeeded(to request: inout URLRequest) {
         let settings = SettingsStore.shared
 
-        // Render側SP-APIが無効なら、サーバーにSP-APIを一切使わせない指示ヘッダーを付与して即return。
-        // (サーバーは.env/ヘッダーのSP-API認証を無視しKeepaへフォールバックする)
-        guard settings.renderSpApiEnabled else {
-            request.setValue("1", forHTTPHeaderField: "X-Disable-Spapi")
+        // 利用者自身の連携(BYO)が有効なら、そのリフレッシュトークンを常に送る。
+        // このとき X-Disable-Spapi は付けない。付けるとサーバーがSP-APIを一切使わなくなり、
+        // 連携済みでもオファーが出なくなるため(実際にその不具合が発生した)。
+        if settings.isSpApiLinkUsable {
+            request.setValue(settings.spapiRefreshToken, forHTTPHeaderField: "X-Spapi-Refresh-Token")
             return
         }
 
-        guard settings.isSpApiLinkUsable else { return }
-        request.setValue(settings.spapiRefreshToken, forHTTPHeaderField: "X-Spapi-Refresh-Token")
+        // 未連携のときだけ、開発用トグルでサーバー側SP-API(.envの開発者資格情報)の使用可否を切り替える。
+        // オフならKeepa経路の動作確認ができる。
+        if !settings.renderSpApiEnabled {
+            request.setValue("1", forHTTPHeaderField: "X-Disable-Spapi")
+        }
     }
 
     private func perform<T: Decodable>(_ request: URLRequest, as type: T.Type) async throws -> T {
