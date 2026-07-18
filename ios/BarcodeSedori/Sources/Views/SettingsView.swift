@@ -3,31 +3,37 @@ import UIKit
 
 @MainActor
 final class SettingsViewModel: ObservableObject {
-    @Published var serverURLString: String {
-        didSet {
-            settingsStore.serverURLString = serverURLString
-        }
-    }
     @Published var connectionState: ConnectionState = .idle
 
     // MARK: SP-API連携
+    //
+    // 設定値は SettingsStore(シングルトン) を唯一の真実として直接読み書きする。
+    // ViewModel側に@Publishedのコピーを持つと、OAuthコールバックで
+    // SettingsStore が更新されても古い値を保持し続け、didSetで巻き戻してしまう
+    // (連携済みなのにヘッダーが送られない不具合の原因になっていた)。
 
-    @Published var spapiLinkEnabled: Bool {
-        didSet {
-            settingsStore.spapiLinkEnabled = spapiLinkEnabled
-        }
-    }
-    @Published var spapiRefreshToken: String {
-        didSet {
-            settingsStore.spapiRefreshToken = spapiRefreshToken
-        }
+    /// サーバーURL。
+    var serverURLString: String {
+        get { settingsStore.serverURLString }
+        set { settingsStore.serverURLString = newValue }
     }
 
-    /// Render側SP-APIを使うか。オフでKeepa動作確認用にSP-APIを読み込ませない。
-    @Published var renderSpApiEnabled: Bool {
-        didSet {
-            settingsStore.renderSpApiEnabled = renderSpApiEnabled
-        }
+    /// 自分のSP-APIを使用するか。
+    var spapiLinkEnabled: Bool {
+        get { settingsStore.spapiLinkEnabled }
+        set { settingsStore.spapiLinkEnabled = newValue }
+    }
+
+    /// SP-API リフレッシュトークン。
+    var spapiRefreshToken: String {
+        get { settingsStore.spapiRefreshToken }
+        set { settingsStore.spapiRefreshToken = newValue }
+    }
+
+    /// サーバー側SP-APIを使うか。オフでKeepa動作確認用にSP-APIを読み込ませない。
+    var renderSpApiEnabled: Bool {
+        get { settingsStore.renderSpApiEnabled }
+        set { settingsStore.renderSpApiEnabled = newValue }
     }
 
     @Published var spapiTestAlert: SpApiTestAlert?
@@ -51,10 +57,6 @@ final class SettingsViewModel: ObservableObject {
     init(settingsStore: SettingsStore = .shared, apiClient: APIClient = .shared) {
         self.settingsStore = settingsStore
         self.apiClient = apiClient
-        self.serverURLString = settingsStore.serverURLString
-        self.spapiLinkEnabled = settingsStore.spapiLinkEnabled
-        self.spapiRefreshToken = settingsStore.spapiRefreshToken
-        self.renderSpApiEnabled = settingsStore.renderSpApiEnabled
     }
 
     func testConnection() async {
@@ -101,6 +103,8 @@ final class SettingsViewModel: ObservableObject {
 struct SettingsView: View {
     @StateObject private var viewModel = SettingsViewModel()
     @ObservedObject private var entitlements = EntitlementStore.shared
+    /// 設定値の唯一の真実。OAuthコールバックでの更新を画面に反映させるため直接監視する。
+    @ObservedObject private var settings = SettingsStore.shared
     @State private var showPaywall = false
 
     var body: some View {
