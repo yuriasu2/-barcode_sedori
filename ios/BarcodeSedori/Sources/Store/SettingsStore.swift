@@ -8,9 +8,13 @@ final class SettingsStore: ObservableObject {
     private enum Keys {
         static let serverURL = "settings.serverURL"
         static let spapiLinkEnabled = "settings.spapiLinkEnabled"
-        static let spapiRefreshToken = "settings.spapiRefreshToken"
+        /// 旧: UserDefaultsに平文保存していたキー。現在はKeychainへ移行済み(初回起動時に自動移行して削除)。
+        static let legacySpapiRefreshToken = "settings.spapiRefreshToken"
         static let renderSpApiEnabled = "settings.renderSpApiEnabled"
     }
+
+    /// Keychain上のアカウント名(リフレッシュトークン用)。
+    private static let keychainRefreshTokenAccount = "spapi.refreshToken"
 
     private let defaults: UserDefaults
 
@@ -27,10 +31,12 @@ final class SettingsStore: ObservableObject {
         }
     }
 
-    /// SP-API (LWA) リフレッシュトークン
+    /// SP-API (LWA) リフレッシュトークン。
+    /// 販売パートナーのセラーアカウントへのアクセス権を持つ機微情報のため、
+    /// UserDefaults(平文)ではなくKeychainに保存する(AmazonのDPP要件)。
     @Published var spapiRefreshToken: String {
         didSet {
-            defaults.set(spapiRefreshToken, forKey: Keys.spapiRefreshToken)
+            KeychainStore.set(spapiRefreshToken, for: Self.keychainRefreshTokenAccount)
         }
     }
 
@@ -51,9 +57,23 @@ final class SettingsStore: ObservableObject {
         self.defaults = defaults
         self.serverURLString = defaults.string(forKey: Keys.serverURL) ?? Self.defaultServerURL
         self.spapiLinkEnabled = defaults.bool(forKey: Keys.spapiLinkEnabled)
-        self.spapiRefreshToken = defaults.string(forKey: Keys.spapiRefreshToken) ?? ""
-        // 未設定時は既定でオン(Render SP-APIを使う従来動作)にする。
+        // 未設定時は既定でオン(サーバー側SP-APIを使う従来動作)にする。
         self.renderSpApiEnabled = (defaults.object(forKey: Keys.renderSpApiEnabled) as? Bool) ?? true
+
+        // リフレッシュトークンはKeychainから読む。
+        // 旧バージョンでUserDefaultsに平文保存されていた場合は、ここでKeychainへ移行し平文を削除する。
+        if let keychainToken = KeychainStore.get(Self.keychainRefreshTokenAccount) {
+            self.spapiRefreshToken = keychainToken
+        } else if let legacyToken = defaults.string(forKey: Keys.legacySpapiRefreshToken),
+                  !legacyToken.isEmpty {
+            self.spapiRefreshToken = legacyToken
+            KeychainStore.set(legacyToken, for: Self.keychainRefreshTokenAccount)
+            defaults.removeObject(forKey: Keys.legacySpapiRefreshToken)
+        } else {
+            self.spapiRefreshToken = ""
+            // 空文字のまま残っている旧キーも掃除しておく。
+            defaults.removeObject(forKey: Keys.legacySpapiRefreshToken)
+        }
     }
 
     /// SP-API連携が利用可能か(有効かつリフレッシュトークンが非空)
