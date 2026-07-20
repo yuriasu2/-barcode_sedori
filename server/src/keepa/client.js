@@ -108,6 +108,16 @@ function normalizePrice(value) {
 }
 
 /**
+ * 寸法・重量(packageHeight/Length/Width/Weight)を正規化する。
+ * これらのフィールドはKeepaで「データなし」が 0 または -1 で表現されるため、
+ * 0値も許容してしまう normalizePrice とは別に、0以下をすべてnullにするヘルパーを設ける。
+ */
+function normalizeDimension(value) {
+  if (typeof value !== 'number' || value <= 0) return null;
+  return value;
+}
+
+/**
  * Keepa APIへGETリクエストを送る共通関数。
  * @param {string} path 例: '/product'
  * @param {object} params クエリパラメータ(keyは自動付与)
@@ -269,11 +279,25 @@ function mapProductToSearchResult(product) {
   const newPrice = normalizePrice(current[CSV_TYPE.NEW]);
   const usedPrice = normalizePrice(current[CSV_TYPE.USED]);
 
+  const brand = product.brand && String(product.brand).trim() ? product.brand : null;
+
+  // 寸法(mm)は3値すべて取れた場合のみオブジェクトを返す。一部欠けはヘッダー表示側では
+  // 「取れた値のみ降順連結」で対応するため、ここでは各値を独立にnull正規化するだけに留める。
+  const length = normalizeDimension(product.packageLength);
+  const width = normalizeDimension(product.packageWidth);
+  const height = normalizeDimension(product.packageHeight);
+  const dimensionsMm = length == null && width == null && height == null ? null : { length, width, height };
+
+  const weightG = normalizeDimension(product.packageWeight);
+
   return {
     asin: product.asin || null,
     title: product.title || null,
     imageUrl: resolveImageUrl(product),
     salesRank,
+    brand,
+    dimensionsMm,
+    weightG,
     prices: {
       cart: null, // BuyBox取得には追加トークンが必要なため第1段階ではnull
       new: newPrice,
@@ -404,6 +428,7 @@ module.exports = {
   CONDITION_STRING_MAP,
   getApiKey,
   normalizePrice,
+  normalizeDimension,
   buildImageUrl,
   resolveImageUrl,
   extractLatestOfferPrice,

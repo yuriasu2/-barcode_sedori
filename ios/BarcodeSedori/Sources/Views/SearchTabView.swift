@@ -497,11 +497,65 @@ private struct LatestResultCardView: View {
                 }
             }
             Spacer()
+
+            // ブランド・サイズ・重量(Keepa経路のみ取得可)。右側の空きスペースに表示する。
+            // brand/dimensionsMm/weightGがすべてnilなら何も描画しない(SP-API経路・旧サーバー互換)。
+            if result.brand != nil || result.dimensionsMm != nil || result.weightG != nil {
+                VStack(alignment: .leading, spacing: 2) {
+                    if let brand = result.brand {
+                        Text("ブランド：\(brand)")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                    }
+
+                    if let sizeText = LatestResultCardView.formatSizeLine(result.dimensionsMm, result.weightG) {
+                        Text("サイズ：\(sizeText)")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                    }
+                }
+                .frame(maxWidth: 110, alignment: .leading)
+            }
         }
         // CHANGES-v6.1.md: カードの上下余白を0にし、薄灰色の囲み枠(background/cornerRadius)を削除。
         // 左右は現状維持(呼び出し元のScrollView側で.padding(.horizontal)を付与)。
         .padding(.horizontal, 0)
         .padding(.vertical, 0)
+    }
+
+    /// 「サイズ：」の値部分(寸法+重量)を組み立てる。両方nilならnilを返し行ごと非表示にする。
+    static func formatSizeLine(_ dimensions: DimensionsMm?, _ weightG: Int?) -> String? {
+        let dimensionsText = formatDimensionsCm(dimensions)
+        let weightText = weightG.map { "\($0)g" }
+        let parts = [dimensionsText, weightText].compactMap { $0 }
+        guard !parts.isEmpty else { return nil }
+        // 全角スペースで区切る(狭いスペースでも視認しやすいよう)。
+        return parts.joined(separator: "　")
+    }
+
+    /// 寸法(mm)を「大x中x小 cm」形式にフォーマットする。
+    /// 取得できた値のみ(1〜3個)を降順で連結する。3つとも取れない場合はnil。
+    private static func formatDimensionsCm(_ dimensions: DimensionsMm?) -> String? {
+        guard let dimensions else { return nil }
+        let mmValues = [dimensions.length, dimensions.width, dimensions.height].compactMap { $0 }
+        guard !mmValues.isEmpty else { return nil }
+        let sortedDesc = mmValues.sorted(by: >)
+        let parts = sortedDesc.map(formatCmValue)
+        return parts.joined(separator: "x") + " cm"
+    }
+
+    /// mm値をcmに変換し、小数第1位までフォーマットする(整数なら小数点以下を出さない)。
+    /// 例: 210mm -> "21", 32mm -> "3.2"
+    private static func formatCmValue(_ mm: Int) -> String {
+        let cm = (Double(mm) / 10.0 * 10).rounded() / 10
+        if cm.truncatingRemainder(dividingBy: 1) == 0 {
+            return String(Int(cm))
+        }
+        return String(format: "%.1f", cm)
     }
 }
 
