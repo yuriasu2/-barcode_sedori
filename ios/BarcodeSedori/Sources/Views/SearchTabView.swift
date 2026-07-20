@@ -496,7 +496,9 @@ private struct LatestResultCardView: View {
                         }
 
                         if let rank = result.salesRank {
-                            Text("ランキング: \(rank)位")
+                            // ISBN/ランク列は fixedSize で自然幅を占めるため、
+                            // ラベルを短くするとブランド・サイズを左へ寄せられる。
+                            Text("ランク: \(rank)位")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
