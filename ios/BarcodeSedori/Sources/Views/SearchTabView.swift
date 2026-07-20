@@ -529,8 +529,8 @@ private struct LatestResultCardView: View {
                     Spacer(minLength: 0)
                 }
             }
-
-            Spacer(minLength: 0)
+            // ここに Spacer を置くとテキスト側から横幅を奪い、minimumScaleFactorによる
+            // 自動縮小を誘発する。VStack(alignment: .leading)が自然に左詰めするため不要。
         }
         // CHANGES-v6.1.md: カードの上下余白を0にし、薄灰色の囲み枠(background/cornerRadius)を削除。
         // 左右は現状維持(呼び出し元のScrollView側で.padding(.horizontal)を付与)。
