@@ -481,60 +481,68 @@ private struct LatestResultCardView: View {
                         .lineLimit(2)
                 }
 
-                HStack(spacing: 6) {
-                    Image(systemName: "barcode.viewfinder")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Text(scannedCode)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
+                // ブランド・寸法・重量はタイトル行を侵さないよう、ISBN/ランキングと同じ行グループに置く。
+                // 左詰めのまま少しだけ間隔を空けて横に並べる。
+                HStack(alignment: .top, spacing: 14) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "barcode.viewfinder")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Text(scannedCode)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
 
-                if let rank = result.salesRank {
-                    Text("ランキング: \(rank)位")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                        if let rank = result.salesRank {
+                            Text("ランキング: \(rank)位")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .fixedSize(horizontal: true, vertical: false)
+
+                    // ブランド・寸法・重量(Keepa経路のみ取得可)。
+                    // 3つともnilなら何も描画しない(SP-API経路・旧サーバー互換)。
+                    if result.brand != nil || result.dimensionsMm != nil || result.weightG != nil {
+                        VStack(alignment: .leading, spacing: 2) {
+                            if let brand = result.brand {
+                                Text("ブランド：\(brand)")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.6)
+                            }
+
+                            // 寸法と重量は1行にまとめる。末尾の cm / g で内容が自明なためラベルは付けない。
+                            if let sizeText = LatestResultCardView.formatSizeLine(result.dimensionsMm, result.weightG) {
+                                Text(sizeText)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.6)
+                            }
+                        }
+                    }
+
+                    Spacer(minLength: 0)
                 }
             }
-            Spacer()
 
-            // ブランド・サイズ・重量(Keepa経路のみ取得可)。右側の空きスペースに表示する。
-            // brand/dimensionsMm/weightGがすべてnilなら何も描画しない(SP-API経路・旧サーバー互換)。
-            if result.brand != nil || result.dimensionsMm != nil || result.weightG != nil {
-                VStack(alignment: .leading, spacing: 2) {
-                    if let brand = result.brand {
-                        Text("ブランド：\(brand)")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
-                    }
-
-                    // 寸法と重量は1行に収めると幅が足りず末尾が切れるため、行を分ける。
-                    // 寸法は末尾の cm で自明なためラベルを付けない。
-                    if let dimensionsText = LatestResultCardView.formatDimensionsCm(result.dimensionsMm) {
-                        Text(dimensionsText)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.6)
-                    }
-
-                    if let weightG = result.weightG {
-                        Text("重さ：\(weightG)g")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.6)
-                    }
-                }
-                .frame(maxWidth: 140, alignment: .leading)
-            }
+            Spacer(minLength: 0)
         }
         // CHANGES-v6.1.md: カードの上下余白を0にし、薄灰色の囲み枠(background/cornerRadius)を削除。
         // 左右は現状維持(呼び出し元のScrollView側で.padding(.horizontal)を付与)。
         .padding(.horizontal, 0)
         .padding(.vertical, 0)
+    }
+
+    /// 寸法と重量を1行にまとめる(例: "25.2x18x1.4 cm　440g")。
+    /// 単位で内容が自明なためラベルは付けない。両方nilならnilを返し行ごと非表示にする。
+    static func formatSizeLine(_ dimensions: DimensionsMm?, _ weightG: Int?) -> String? {
+        let parts = [formatDimensionsCm(dimensions), weightG.map { "\($0)g" }].compactMap { $0 }
+        guard !parts.isEmpty else { return nil }
+        return parts.joined(separator: "　")
     }
 
     /// 寸法(mm)を「大x中x小 cm」形式にフォーマットする。
