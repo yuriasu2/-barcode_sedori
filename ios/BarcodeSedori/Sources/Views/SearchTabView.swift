@@ -484,7 +484,8 @@ private struct LatestResultCardView: View {
                 // ブランド・寸法・重量はタイトル行を侵さないよう、ISBN/ランキングと同じ行グループに置く。
                 // 左詰めのまま少しだけ間隔を空けて横に並べる。
                 HStack(alignment: .top, spacing: 14) {
-                    VStack(alignment: .leading, spacing: 6) {
+                    // 行間はブランド・サイズ側(spacing: 2)と揃える。
+                    VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 6) {
                             Image(systemName: "barcode.viewfinder")
                                 .font(.caption)
@@ -514,9 +515,9 @@ private struct LatestResultCardView: View {
                                     .minimumScaleFactor(0.6)
                             }
 
-                            // 寸法と重量は1行にまとめる。末尾の cm / g で内容が自明なためラベルは付けない。
+                            // 寸法と重量は1行にまとめる。
                             if let sizeText = LatestResultCardView.formatSizeLine(result.dimensionsMm, result.weightG) {
-                                Text(sizeText)
+                                Text("サイズ：\(sizeText)")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                                     .lineLimit(1)
@@ -538,7 +539,7 @@ private struct LatestResultCardView: View {
     }
 
     /// 寸法と重量を1行にまとめる(例: "25.2x18x1.4 cm　440g")。
-    /// 単位で内容が自明なためラベルは付けない。両方nilならnilを返し行ごと非表示にする。
+    /// 両方nilならnilを返し、呼び出し側で行ごと非表示にする。
     static func formatSizeLine(_ dimensions: DimensionsMm?, _ weightG: Int?) -> String? {
         let parts = [formatDimensionsCm(dimensions), weightG.map { "\($0)g" }].compactMap { $0 }
         guard !parts.isEmpty else { return nil }
