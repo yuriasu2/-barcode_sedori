@@ -511,8 +511,9 @@ private struct LatestResultCardView: View {
                     }
 
                     // 寸法と重量は1行に収めると幅が足りず末尾が切れるため、行を分ける。
+                    // 寸法は末尾の cm で自明なためラベルを付けない。
                     if let dimensionsText = LatestResultCardView.formatDimensionsCm(result.dimensionsMm) {
-                        Text("サイズ：\(dimensionsText)")
+                        Text(dimensionsText)
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .lineLimit(1)
