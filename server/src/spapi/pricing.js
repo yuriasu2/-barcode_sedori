@@ -46,7 +46,7 @@ async function searchCatalogItems(identifier, credentials) {
       marketplaceIds: marketplaceId,
       identifiers: identifier,
       identifiersType: 'EAN',
-      includedData: 'summaries,images,salesRanks',
+      includedData: 'summaries,images,salesRanks,attributes',
     },
     credentials,
   });

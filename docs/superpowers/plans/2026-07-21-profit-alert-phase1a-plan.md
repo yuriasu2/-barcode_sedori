@@ -13,7 +13,9 @@
 - Keepaの `stats.current` で追加取得するのは `[4] LISTPRICE`（定価）と `[11] COUNT_NEW` / `[12] COUNT_USED`（出品者数）。
   いずれも `isExtraData=false` でoffers不要（調査済み）。`[19]〜[22]` の中古細分価格はoffers必須のため使わない
   → Keepa経路のコンディションは新品/中古の2区分のみ。
-- 定価はSP-APIでは実質取得不可（`attributes.list_price` は書籍等で欠落しがち）→ SP-API経路は定価条件を常にスキップ。
+- 定価はCatalog Items API v2022-04-01 の `includedData=attributes` で `attributes.list_price` から取得可
+  （書籍で実測確認済み）。ただし値は税抜のため、税込換算（×1.10、書籍は軽減税率対象外）して使う。
+  取得できない商品のみ定価条件をスキップする。
 - 手数料は既存計算を再利用: `breakEven = 売値 − 手数料` が両経路で計算済み（Keepa: `routes.js` の
   `computeBreakEven`、SP-API: `getMyFeesEstimatesBatch` + `pricing.fallbackFees`）。
   **粗利 = breakEven − 仕入れ値** で算出する。
@@ -64,7 +66,8 @@
   無ければ `offers.length`、payloadなしはnull）を追加する。
 - `handleSearchViaSpApi` で、既に組み立て済みの `offers` ペイロード（各オファーに `breakEven` 付き）から
   `profitInputs` を導出するヘルパー `buildProfitInputs(newSummary, usedSummary, offersPayload)` を追加:
-  - `listPrice`: 常に null（実質取得不可）。
+  - `listPrice`: カタログitemの `attributes.list_price`（税抜）を税込換算（×1.10、整数丸め）した値。
+    取得できない商品はnull。
   - `sellerCounts`: `newSummary.totalOfferCount` / `usedSummary.totalOfferCount`。
   - `breakEven.new` / `.used`: 各バケットで `landed` 最安のオファーの `breakEven`（手数料計算の二重実装を避け、
     `buildSpApiOffersPayload` の結果を再利用する）。オファー0件はnull。
@@ -236,4 +239,3 @@ struct ProfitAlertEvaluator {
 - 条件ごとの個別コンディション選択（対象コンディションは1つの共通設定）
 - Keepa経路の中古細分（ほぼ新品/非常に良い/良い/可）判定（offers必須のため）
 - サーバー側での閾値判定・プッシュ通知・相場監視
-- SP-APIの `attributes.list_price` 取得の試行（実質取得不可として扱う）

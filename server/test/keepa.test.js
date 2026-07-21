@@ -388,7 +388,7 @@ test('/api/search: keepa経路でproduct未取得(catalog_not_found)でもprofit
 // /api/search: spapi経路のprofitInputs
 // ---------------------------------------------------------------------------
 
-test('/api/search: spapi経路はprofitInputs.sellerCounts/breakEvenを組み立て、listPriceは常にnullを返す', async (t) => {
+test('/api/search: spapi経路はprofitInputs.sellerCounts/breakEvenを組み立て、attributes.list_price欠落時はlistPriceがnullを返す', async (t) => {
   await withEnv(
     {
       LWA_CLIENT_ID: 'client-id',

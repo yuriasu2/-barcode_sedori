@@ -46,7 +46,8 @@ Amazon販売パートナーアプリストアへの掲載申請準備中に、2�
 - **経路方針**: SP-API連携中（`isSpApiLinkUsable`）はSP-APIから取れる値のみを使う（Keepa併用なし）。
   Keepa経路は `/api/search` 第1段階のみを使い、`offers` パラメータは付けない
   （**追加トークン消費ゼロが絶対条件**）。このためKeepa経路のコンディションは新品/中古の2区分のみ
-- 定価はSP-APIでは実質取得不可のため、SP-API経路では「売値が定価以上」条件は常にスキップされる
+- 定価はSP-API Catalog Items API(`attributes.list_price`、税抜→税込換算)から取得できる。
+  取得できない商品のみ、SP-API経路でも「売値が定価以上」条件をスキップする
 - `/api/search` レスポンスに `profitInputs`（定価・出品者数・手数料控除後の売値）を追加する
   （契約詳細は実装計画書を参照）
 - 無料ユーザーが設定画面で触ると Paywall へ誘導

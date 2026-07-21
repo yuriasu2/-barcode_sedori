@@ -95,7 +95,7 @@ function pickCatalogItem(catalogResponse) {
 }
 
 function extractCatalogFields(item) {
-  if (!item) return { asin: null, title: null, imageUrl: null, salesRank: null };
+  if (!item) return { asin: null, title: null, imageUrl: null, salesRank: null, listPrice: null };
   const asin = item.asin || null;
   const summary = (item.summaries && item.summaries[0]) || {};
   const title = summary.itemName || null;
@@ -107,7 +107,27 @@ function extractCatalogFields(item) {
     const displayRanks = salesRanks[0].displayGroupRanks || salesRanks[0].classificationRanks || [];
     if (displayRanks.length) salesRank = displayRanks[0].rank;
   }
-  return { asin, title, imageUrl, salesRank };
+  const listPrice = extractListPriceJpy(item);
+  return { asin, title, imageUrl, salesRank, listPrice };
+}
+
+// SP-APIのCatalog Items API(2022-04-01)がattributes.list_priceで返す定価は税抜。
+// 売値・Keepaの定価(税込)と比較できるよう、消費税10%で税込換算する
+// (書籍は軽減税率の対象外のため一律10%でよい)。
+const CONSUMPTION_TAX_RATE = 0.1;
+
+/**
+ * カタログitemのattributes.list_price(税抜)から、税込定価(円・整数丸め)を抽出する。
+ * attributes.list_price: [{"currency":"JPY","value":1300,"marketplace_id":"..."}] という形式で
+ * 書籍カテゴリで返ることを実データで確認済み(旧実装では「実質取得不可」としてnull固定していたが誤り)。
+ * 配列が無い/空/valueが数値でない場合はnullを返す。
+ */
+function extractListPriceJpy(item) {
+  const listPriceArr = item && item.attributes && item.attributes.list_price;
+  if (!Array.isArray(listPriceArr) || !listPriceArr.length) return null;
+  const value = listPriceArr[0] && listPriceArr[0].value;
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  return Math.round(value * (1 + CONSUMPTION_TAX_RATE));
 }
 
 /**
@@ -189,6 +209,7 @@ async function handleSearchViaSpApi(req, res, code, credentials, cacheKey) {
     let imageUrl = null;
     let salesRank = null;
     let isbn13 = converted.isbn13 || null;
+    let listPrice = null;
 
     if (!asin) {
       if (!identifier) {
@@ -232,6 +253,7 @@ async function handleSearchViaSpApi(req, res, code, credentials, cacheKey) {
       title = fields.title;
       imageUrl = fields.imageUrl;
       salesRank = fields.salesRank;
+      listPrice = fields.listPrice;
     }
 
     if (!asin) {
@@ -267,7 +289,7 @@ async function handleSearchViaSpApi(req, res, code, credentials, cacheKey) {
     // SP-APIは第1段階でオファーを取得済みのため、第2段階を待たずにオファー一覧も同梱する
     // (アプリはsource=spapi時は/api/offersを呼ばない=2段階ロード廃止)。
     const offers = await buildSpApiOffersPayload(asin, newSummary, usedSummary, credentials);
-    const profitInputs = buildProfitInputs(newSummary, usedSummary, offers);
+    const profitInputs = buildProfitInputs(newSummary, usedSummary, offers, listPrice);
 
     const responseBody = {
       codeType: converted.codeType,
@@ -549,13 +571,14 @@ function pickCheapestBreakEven(dtos) {
 
 /**
  * spapi経路: /api/search の profitInputs を組み立てる。
- * listPriceはSP-APIでは実質取得不可のため常にnull。sellerCountsはSummary.TotalOfferCount、
+ * listPriceはCatalog Items APIのattributes.list_price(税抜)を税込換算した値
+ * (extractListPriceJpy)。取得できない商品はnull。sellerCountsはSummary.TotalOfferCount、
  * breakEvenは既に組み立て済みのoffersPayload(buildSpApiOffersPayload)を再利用し、
  * 手数料計算を二重実装しない(landed最安のオファーのbreakEvenを採用)。
  */
-function buildProfitInputs(newSummary, usedSummary, offersPayload) {
+function buildProfitInputs(newSummary, usedSummary, offersPayload, listPrice) {
   return {
-    listPrice: null,
+    listPrice: listPrice != null ? listPrice : null,
     sellerCounts: {
       new: newSummary.totalOfferCount,
       used: usedSummary.totalOfferCount,
@@ -773,5 +796,7 @@ router.offersCache = offersCache;
 router.graphCache = graphCache;
 // テスト用途にプラン判定関数を公開する。
 router.isProRequest = isProRequest;
+// テスト用途に定価抽出ヘルパーを公開する。
+router.extractListPriceJpy = extractListPriceJpy;
 
 module.exports = router;
