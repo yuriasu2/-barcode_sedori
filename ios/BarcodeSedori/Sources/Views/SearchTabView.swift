@@ -169,7 +169,7 @@ struct SearchTabView: View {
     @ObservedObject private var entitlements = EntitlementStore.shared
     @State private var selectedResult: SearchResult?
     @State private var searchBarText: String = ""
-    @State private var showsKeywordUnsupportedAlert = false
+    @State private var showsInvalidCodeAlert = false
     /// フリーミアム: 各ゲート(OCR/オファー/グラフ/日次上限)から提示するペイウォール。
     @State private var showPaywall = false
     /// CHANGES-v6.1.md: Keepaグラフの期間切替。初期値は90日。
@@ -199,7 +199,7 @@ struct SearchTabView: View {
             .navigationBarHidden(true)
             // navigationBarHiddenだけだと上部に余白が残ることがあるため、ツールバー自体を隠して詰める。
             .toolbar(.hidden, for: .navigationBar)
-            .alert("キーワード検索は今後対応予定です", isPresented: $showsKeywordUnsupportedAlert) {
+            .alert("入力が間違っています。10桁or13桁で入力してください。", isPresented: $showsInvalidCodeAlert) {
                 Button("OK", role: .cancel) {}
             }
             .sheet(isPresented: $showPaywall) {
@@ -317,19 +317,26 @@ struct SearchTabView: View {
         .cornerRadius(10)
     }
 
-    /// 数字のみかつ10桁または13桁ならコード検索(/api/search)、それ以外はキーワード非対応アラート。
+    /// 数字のみ13桁ならそのままコード検索(/api/search)。10桁はISBN-10として検証し、
+    /// 有効なら978プレフィックス付きの13桁(ISBN-13)へ変換してから検索する
+    /// (OCR経路の ISBN10Validator と同じ変換方式に揃える)。それ以外は入力不正アラート。
     private func submitSearchBarText() {
         let trimmed = searchBarText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
-        let isDigitsOnly = trimmed.allSatisfy { $0.isNumber }
-        let isValidLength = trimmed.count == 10 || trimmed.count == 13
-
-        if isDigitsOnly && isValidLength {
+        if trimmed.count == 13, trimmed.allSatisfy({ $0.isNumber }) {
             viewModel.handleScan(trimmed)
-        } else {
-            showsKeywordUnsupportedAlert = true
+            return
         }
+
+        // ISBN-10はチェック文字が"X"になり得るため大文字化してから検証する。
+        let upper = trimmed.uppercased()
+        if upper.count == 10, ISBN10Validator.isValid(upper) {
+            viewModel.handleScan(ISBN10Validator.toIsbn13(upper))
+            return
+        }
+
+        showsInvalidCodeAlert = true
     }
 
     private var modeToggle: some View {
