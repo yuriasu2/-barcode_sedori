@@ -137,6 +137,8 @@ struct SettingsView: View {
                     }
                 }
 
+                profitAlertSection
+
                 Section("サーバー設定") {
                     TextField(SettingsStore.defaultServerURL, text: $viewModel.serverURLString)
                         .keyboardType(.URL)
@@ -235,6 +237,86 @@ struct SettingsView: View {
             }
         }
         .navigationViewStyle(.stack)
+    }
+
+    // MARK: - 利益アラート
+
+    /// 利益アラート設定セクション。無料は鍵行のみでタップでペイウォール、Proは各条件のトグル・閾値入力を出す。
+    @ViewBuilder
+    private var profitAlertSection: some View {
+        Section("利益アラート") {
+            if entitlements.isPro {
+                Toggle("粗利", isOn: $settings.profitAlertMarginEnabled)
+                if settings.profitAlertMarginEnabled {
+                    HStack {
+                        Text("粗利がこの金額(円)以上")
+                        Spacer()
+                        TextField("300", value: $settings.profitAlertMarginThreshold, format: .number)
+                            .keyboardType(.numberPad)
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 100)
+                    }
+                }
+
+                HStack {
+                    Text("仕入れ値(円)")
+                    Spacer()
+                    TextField("0", value: $settings.profitAlertPurchaseCost, format: .number)
+                        .keyboardType(.numberPad)
+                        .multilineTextAlignment(.trailing)
+                        .frame(width: 100)
+                }
+
+                Picker("対象コンディション", selection: $settings.profitAlertTargetCondition) {
+                    Text("新品").tag(ProfitAlertCondition.new)
+                    Text("中古").tag(ProfitAlertCondition.used)
+                }
+
+                Toggle("ランキング", isOn: $settings.profitAlertRankEnabled)
+                if settings.profitAlertRankEnabled {
+                    HStack {
+                        Text("ランキングがこの順位以内")
+                        Spacer()
+                        TextField("100000", value: $settings.profitAlertRankThreshold, format: .number)
+                            .keyboardType(.numberPad)
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 100)
+                    }
+                }
+
+                Toggle("出品者数", isOn: $settings.profitAlertSellerCountEnabled)
+                if settings.profitAlertSellerCountEnabled {
+                    HStack {
+                        Text("出品者数がこの人数以下")
+                        Spacer()
+                        TextField("10", value: $settings.profitAlertSellerCountThreshold, format: .number)
+                            .keyboardType(.numberPad)
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 100)
+                    }
+                }
+
+                Toggle("売値が定価以上", isOn: $settings.profitAlertListPriceEnabled)
+
+                Text("ONにした条件をすべて満たしたスキャン結果を緑色で強調表示します。粗利・出品者数は上で選んだコンディション(新品/中古)を参照します。定価は取得できない商品があり、その場合はこの条件のみスキップされます。")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+            } else {
+                Button {
+                    showPaywall = true
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "lock.fill")
+                        Text("利益アラートはProで")
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption)
+                    }
+                    .foregroundColor(.primary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
     }
 
     @ViewBuilder

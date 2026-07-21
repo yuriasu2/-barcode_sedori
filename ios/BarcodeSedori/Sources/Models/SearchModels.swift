@@ -40,6 +40,23 @@ struct DimensionsMm: Codable, Equatable {
     let height: Int?
 }
 
+/// GET /api/search の利益アラート用素材。旧サーバーではキーごと無いためnil。
+struct ProfitInputs: Codable, Equatable {
+    let listPrice: Int?
+    let sellerCounts: ConditionCounts?
+    let breakEven: ConditionBreakEven?
+
+    struct ConditionCounts: Codable, Equatable {
+        let new: Int?
+        let used: Int?
+    }
+    /// breakEvenはサーバーが小数で返すためDouble(OffersModels.Offer.breakEvenと同じ理由)。
+    struct ConditionBreakEven: Codable, Equatable {
+        let new: Double?
+        let used: Double?
+    }
+}
+
 /// GET /api/search?code= レスポンス
 struct SearchResult: Codable, Equatable {
     let codeType: CodeType
@@ -60,6 +77,8 @@ struct SearchResult: Codable, Equatable {
     /// SP-API経路は第1段階(/api/search)応答にオファー一覧を同梱する(2段階ロード廃止)。
     /// Keepa経路や旧サーバーではnil(その場合は従来どおり第2段階/api/offersで取得)。
     let offers: OffersResult?
+    /// 利益アラート判定用の素材(定価・出品者数・breakEven)。旧サーバーではキーごと無いためnil。
+    let profitInputs: ProfitInputs?
 }
 
 /// サーバーエラーレスポンス(想定: {"error": "..."} 形式にも対応できるよう緩めに定義)

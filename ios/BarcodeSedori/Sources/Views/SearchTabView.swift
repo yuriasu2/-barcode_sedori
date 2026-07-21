@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// スキャンモードの見た目トグル。CHANGES-v2.md:
 /// 「バーコード / インストアコード」トグル → 「バーコード / OCR」トグルに変更。
@@ -52,6 +53,9 @@ final class SearchTabViewModel: ObservableObject {
     /// このときは実データを取得せず、パネルにぼかしダミー+鍵を表示する。
     @Published var offersLocked = false
 
+    /// 利益アラートの判定結果。Proかつ検索成功時のみ評価する。未評価/非Proはnil。
+    @Published var profitAlertVerdict: ProfitAlertEvaluator.Verdict?
+
     private let apiClient: APIClient
     private let historyStore: ScanHistoryStore
 
@@ -76,6 +80,7 @@ final class SearchTabViewModel: ObservableObject {
         isLoadingOffers = false
         offersLocked = false
         pendingHistoryItemId = nil
+        profitAlertVerdict = nil
 
         Task { await self.search(code: code) }
     }
@@ -85,6 +90,16 @@ final class SearchTabViewModel: ObservableObject {
             let result = try await apiClient.search(code: code)
             latestResult = result
             isSearching = false
+
+            // 利益アラートはPro限定(無料は設定が残っていても発火しない二重ゲート)。
+            if EntitlementStore.shared.isPro {
+                let verdict = ProfitAlertEvaluator.evaluate(result: result, settings: Self.profitAlertSettings())
+                profitAlertVerdict = verdict
+                if verdict.isTriggered {
+                    // 再描画で多重発火させないよう、判定確定時にここで1回だけ鳴らす。
+                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                }
+            }
 
             if result.codeType != .unresolved {
                 let historyItem = ScanHistoryItem(scannedCode: code, result: result)
@@ -115,6 +130,22 @@ final class SearchTabViewModel: ObservableObject {
                 searchErrorMessage = error.localizedDescription
             }
         }
+    }
+
+    /// SettingsStoreの現在値からProfitAlertEvaluator.Settingsスナップショットを組み立てる。
+    private static func profitAlertSettings() -> ProfitAlertEvaluator.Settings {
+        let settings = SettingsStore.shared
+        return ProfitAlertEvaluator.Settings(
+            marginEnabled: settings.profitAlertMarginEnabled,
+            marginThreshold: settings.profitAlertMarginThreshold,
+            purchaseCost: settings.profitAlertPurchaseCost,
+            targetCondition: settings.profitAlertTargetCondition,
+            rankEnabled: settings.profitAlertRankEnabled,
+            rankThreshold: settings.profitAlertRankThreshold,
+            sellerCountEnabled: settings.profitAlertSellerCountEnabled,
+            sellerCountThreshold: settings.profitAlertSellerCountThreshold,
+            listPriceEnabled: settings.profitAlertListPriceEnabled
+        )
     }
 }
 
@@ -342,7 +373,11 @@ struct SearchTabView: View {
             .background(Color(.secondarySystemBackground))
             .cornerRadius(10)
         } else if let result = viewModel.latestResult {
-            LatestResultCardView(result: result, scannedCode: viewModel.latestScannedCode ?? "")
+            LatestResultCardView(
+                result: result,
+                scannedCode: viewModel.latestScannedCode ?? "",
+                profitVerdict: viewModel.profitAlertVerdict
+            )
         } else if let errorMessage = viewModel.searchErrorMessage {
             Text(errorMessage)
                 .font(.footnote)
@@ -447,8 +482,44 @@ struct SearchTabView: View {
 private struct LatestResultCardView: View {
     let result: SearchResult
     let scannedCode: String
+    /// 利益アラートの判定結果。発火時のみ緑バナー・縁取りを出す。非Pro/未評価はnil。
+    let profitVerdict: ProfitAlertEvaluator.Verdict?
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if profitVerdict?.isTriggered == true {
+                profitAlertBanner
+            }
+
+            cardContent
+        }
+        // カードは現在囲み枠なしのため、発火時のみ縁取りを付けて視認差を大きくする。
+        .overlay(
+            profitVerdict?.isTriggered == true
+                ? RoundedRectangle(cornerRadius: 10).stroke(Color.green, lineWidth: 2)
+                : nil
+        )
+    }
+
+    /// 発火時のみ表示する緑バナー行(「利益条件クリア」+粗利があれば併記)。
+    private var profitAlertBanner: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "checkmark.circle.fill")
+            Text("利益条件クリア")
+            if let grossMargin = profitVerdict?.grossMargin {
+                Text("粗利 ¥\(Int(grossMargin))")
+            }
+        }
+        .font(.caption)
+        .fontWeight(.bold)
+        .foregroundColor(.white)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(Color.green)
+        .cornerRadius(8)
+    }
+
+    private var cardContent: some View {
         HStack(alignment: .top, spacing: 12) {
             AsyncImage(url: result.imageUrl.flatMap(URL.init(string:))) { phase in
                 switch phase {
