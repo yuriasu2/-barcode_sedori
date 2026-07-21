@@ -53,3 +53,31 @@ test('extractOffersSummary: condition未指定は全LowestPricesの最小(従来
   };
   assert.equal(pricing.extractOffersSummary(resp).lowestLandedPrice, 1200);
 });
+
+test('extractOffersSummary: totalOfferCountはSummary.TotalOfferCountをそのまま返す', () => {
+  const resp = {
+    payload: {
+      Summary: { TotalOfferCount: 7, LowestPrices: [], BuyBoxPrices: [] },
+      Offers: [],
+    },
+  };
+  assert.equal(pricing.extractOffersSummary(resp).totalOfferCount, 7);
+});
+
+test('extractOffersSummary: totalOfferCountはSummaryに無ければOffers件数で代替する', () => {
+  const resp = {
+    payload: {
+      Summary: { LowestPrices: [], BuyBoxPrices: [] },
+      Offers: [
+        { ListingPrice: { Amount: 1000 }, Shipping: { Amount: 0 } },
+        { ListingPrice: { Amount: 1200 }, Shipping: { Amount: 0 } },
+      ],
+    },
+  };
+  assert.equal(pricing.extractOffersSummary(resp).totalOfferCount, 2);
+});
+
+test('extractOffersSummary: payloadが無ければtotalOfferCountはnull', () => {
+  assert.equal(pricing.extractOffersSummary(null).totalOfferCount, null);
+  assert.equal(pricing.extractOffersSummary({}).totalOfferCount, null);
+});

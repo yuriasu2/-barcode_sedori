@@ -91,6 +91,49 @@ test('keepa client: mapProductToSearchResult はproductがnullならnullを返�
   assert.equal(keepa.mapProductToSearchResult(null), null);
 });
 
+test('keepa client: mapProductToSearchResult はlistPrice/sellerCountsを正規化する(値あり)', () => {
+  const keepa = require('../src/keepa/client');
+  const current = new Array(19).fill(-1);
+  current[4] = 2200; // LISTPRICE
+  current[11] = 3; // COUNT_NEW
+  current[12] = 12; // COUNT_USED
+  const product = { asin: 'B000TEST03', stats: { current } };
+
+  const mapped = keepa.mapProductToSearchResult(product);
+  assert.equal(mapped.listPrice, 2200);
+  assert.deepEqual(mapped.sellerCounts, { new: 3, used: 12 });
+});
+
+test('keepa client: mapProductToSearchResult はlistPrice/sellerCountsが-1(データなし)ならnullにする', () => {
+  const keepa = require('../src/keepa/client');
+  const current = new Array(19).fill(-1);
+  const product = { asin: 'B000TEST04', stats: { current } };
+
+  const mapped = keepa.mapProductToSearchResult(product);
+  assert.equal(mapped.listPrice, null);
+  assert.deepEqual(mapped.sellerCounts, { new: null, used: null });
+});
+
+test('keepa client: mapProductToSearchResult はsellerCountsが0件(有効値)ならnullにしない', () => {
+  const keepa = require('../src/keepa/client');
+  const current = new Array(19).fill(-1);
+  current[11] = 0; // COUNT_NEW: 出品者0人(有効値)
+  current[12] = 0; // COUNT_USED
+  const product = { asin: 'B000TEST05', stats: { current } };
+
+  const mapped = keepa.mapProductToSearchResult(product);
+  assert.deepEqual(mapped.sellerCounts, { new: 0, used: 0 });
+});
+
+test('keepa client: mapProductToSearchResult はstats.current配列が欠落(空)していてもlistPrice/sellerCountsをnullで返す', () => {
+  const keepa = require('../src/keepa/client');
+  const product = { asin: 'B000TEST06', stats: {} };
+
+  const mapped = keepa.mapProductToSearchResult(product);
+  assert.equal(mapped.listPrice, null);
+  assert.deepEqual(mapped.sellerCounts, { new: null, used: null });
+});
+
 test('keepa client: resolveImageUrl は新形式images配列(images[0].l)を優先する', () => {
   const keepa = require('../src/keepa/client');
   const product = {
@@ -275,10 +318,169 @@ test('/api/search: SP-API未設定・KEEPA_API_KEYありならKeepa経路にフ�
       assert.equal(res.body.prices.new, 1000);
       assert.equal(res.body.prices.used, 800);
       assert.equal(res.body.prices.cart, null);
+      assert.equal(res.body.profitInputs.listPrice, 2200);
+      assert.ok(typeof res.body.profitInputs.breakEven.new === 'number');
+      assert.ok(typeof res.body.profitInputs.breakEven.used === 'number');
 
       t.after(() => {
         routes.searchCache.clear();
       });
+    }
+  );
+});
+
+test('/api/search: keepa経路のprofitInputsはunresolved等の早期returnでもnullとしてキーが存在する', async (t) => {
+  await withEnv(
+    {
+      LWA_CLIENT_ID: undefined,
+      LWA_CLIENT_SECRET: undefined,
+      LWA_REFRESH_TOKEN: undefined,
+      KEEPA_API_KEY: 'test-keepa-key',
+    },
+    async () => {
+      const routes = freshRoutes();
+      // convertCodeがunresolvedになる不正なコードを渡す。
+      const req = { query: { code: 'not-a-valid-code' }, headers: {} };
+      const res = createMockRes();
+      const route = routes.match('GET', '/api/search');
+      await route.handler(req, res);
+
+      assert.ok('profitInputs' in res.body);
+      assert.equal(res.body.profitInputs, null);
+
+      t.after(() => {
+        routes.searchCache.clear();
+      });
+    }
+  );
+});
+
+test('/api/search: keepa経路でproduct未取得(catalog_not_found)でもprofitInputsキーはnullで存在する', async (t) => {
+  await withEnv(
+    {
+      LWA_CLIENT_ID: undefined,
+      LWA_CLIENT_SECRET: undefined,
+      LWA_REFRESH_TOKEN: undefined,
+      KEEPA_API_KEY: 'test-keepa-key',
+    },
+    async () => {
+      const routes = freshRoutes();
+      const keepa = require('../src/keepa/client');
+      keepa.getProduct = async () => ({ product: null });
+
+      const req = { query: { code: '9784471103644' }, headers: {} };
+      const res = createMockRes();
+      const route = routes.match('GET', '/api/search');
+      await route.handler(req, res);
+
+      assert.equal(res.body.reason, 'catalog_not_found');
+      assert.ok('profitInputs' in res.body);
+      assert.equal(res.body.profitInputs, null);
+
+      t.after(() => {
+        routes.searchCache.clear();
+      });
+    }
+  );
+});
+
+// ---------------------------------------------------------------------------
+// /api/search: spapi経路のprofitInputs
+// ---------------------------------------------------------------------------
+
+test('/api/search: spapi経路はprofitInputs.sellerCounts/breakEvenを組み立て、listPriceは常にnullを返す', async (t) => {
+  await withEnv(
+    {
+      LWA_CLIENT_ID: 'client-id',
+      LWA_CLIENT_SECRET: 'client-secret',
+      LWA_REFRESH_TOKEN: 'refresh-token',
+    },
+    async () => {
+      const routes = freshRoutes();
+      const pricing = require('../src/spapi/pricing');
+
+      const originalSearchCatalogItems = pricing.searchCatalogItems;
+      const originalGetItemOffers = pricing.getItemOffers;
+      const originalGetFees = pricing.getMyFeesEstimatesBatch;
+
+      pricing.searchCatalogItems = async () => ({
+        items: [
+          {
+            asin: 'B00SPAPITEST2',
+            summaries: [{ itemName: 'SP-APIの本' }],
+            images: [],
+            salesRanks: [],
+          },
+        ],
+      });
+
+      pricing.getItemOffers = async (asin, condition) => {
+        if (condition === 'New') {
+          return {
+            payload: {
+              Summary: {
+                TotalOfferCount: 4,
+                LowestPrices: [{ condition: 'new', LandedPrice: { Amount: 1500 } }],
+                BuyBoxPrices: [],
+              },
+              Offers: [
+                { ListingPrice: { Amount: 1500 }, Shipping: { Amount: 0 }, IsBuyBoxWinner: true, SubCondition: 'New' },
+              ],
+            },
+          };
+        }
+        return {
+          payload: {
+            Summary: {
+              TotalOfferCount: 9,
+              LowestPrices: [{ condition: 'used', LandedPrice: { Amount: 1200 } }],
+              BuyBoxPrices: [],
+            },
+            Offers: [
+              { ListingPrice: { Amount: 1000 }, Shipping: { Amount: 200 }, IsBuyBoxWinner: false, SubCondition: 'VeryGood' },
+            ],
+          },
+        };
+      };
+      pricing.getMyFeesEstimatesBatch = async () => null; // フォールバック手数料を使わせる
+
+      t.after(() => {
+        pricing.searchCatalogItems = originalSearchCatalogItems;
+        pricing.getItemOffers = originalGetItemOffers;
+        pricing.getMyFeesEstimatesBatch = originalGetFees;
+        routes.searchCache.clear();
+      });
+
+      const req = { query: { code: '9784471103644' }, headers: {} };
+      const res = createMockRes();
+      const route = routes.match('GET', '/api/search');
+      await route.handler(req, res);
+
+      assert.equal(res.body.source, 'spapi');
+      assert.equal(res.body.profitInputs.listPrice, null);
+      assert.deepEqual(res.body.profitInputs.sellerCounts, { new: 4, used: 9 });
+      assert.equal(res.body.profitInputs.breakEven.new, res.body.offers.new[0].breakEven);
+      assert.equal(res.body.profitInputs.breakEven.used, res.body.offers.used[0].breakEven);
+    }
+  );
+});
+
+test('/api/search: spapi経路はunresolvedの早期returnでもprofitInputsキーがnullで存在する', async () => {
+  await withEnv(
+    {
+      LWA_CLIENT_ID: 'client-id',
+      LWA_CLIENT_SECRET: 'client-secret',
+      LWA_REFRESH_TOKEN: 'refresh-token',
+    },
+    async () => {
+      const routes = freshRoutes();
+      const req = { query: { code: 'not-a-valid-code' }, headers: {} };
+      const res = createMockRes();
+      const route = routes.match('GET', '/api/search');
+      await route.handler(req, res);
+
+      assert.ok('profitInputs' in res.body);
+      assert.equal(res.body.profitInputs, null);
     }
   );
 });
@@ -348,9 +550,13 @@ test('/api/offers: source=keepaで統一契約(source/referencePrice/newCount/us
     assert.equal(res.body.usedCount, 1);
     assert.equal(res.body.new[0].price, 1500);
     assert.equal(res.body.new[0].condition, 'new');
-    assert.ok(typeof res.body.new[0].breakEven === 'number');
+    // computeKeepaBreakEven共通化前後で出力が変わらないことの回帰確認
+    // (referralFeePercent/fbaFees未設定のため書籍フォールバック15%+80円): 1500-(round(1500*0.15)+80)=1195
+    assert.equal(res.body.new[0].breakEven, 1195);
     assert.equal(res.body.used[0].condition, 'good');
     assert.equal(res.body.used[0].landed, 1550);
+    // 1550-(round(1550*0.15)+80)=1550-313=1237
+    assert.equal(res.body.used[0].breakEven, 1237);
 
     t.after(() => {
       routes.offersCache.clear();
@@ -395,7 +601,11 @@ test('/api/offers: source=keepaで個別オファーが空でもstats.currentの
     assert.equal(res.body.new[0].condition, 'new');
     assert.equal(res.body.used[0].price, 2898);
     assert.equal(res.body.used[0].condition, 'used');
-    assert.ok(typeof res.body.new[0].breakEven === 'number');
+    // computeKeepaBreakEven共通化前後で出力が変わらないことの回帰確認(書籍フォールバック15%+80円)
+    // 7318-(round(7318*0.15)+80)=7318-1178=6140
+    assert.equal(res.body.new[0].breakEven, 6140);
+    // 2898-(round(2898*0.15)+80)=2898-515=2383
+    assert.equal(res.body.used[0].breakEven, 2383);
 
     t.after(() => {
       routes.offersCache.clear();

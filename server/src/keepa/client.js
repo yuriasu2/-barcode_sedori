@@ -19,8 +19,11 @@
  *   2 = USED                3rd party 中古最安値(送料別)
  *   3 = SALES               売れ筋ランキング(Sales Rank)
  *   4 = LISTPRICE           定価
+ *   11 = COUNT_NEW          新品出品者数
+ *   12 = COUNT_USED         中古出品者数
  *   18 = BUY_BOX_SHIPPING   Buy Box価格(送料込み)。Buy Box不成立時は-1。
  *   ※ CHANGES-v6.mdの記載(0=Amazon,1=新品最安,2=中古最安,3=ランキング,18=BuyBox)と一致することを確認済み。
+ *   ※ COUNT_NEW/COUNT_USEDもisExtraData=false(offersパラメータ不要)であることを確認済み。
  *   価格はすべて日本円などその通貨の最小単位の整数。データなしは -1。
  *
  * 【offers配列 / Offer.offerCSV】
@@ -54,6 +57,8 @@ const CSV_TYPE = {
   USED: 2,
   SALES: 3,
   LISTPRICE: 4,
+  COUNT_NEW: 11,
+  COUNT_USED: 12,
   BUY_BOX_SHIPPING: 18,
 };
 
@@ -278,6 +283,12 @@ function mapProductToSearchResult(product) {
   const salesRank = normalizePrice(current[CSV_TYPE.SALES]);
   const newPrice = normalizePrice(current[CSV_TYPE.NEW]);
   const usedPrice = normalizePrice(current[CSV_TYPE.USED]);
+  const listPrice = normalizePrice(current[CSV_TYPE.LISTPRICE]);
+  // 出品者数。0件は有効値のためnormalizeDimensionではなくnormalizePrice(-1のみnull)を使う。
+  const sellerCounts = {
+    new: normalizePrice(current[CSV_TYPE.COUNT_NEW]),
+    used: normalizePrice(current[CSV_TYPE.COUNT_USED]),
+  };
 
   const brand = product.brand && String(product.brand).trim() ? product.brand : null;
 
@@ -298,6 +309,8 @@ function mapProductToSearchResult(product) {
     brand,
     dimensionsMm,
     weightG,
+    listPrice,
+    sellerCounts,
     prices: {
       cart: null, // BuyBox取得には追加トークンが必要なため第1段階ではnull
       new: newPrice,

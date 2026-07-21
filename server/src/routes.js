@@ -123,6 +123,32 @@ function estimatePoints() {
   return null;
 }
 
+/**
+ * Keepa Product本体の手数料情報からbreakEven(手数料控除後の売値)を計算する。
+ * referralFeePercent/fbaFees.pickAndPackFeeはProduct本体の属性でoffersパラメータ不要なため、
+ * 第1段階(/api/search)・第2段階(/api/offers)のどちらからも同じ引数形式で呼べる。
+ * 取得できなければ書籍フォールバック(15%+80円、pricing.fallbackFeesと同一料率)で近似する。
+ * @param {object|null} product Keepa Product Object
+ * @param {number} landed 送料込み価格
+ * @returns {number} breakEven(小数あり得る)
+ */
+function computeKeepaBreakEven(product, landed) {
+  const referralFeePercent =
+    product && typeof product.referralFeePercent === 'number' ? product.referralFeePercent : null;
+  const fbaPickAndPackFee =
+    product && product.fbaFees && typeof product.fbaFees.pickAndPackFee === 'number'
+      ? product.fbaFees.pickAndPackFee
+      : null;
+
+  if (referralFeePercent != null && fbaPickAndPackFee != null) {
+    const referralFee = landed * (referralFeePercent / 100);
+    const closingFee = 80; // 書籍カテゴリの成約料(円)
+    return Math.round((landed - referralFee - closingFee - fbaPickAndPackFee) * 100) / 100;
+  }
+  // 書籍フォールバック: 15%手数料 + 成約料80円(pricing.fallbackFeesと同一料率)
+  return Math.round((landed - pricing.fallbackFees(landed)) * 100) / 100;
+}
+
 async function resolveAsinFromCode(codeType, converted) {
   // isbn/jan は isbn13 または jan を持つのでそれをidentifierとしてCatalog検索
   const identifier = converted.isbn13 || converted.jan;
@@ -149,6 +175,7 @@ async function handleSearchViaSpApi(req, res, code, credentials, cacheKey) {
         dimensionsMm: null,
         weightG: null,
         prices: null,
+        profitInputs: null,
         reason: converted.reason || 'unresolved',
         source: 'spapi',
       };
@@ -176,6 +203,7 @@ async function handleSearchViaSpApi(req, res, code, credentials, cacheKey) {
           dimensionsMm: null,
           weightG: null,
           prices: null,
+          profitInputs: null,
           reason: 'no_identifier',
           source: 'spapi',
         });
@@ -194,6 +222,7 @@ async function handleSearchViaSpApi(req, res, code, credentials, cacheKey) {
           dimensionsMm: null,
           weightG: null,
           prices: null,
+          profitInputs: null,
           reason: 'catalog_not_found',
           source: 'spapi',
         });
@@ -217,6 +246,7 @@ async function handleSearchViaSpApi(req, res, code, credentials, cacheKey) {
         dimensionsMm: null,
         weightG: null,
         prices: null,
+        profitInputs: null,
         reason: 'asin_not_resolved',
         source: 'spapi',
       });
@@ -237,6 +267,7 @@ async function handleSearchViaSpApi(req, res, code, credentials, cacheKey) {
     // SP-APIは第1段階でオファーを取得済みのため、第2段階を待たずにオファー一覧も同梱する
     // (アプリはsource=spapi時は/api/offersを呼ばない=2段階ロード廃止)。
     const offers = await buildSpApiOffersPayload(asin, newSummary, usedSummary, credentials);
+    const profitInputs = buildProfitInputs(newSummary, usedSummary, offers);
 
     const responseBody = {
       codeType: converted.codeType,
@@ -259,6 +290,7 @@ async function handleSearchViaSpApi(req, res, code, credentials, cacheKey) {
         },
       },
       offers,
+      profitInputs,
       source: 'spapi',
     };
 
@@ -290,6 +322,7 @@ async function handleSearchViaKeepa(req, res, code, cacheKey) {
         dimensionsMm: null,
         weightG: null,
         prices: null,
+        profitInputs: null,
         reason: converted.reason || 'unresolved',
         source: 'keepa',
       });
@@ -310,6 +343,7 @@ async function handleSearchViaKeepa(req, res, code, cacheKey) {
         dimensionsMm: null,
         weightG: null,
         prices: null,
+        profitInputs: null,
         reason: 'no_identifier',
         source: 'keepa',
       });
@@ -330,10 +364,21 @@ async function handleSearchViaKeepa(req, res, code, cacheKey) {
         dimensionsMm: null,
         weightG: null,
         prices: null,
+        profitInputs: null,
         reason: 'catalog_not_found',
         source: 'keepa',
       });
     }
+
+    // breakEvenはstats最安値(送料不明のためlandedとみなす。第2段階statsフォールバックと同じ扱い)。
+    const profitInputs = {
+      listPrice: mapped.listPrice,
+      sellerCounts: mapped.sellerCounts,
+      breakEven: {
+        new: mapped.prices.new != null ? computeKeepaBreakEven(product, mapped.prices.new) : null,
+        used: mapped.prices.used != null ? computeKeepaBreakEven(product, mapped.prices.used) : null,
+      },
+    };
 
     const responseBody = {
       codeType: converted.codeType,
@@ -346,6 +391,7 @@ async function handleSearchViaKeepa(req, res, code, cacheKey) {
       dimensionsMm: mapped.dimensionsMm,
       weightG: mapped.weightG,
       prices: mapped.prices,
+      profitInputs,
       source: 'keepa',
     };
 
@@ -492,6 +538,36 @@ async function buildSpApiOffersPayload(asin, newSummary, usedSummary, credential
 }
 
 /**
+ * offersPayload(new/used各配列、要素にlanded/breakEven)からlanded最安のオファーのbreakEvenを取り出す。
+ * オファー0件はnull。
+ */
+function pickCheapestBreakEven(dtos) {
+  if (!dtos || !dtos.length) return null;
+  const cheapest = dtos.reduce((min, o) => (o.landed < min.landed ? o : min), dtos[0]);
+  return cheapest.breakEven;
+}
+
+/**
+ * spapi経路: /api/search の profitInputs を組み立てる。
+ * listPriceはSP-APIでは実質取得不可のため常にnull。sellerCountsはSummary.TotalOfferCount、
+ * breakEvenは既に組み立て済みのoffersPayload(buildSpApiOffersPayload)を再利用し、
+ * 手数料計算を二重実装しない(landed最安のオファーのbreakEvenを採用)。
+ */
+function buildProfitInputs(newSummary, usedSummary, offersPayload) {
+  return {
+    listPrice: null,
+    sellerCounts: {
+      new: newSummary.totalOfferCount,
+      used: usedSummary.totalOfferCount,
+    },
+    breakEven: {
+      new: pickCheapestBreakEven(offersPayload.new),
+      used: pickCheapestBreakEven(offersPayload.used),
+    },
+  };
+}
+
+/**
  * spapi経路: /api/offersエンドポイント用。getItemOffersを取得して共通ヘルパーで組み立てる。
  */
 async function buildOffersResponseViaSpApi(asin, credentials) {
@@ -514,23 +590,6 @@ async function buildOffersResponseViaKeepa(asin) {
   const { product } = await keepa.getProduct({ asin, offers: 20 });
   const { newOffers, usedOffers, referencePrice } = keepa.extractOffersFromProduct(product);
 
-  const referralFeePercent =
-    product && typeof product.referralFeePercent === 'number' ? product.referralFeePercent : null;
-  const fbaPickAndPackFee =
-    product && product.fbaFees && typeof product.fbaFees.pickAndPackFee === 'number'
-      ? product.fbaFees.pickAndPackFee
-      : null;
-
-  function computeBreakEven(landed) {
-    if (referralFeePercent != null && fbaPickAndPackFee != null) {
-      const referralFee = landed * (referralFeePercent / 100);
-      const closingFee = 80; // 書籍カテゴリの成約料(円)
-      return Math.round((landed - referralFee - closingFee - fbaPickAndPackFee) * 100) / 100;
-    }
-    // 書籍フォールバック: 15%手数料 + 成約料80円(pricing.fallbackFeesと同一料率)
-    return Math.round((landed - pricing.fallbackFees(landed)) * 100) / 100;
-  }
-
   function toDto(o) {
     return {
       price: o.price,
@@ -538,7 +597,7 @@ async function buildOffersResponseViaKeepa(asin) {
       landed: o.landed,
       condition: o.condition,
       isBuyBox: o.isBuyBox,
-      breakEven: computeBreakEven(o.landed),
+      breakEven: computeKeepaBreakEven(product, o.landed),
     };
   }
 
@@ -559,7 +618,7 @@ async function buildOffersResponseViaKeepa(asin) {
       landed: price,
       condition,
       isBuyBox: false,
-      breakEven: computeBreakEven(price),
+      breakEven: computeKeepaBreakEven(product, price),
     };
   }
   const finalNew = newDtos.length ? newDtos : statsNew != null ? [statsOffer(statsNew, 'new')] : [];

@@ -97,12 +97,15 @@ function fallbackFees(landedPrice) {
 function extractOffersSummary(offersResponse, condition) {
   const payload = offersResponse && offersResponse.payload;
   if (!payload) {
-    return { lowestLandedPrice: null, buyBoxLandedPrice: null, offers: [] };
+    return { lowestLandedPrice: null, buyBoxLandedPrice: null, offers: [], totalOfferCount: null };
   }
 
   const summary = payload.Summary || {};
   const lowestPrices = summary.LowestPrices || [];
   const buyBoxPrices = summary.BuyBoxPrices || [];
+  // 出品者数。SummaryにTotalOfferCountが無ければ取得済みオファー件数で代替する。
+  const totalOfferCount =
+    typeof summary.TotalOfferCount === 'number' ? summary.TotalOfferCount : (payload.Offers || []).length;
 
   const rawOffers = payload.Offers || [];
   const offers = rawOffers.map((o) => {
@@ -147,7 +150,7 @@ function extractOffersSummary(offersResponse, condition) {
     ? buyBoxEntry.LandedPrice.Amount
     : null;
 
-  return { lowestLandedPrice, buyBoxLandedPrice, offers };
+  return { lowestLandedPrice, buyBoxLandedPrice, offers, totalOfferCount };
 }
 
 module.exports = {
