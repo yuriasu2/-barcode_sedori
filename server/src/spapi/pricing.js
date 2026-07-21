@@ -109,13 +109,16 @@ function extractOffersSummary(offersResponse, condition) {
 
   const rawOffers = payload.Offers || [];
   const offers = rawOffers.map((o) => {
-    const price = o.ListingPrice ? o.ListingPrice.Amount : 0;
-    const shipping = o.Shipping ? o.Shipping.Amount : 0;
+    // JPYには本来小数円が存在しないが、一部セラーはSP-API上で小数円の価格設定が可能。
+    // iOS側Offer型のprice/shipping/landedはInt?のため、ここで整数円に丸めないとJSONDecoderが
+    // 小数値のデコードに失敗しアプリ側で「応答の解析に失敗しました」エラーになる。
+    const price = Math.round(o.ListingPrice ? o.ListingPrice.Amount : 0);
+    const shipping = Math.round(o.Shipping ? o.Shipping.Amount : 0);
     return {
       condition: o.SubCondition || o.ItemCondition || null,
       price,
       shipping,
-      landed: Math.round((price + shipping) * 100) / 100,
+      landed: price + shipping,
       isBuyBox: Boolean(o.IsBuyBoxWinner),
       sellerId: o.SellerId || null,
     };
@@ -140,6 +143,10 @@ function extractOffersSummary(offersResponse, condition) {
   }
   if (!Number.isFinite(lowestLandedPrice)) {
     lowestLandedPrice = null;
+  } else {
+    // iOS側 SearchPrices.new/used/cart は Int? のため、SP-APIが返しうる小数円をここで整数丸めする
+    // (理由はofferのprice/shipping/landedと同様: 丸めないとJSONDecoderが小数値のデコードに失敗する)。
+    lowestLandedPrice = Math.round(lowestLandedPrice);
   }
 
   const filteredBuyBox = wanted
@@ -147,7 +154,7 @@ function extractOffersSummary(offersResponse, condition) {
     : buyBoxPrices;
   const buyBoxEntry = filteredBuyBox[0];
   const buyBoxLandedPrice = buyBoxEntry && buyBoxEntry.LandedPrice
-    ? buyBoxEntry.LandedPrice.Amount
+    ? Math.round(buyBoxEntry.LandedPrice.Amount)
     : null;
 
   return { lowestLandedPrice, buyBoxLandedPrice, offers, totalOfferCount };
