@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import AudioToolbox
 
 /// スキャンモードの見た目トグル。CHANGES-v2.md:
 /// 「バーコード / インストアコード」トグル → 「バーコード / OCR」トグルに変更。
@@ -133,16 +134,13 @@ final class SearchTabViewModel: ObservableObject {
         }
     }
 
-    /// 利益アラート発火時の振動。スキャン成功時の`UINotificationFeedbackGenerator().notificationOccurred(.success)`
-    /// と全く同じ呼び出しだと体感で区別できないため、`.heavy`のImpactを0.15秒間隔で3回鳴らし、
-    /// 単発とは明確にリズムが異なる「ブーブーブー」という長めの振動にする。
+    /// 利益アラート発火時の振動。タプティック(Impact/Notification)ではスキャン時の振動と
+    /// 体感が区別できなかったため、旧来の長いシステムバイブ(約0.5秒)を2回鳴らす。
+    /// 長さの指定はiOS側でできず固定。0.7秒間隔を空けることで2回が明確に分離して感じられる。
     private static func fireProfitAlertHaptics() {
-        let generator = UIImpactFeedbackGenerator(style: .heavy)
-        generator.prepare()
-        for i in 0..<3 {
-            DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.15) {
-                generator.impactOccurred()
-            }
+        AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
+            AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
         }
     }
 
