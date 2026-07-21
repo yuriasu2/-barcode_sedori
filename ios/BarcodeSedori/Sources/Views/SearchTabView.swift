@@ -98,7 +98,7 @@ final class SearchTabViewModel: ObservableObject {
                 if verdict.isTriggered && SettingsStore.shared.profitAlertHapticsEnabled {
                     // 再描画で多重発火させないよう、判定確定時にここで1回だけ鳴らす。
                     // バイブ設定がOFFのときは緑バナー・縁取り(profitAlertVerdict)は変えず振動のみ止める。
-                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                    Self.fireProfitAlertHaptics()
                 }
             }
 
@@ -129,6 +129,19 @@ final class SearchTabViewModel: ObservableObject {
                 searchErrorMessage = "本日の無料スキャン上限に達しました。Proにアップグレードすると無制限に使えます。"
             } else {
                 searchErrorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    /// 利益アラート発火時の振動。スキャン成功時の`UINotificationFeedbackGenerator().notificationOccurred(.success)`
+    /// と全く同じ呼び出しだと体感で区別できないため、`.heavy`のImpactを0.15秒間隔で3回鳴らし、
+    /// 単発とは明確にリズムが異なる「ブーブーブー」という長めの振動にする。
+    private static func fireProfitAlertHaptics() {
+        let generator = UIImpactFeedbackGenerator(style: .heavy)
+        generator.prepare()
+        for i in 0..<3 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.15) {
+                generator.impactOccurred()
             }
         }
     }
