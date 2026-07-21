@@ -114,7 +114,7 @@ function extractCatalogFields(item) {
 // SP-APIのCatalog Items API(2022-04-01)がattributes.list_priceで返す定価は税抜。
 // 売値・Keepaの定価(税込)と比較できるよう、消費税10%で税込換算する
 // (書籍は軽減税率の対象外のため一律10%でよい)。
-const CONSUMPTION_TAX_RATE = 0.1;
+const { toTaxIncludedJpy } = require('./taxUtil');
 
 /**
  * カタログitemのattributes.list_price(税抜)から、税込定価(円・整数丸め)を抽出する。
@@ -126,8 +126,7 @@ function extractListPriceJpy(item) {
   const listPriceArr = item && item.attributes && item.attributes.list_price;
   if (!Array.isArray(listPriceArr) || !listPriceArr.length) return null;
   const value = listPriceArr[0] && listPriceArr[0].value;
-  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
-  return Math.round(value * (1 + CONSUMPTION_TAX_RATE));
+  return toTaxIncludedJpy(value);
 }
 
 /**

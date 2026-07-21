@@ -47,6 +47,8 @@
  *   { error: 'keepa_tokens_exhausted' } を投げ、ルート側でHTTP 503にマップする。
  */
 
+const { toTaxIncludedJpy } = require('../taxUtil');
+
 const KEEPA_BASE_URL = 'https://api.keepa.com';
 const JP_DOMAIN_ID = 5; // amazon.co.jp
 
@@ -283,7 +285,10 @@ function mapProductToSearchResult(product) {
   const salesRank = normalizePrice(current[CSV_TYPE.SALES]);
   const newPrice = normalizePrice(current[CSV_TYPE.NEW]);
   const usedPrice = normalizePrice(current[CSV_TYPE.USED]);
-  const listPrice = normalizePrice(current[CSV_TYPE.LISTPRICE]);
+  // KeepaのLISTPRICE(stats.current[4])も税抜の生値であることを実データで確認済み
+  // (SP-APIのattributes.list_priceと完全一致)。SP-API経路(extractListPriceJpy)と同じく
+  // 消費税10%で税込換算する(書籍は軽減税率の対象外のため一律10%でよい)。
+  const listPrice = toTaxIncludedJpy(normalizePrice(current[CSV_TYPE.LISTPRICE]));
   // 出品者数。0件は有効値のためnormalizeDimensionではなくnormalizePrice(-1のみnull)を使う。
   const sellerCounts = {
     new: normalizePrice(current[CSV_TYPE.COUNT_NEW]),

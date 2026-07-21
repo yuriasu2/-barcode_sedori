@@ -14,7 +14,10 @@
   いずれも `isExtraData=false` でoffers不要（調査済み）。`[19]〜[22]` の中古細分価格はoffers必須のため使わない
   → Keepa経路のコンディションは新品/中古の2区分のみ。
 - 定価はCatalog Items API v2022-04-01 の `includedData=attributes` で `attributes.list_price` から取得可
-  （書籍で実測確認済み）。ただし値は税抜のため、税込換算（×1.10、書籍は軽減税率対象外）して使う。
+  （書籍で実測確認済み）。値は税抜のため、税込換算（×1.10、書籍は軽減税率対象外）して使う。
+  KeepaのLISTPRICE（`stats.current[4]`）も同様に税抜の生値であることを実データで確認済み
+  （SP-APIの`attributes.list_price`と完全一致。実装当初は「Keepaは元から税込表示」と誤って
+  前提していたが、本番データ検証の結果、Keepa側にも同じ×1.10の税込換算が必要と判明した）。
   取得できない商品のみ定価条件をスキップする。
 - 手数料は既存計算を再利用: `breakEven = 売値 − 手数料` が両経路で計算済み（Keepa: `routes.js` の
   `computeBreakEven`、SP-API: `getMyFeesEstimatesBatch` + `pricing.fallbackFees`）。
@@ -30,8 +33,8 @@
 
 ```jsonc
 "profitInputs": {
-  // 定価(円)。Keepa: stats.current[4]。SP-API経路・取得不可時はnull。
-  "listPrice": 2200,
+  // 定価(円・税込)。Keepa: stats.current[4](税抜)を×1.10で税込換算。SP-API経路・取得不可時はnull。
+  "listPrice": 2420,
   // 出品者数。Keepa: current[11]/[12]。SP-API: Summary.TotalOfferCount。取れない側はnull。
   "sellerCounts": { "new": 3, "used": 12 },
   // 手数料控除後の売値(= breakEven)。小数あり得る。売値が取れない側はnull。
@@ -49,7 +52,7 @@
 
 - `CSV_TYPE` に `COUNT_NEW: 11` / `COUNT_USED: 12` を追加（LISTPRICE: 4 は定義済み・未使用）。
   冒頭のドキュメントコメント（stats.currentインデックス一覧）にも追記する。
-- `mapProductToSearchResult` を拡張し、`listPrice`（`normalizePrice(current[4])`）と
+- `mapProductToSearchResult` を拡張し、`listPrice`（`normalizePrice(current[4])`を税込換算(×1.10)したもの）と
   `sellerCounts`（`normalizePrice(current[11])` / `normalizePrice(current[12])`。-1→null、0は有効値）を返す。
 - `buildOffersResponseViaKeepa` 内のローカル関数 `computeBreakEven` を、`routes.js` モジュールレベルの
   `computeKeepaBreakEven(product, landed)` に共通化する（`referralFeePercent` / `fbaFees.pickAndPackFee` が

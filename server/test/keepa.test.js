@@ -91,17 +91,27 @@ test('keepa client: mapProductToSearchResult はproductがnullならnullを返�
   assert.equal(keepa.mapProductToSearchResult(null), null);
 });
 
-test('keepa client: mapProductToSearchResult はlistPrice/sellerCountsを正規化する(値あり)', () => {
+test('keepa client: mapProductToSearchResult はlistPrice(税抜)を税込×1.10換算し、sellerCountsを正規化する(値あり)', () => {
   const keepa = require('../src/keepa/client');
   const current = new Array(19).fill(-1);
-  current[4] = 2200; // LISTPRICE
+  current[4] = 2200; // LISTPRICE(税抜の生値)
   current[11] = 3; // COUNT_NEW
   current[12] = 12; // COUNT_USED
   const product = { asin: 'B000TEST03', stats: { current } };
 
   const mapped = keepa.mapProductToSearchResult(product);
-  assert.equal(mapped.listPrice, 2200);
+  assert.equal(mapped.listPrice, 2420); // 2200 * 1.10 = 2420
   assert.deepEqual(mapped.sellerCounts, { new: 3, used: 12 });
+});
+
+test('keepa client: mapProductToSearchResult のlistPrice税込換算は実測値(9784065291702)で1364→1500になる', () => {
+  const keepa = require('../src/keepa/client');
+  const current = new Array(19).fill(-1);
+  current[4] = 1364; // LISTPRICE(税抜。SP-APIのattributes.list_priceと完全一致した実測値)
+  const product = { asin: 'B000TEST07', stats: { current } };
+
+  const mapped = keepa.mapProductToSearchResult(product);
+  assert.equal(mapped.listPrice, 1500); // 1364 * 1.10 = 1500.4 -> 丸めで1500
 });
 
 test('keepa client: mapProductToSearchResult はlistPrice/sellerCountsが-1(データなし)ならnullにする', () => {
@@ -318,7 +328,7 @@ test('/api/search: SP-API未設定・KEEPA_API_KEYありならKeepa経路にフ�
       assert.equal(res.body.prices.new, 1000);
       assert.equal(res.body.prices.used, 800);
       assert.equal(res.body.prices.cart, null);
-      assert.equal(res.body.profitInputs.listPrice, 2200);
+      assert.equal(res.body.profitInputs.listPrice, 2420); // current[4]=2200(税抜) * 1.10 = 2420
       assert.ok(typeof res.body.profitInputs.breakEven.new === 'number');
       assert.ok(typeof res.body.profitInputs.breakEven.used === 'number');
 
