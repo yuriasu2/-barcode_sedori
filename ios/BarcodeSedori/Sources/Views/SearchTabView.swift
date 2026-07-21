@@ -95,8 +95,9 @@ final class SearchTabViewModel: ObservableObject {
             if EntitlementStore.shared.isPro {
                 let verdict = ProfitAlertEvaluator.evaluate(result: result, settings: Self.profitAlertSettings())
                 profitAlertVerdict = verdict
-                if verdict.isTriggered {
+                if verdict.isTriggered && SettingsStore.shared.profitAlertHapticsEnabled {
                     // 再描画で多重発火させないよう、判定確定時にここで1回だけ鳴らす。
+                    // バイブ設定がOFFのときは緑バナー・縁取り(profitAlertVerdict)は変えず振動のみ止める。
                     UINotificationFeedbackGenerator().notificationOccurred(.success)
                 }
             }

@@ -30,6 +30,7 @@ final class SettingsStore: ObservableObject {
         static let profitAlertSellerCountEnabled = "settings.profitAlert.sellerCountEnabled"
         static let profitAlertSellerCountThreshold = "settings.profitAlert.sellerCountThreshold"
         static let profitAlertListPriceEnabled = "settings.profitAlert.listPriceEnabled"
+        static let profitAlertHapticsEnabled = "settings.profitAlert.hapticsEnabled"
     }
 
     /// Keychain上のアカウント名(リフレッシュトークン用)。
@@ -140,6 +141,13 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    /// 利益アラート発火時にバイブレーションを鳴らすか。既定はtrue(現状の挙動=常に振動、を変えない)。
+    @Published var profitAlertHapticsEnabled: Bool {
+        didSet {
+            defaults.set(profitAlertHapticsEnabled, forKey: Keys.profitAlertHapticsEnabled)
+        }
+    }
+
     /// 本番APIの既定URL(独自ドメイン)。
     /// Cloudflare Workers を指すが、DNSで切替可能なため将来サーバーを移してもアプリ更新は不要。
     static let defaultServerURL = "https://api.sellira.jp"
@@ -164,6 +172,7 @@ final class SettingsStore: ObservableObject {
         self.profitAlertSellerCountEnabled = defaults.bool(forKey: Keys.profitAlertSellerCountEnabled)
         self.profitAlertSellerCountThreshold = (defaults.object(forKey: Keys.profitAlertSellerCountThreshold) as? Int) ?? 10
         self.profitAlertListPriceEnabled = defaults.bool(forKey: Keys.profitAlertListPriceEnabled)
+        self.profitAlertHapticsEnabled = (defaults.object(forKey: Keys.profitAlertHapticsEnabled) as? Bool) ?? true
 
         // リフレッシュトークンはKeychainから読む。
         // 旧バージョンでUserDefaultsに平文保存されていた場合は、ここでKeychainへ移行し平文を削除する。

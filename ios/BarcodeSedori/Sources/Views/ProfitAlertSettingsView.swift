@@ -6,10 +6,20 @@ import SwiftUI
 struct ProfitAlertSettingsView: View {
     @ObservedObject private var settings = SettingsStore.shared
 
+    /// numberPadキーボードの各TextFieldのフォーカス対象。キーボードツールバーの「完了」で
+    /// nilにしてフォーカスを外す(numberPadにはReturnキーが無いため)。
+    private enum Field: Hashable {
+        case marginThreshold, purchaseCost, rankThreshold, sellerCountThreshold
+    }
+    @FocusState private var focusedField: Field?
+
     var body: some View {
         Form {
             Section {
                 Toggle("アラートを有効にする", isOn: $settings.profitAlertEnabled)
+
+                Toggle("バイブレーションを有効にする", isOn: $settings.profitAlertHapticsEnabled)
+                    .disabled(!settings.profitAlertEnabled)
             }
 
             Section("利益アラート") {
@@ -23,6 +33,7 @@ struct ProfitAlertSettingsView: View {
                             .keyboardType(.numberPad)
                             .multilineTextAlignment(.trailing)
                             .frame(width: 100)
+                            .focused($focusedField, equals: .marginThreshold)
                     }
                     .disabled(!settings.profitAlertEnabled)
                 }
@@ -34,6 +45,7 @@ struct ProfitAlertSettingsView: View {
                         .keyboardType(.numberPad)
                         .multilineTextAlignment(.trailing)
                         .frame(width: 100)
+                        .focused($focusedField, equals: .purchaseCost)
                 }
                 .disabled(!settings.profitAlertEnabled)
 
@@ -53,6 +65,7 @@ struct ProfitAlertSettingsView: View {
                             .keyboardType(.numberPad)
                             .multilineTextAlignment(.trailing)
                             .frame(width: 100)
+                            .focused($focusedField, equals: .rankThreshold)
                     }
                     .disabled(!settings.profitAlertEnabled)
                 }
@@ -67,6 +80,7 @@ struct ProfitAlertSettingsView: View {
                             .keyboardType(.numberPad)
                             .multilineTextAlignment(.trailing)
                             .frame(width: 100)
+                            .focused($focusedField, equals: .sellerCountThreshold)
                     }
                     .disabled(!settings.profitAlertEnabled)
                 }
@@ -80,5 +94,12 @@ struct ProfitAlertSettingsView: View {
             }
         }
         .navigationTitle("アラート設定")
+        // numberPadキーボードにはReturnキーが無く閉じる手段が無いため、キーボード上に「完了」を出す。
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("完了") { focusedField = nil }
+            }
+        }
     }
 }
