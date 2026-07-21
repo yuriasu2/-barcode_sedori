@@ -91,6 +91,7 @@
 
 | プロパティ | UserDefaultsキー | 型 | 既定値 |
 |---|---|---|---|
+| `profitAlertEnabled` | `settings.profitAlert.enabled` | Bool | false |
 | `profitAlertMarginEnabled` | `settings.profitAlert.marginEnabled` | Bool | false |
 | `profitAlertMarginThreshold` | `settings.profitAlert.marginThreshold` | Int | 300 |
 | `profitAlertPurchaseCost` | `settings.profitAlert.purchaseCost` | Int | 0 |
@@ -104,7 +105,9 @@
 - `profitAlertTargetCondition` は `enum ProfitAlertCondition: String { case new, used }` として定義し、
   rawValueで保存する（不正値読込は `.used` フォールバック）。**粗利の売値と出品者数の両方**がこの
   コンディションを参照する（条件ごとに別々のコンディションは持たない=YAGNI）。
-- マスタートグルは設けない。**全条件OFF = 機能無効**とする。
+- ユーザー指示によりマスタートグル（`profitAlertEnabled` / UserDefaultsキー `settings.profitAlert.enabled` /
+  Bool / 既定 `false`）を追加。専用画面 `ProfitAlertSettingsView` に分離し、マスターOFF時は他条件を見ずに
+  非発火とする（`ProfitAlertEvaluator.Settings.enabled` で判定側にも反映）。
 
 ### iOSモデル（`SearchModels.swift`）
 
@@ -200,8 +203,11 @@ struct ProfitAlertEvaluator {
 ## 5. Proゲート
 
 - **設定画面**: `SettingsView` の「プラン」セクション直下に `Section("利益アラート")` を追加。
-  - Proのとき: 各条件のToggle＋閾値入力（`TextField(value:format:.number)` + `.keyboardType(.numberPad)`）、
-    コンディションPicker（新品/中古）、仕入れ値入力、定価条件Toggle、説明文（`.footnote`）。
+  - Proのとき: `NavigationLink("アラート設定")` の1行のみを表示し、専用画面 `ProfitAlertSettingsView` へ
+    プッシュ遷移する。その画面の最上部に独立セクションでマスタースイッチ「アラートを有効にする」を置き、
+    その下に各条件のToggle＋閾値入力（`TextField(value:format:.number)` + `.keyboardType(.numberPad)`）、
+    コンディションPicker（新品/中古）、仕入れ値入力、定価条件Toggle、説明文（`.footnote`）を配置する。
+    マスターOFF時は各条件行を`.disabled(true)`でグレーアウトする（非表示にはしない）。
   - 無料のとき: 検索タブ `freeAdArea` と同じ作法で `lock.fill` ＋「利益アラートはProで」行のみ表示し、
     タップで `showPaywall = true`（既存 `.sheet(isPresented:) { PaywallView() }` を流用）。設定値には触らせない。
 - **判定側**: `SearchTabViewModel` で `isPro` のときのみ評価（無料は設定が残っていても発火しない二重ゲート）。

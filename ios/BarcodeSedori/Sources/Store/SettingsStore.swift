@@ -20,6 +20,7 @@ final class SettingsStore: ObservableObject {
         static let renderSpApiEnabled = "settings.renderSpApiEnabled"
 
         // 利益アラート(Phase 1a)。既定は全条件OFFで既存ユーザーの挙動を変えない。
+        static let profitAlertEnabled = "settings.profitAlert.enabled"
         static let profitAlertMarginEnabled = "settings.profitAlert.marginEnabled"
         static let profitAlertMarginThreshold = "settings.profitAlert.marginThreshold"
         static let profitAlertPurchaseCost = "settings.profitAlert.purchaseCost"
@@ -67,7 +68,14 @@ final class SettingsStore: ObservableObject {
         }
     }
 
-    // 利益アラート(Phase 1a)。マスタートグルは設けず、全条件OFF=機能無効とする。既定は全てOFF。
+    // 利益アラート(Phase 1a)。既定は全てOFF。
+
+    /// 利益アラート機能全体のマスタースイッチ。既定はOFF(未使用者に影響を与えない)。
+    @Published var profitAlertEnabled: Bool {
+        didSet {
+            defaults.set(profitAlertEnabled, forKey: Keys.profitAlertEnabled)
+        }
+    }
 
     /// 粗利条件(breakEven − 仕入れ値 ≥ 閾値)を有効にするか
     @Published var profitAlertMarginEnabled: Bool {
@@ -144,6 +152,7 @@ final class SettingsStore: ObservableObject {
         self.renderSpApiEnabled = (defaults.object(forKey: Keys.renderSpApiEnabled) as? Bool) ?? true
 
         // 利益アラート(Phase 1a)。未設定時は全条件OFF・既定値で読み込む(既存ユーザーの挙動は不変)。
+        self.profitAlertEnabled = defaults.bool(forKey: Keys.profitAlertEnabled)
         self.profitAlertMarginEnabled = defaults.bool(forKey: Keys.profitAlertMarginEnabled)
         self.profitAlertMarginThreshold = (defaults.object(forKey: Keys.profitAlertMarginThreshold) as? Int) ?? 300
         self.profitAlertPurchaseCost = (defaults.object(forKey: Keys.profitAlertPurchaseCost) as? Int) ?? 0

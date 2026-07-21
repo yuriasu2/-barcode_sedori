@@ -136,6 +136,7 @@ final class SearchTabViewModel: ObservableObject {
     private static func profitAlertSettings() -> ProfitAlertEvaluator.Settings {
         let settings = SettingsStore.shared
         return ProfitAlertEvaluator.Settings(
+            enabled: settings.profitAlertEnabled,
             marginEnabled: settings.profitAlertMarginEnabled,
             marginThreshold: settings.profitAlertMarginThreshold,
             purchaseCost: settings.profitAlertPurchaseCost,

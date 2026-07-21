@@ -12,6 +12,8 @@ struct ProfitAlertEvaluator {
 
     /// 判定に使う設定値のスナップショット。SettingsStoreから都度組み立てて渡す。
     struct Settings {
+        /// 利益アラート機能全体のマスタースイッチ。falseなら他条件を見ずに非発火とする。
+        let enabled: Bool
         let marginEnabled: Bool
         let marginThreshold: Int
         let purchaseCost: Int
@@ -27,6 +29,9 @@ struct ProfitAlertEvaluator {
     /// ただし定価条件のみ、listPrice==nilならスキップして他条件で判定する
     /// (定価条件のみONでlistPrice==nilの場合は、判定した条件が0個になるため非発火とする)。
     static func evaluate(result: SearchResult, settings: Settings) -> Verdict {
+        // マスタースイッチがOFFなら他条件を見ずに非発火。
+        guard settings.enabled else { return Verdict(isTriggered: false, grossMargin: nil) }
+
         // 粗利(表示用にも使うため、条件のON/OFFに関わらず算出できるなら算出しておく)。
         let grossMargin = computeGrossMargin(result: result, settings: settings)
 
