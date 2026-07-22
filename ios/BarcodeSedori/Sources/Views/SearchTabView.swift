@@ -399,7 +399,8 @@ struct SearchTabView: View {
             LatestResultCardView(
                 result: result,
                 scannedCode: viewModel.latestScannedCode ?? "",
-                profitVerdict: viewModel.profitAlertVerdict
+                profitVerdict: viewModel.profitAlertVerdict,
+                isPro: entitlements.isPro
             )
         } else if let errorMessage = viewModel.searchErrorMessage {
             Text(errorMessage)
@@ -507,6 +508,8 @@ private struct LatestResultCardView: View {
     let scannedCode: String
     /// 利益アラートの判定結果。発火時のみ緑バナー・縁取りを出す。非Pro/未評価はnil。
     let profitVerdict: ProfitAlertEvaluator.Verdict?
+    /// ブランド・サイズ・重量ブロックの表示可否(Pro限定)。依存は呼び出し元から引数で渡す(View内でEntitlementStoreを直接触らない)。
+    let isPro: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -599,9 +602,9 @@ private struct LatestResultCardView: View {
                     }
                     .fixedSize(horizontal: true, vertical: false)
 
-                    // ブランド・寸法・重量(Keepa経路のみ取得可)。
+                    // ブランド・寸法・重量(Keepa経路のみ取得可)。Pro限定表示。
                     // 3つともnilなら何も描画しない(SP-API経路・旧サーバー互換)。
-                    if result.brand != nil || result.dimensionsMm != nil || result.weightG != nil {
+                    if isPro && (result.brand != nil || result.dimensionsMm != nil || result.weightG != nil) {
                         VStack(alignment: .leading, spacing: 2) {
                             if let brand = result.brand {
                                 Text("ブランド：\(brand)")

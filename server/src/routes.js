@@ -203,6 +203,20 @@ async function handleSearchViaSpApi(req, res, code, credentials, cacheKey) {
 
     const { identifier, asin: knownAsin } = await resolveAsinFromCode(converted.codeType, converted);
 
+    // Pro限定でKeepa1トークンを消費してbrand/dimensionsMm/weightGを補完する。
+    // 無料はKeepa呼び出しなし(トークン消費ゼロを維持)。
+    // 既存のSP-API呼び出し(searchCatalogItems等)と並行して走らせるため、ここではawaitせずPromiseを起動するだけに留め、
+    // 実際の待ち合わせはオファー取得と合わせて後段のPromise.allで行う。
+    // Keepa未設定/呼び出し失敗/トークン枯渇時は握りつぶしてnullのまま返す(検索自体は失敗させない)。
+    const isPro = isProRequest(req.headers);
+    const keepaEnrichmentPromise =
+      isPro && identifier && keepa.getApiKey()
+        ? keepa
+            .getProduct({ code: identifier })
+            .then(({ product }) => keepa.mapProductToSearchResult(product))
+            .catch(() => null)
+        : Promise.resolve(null);
+
     let asin = knownAsin;
     let title = null;
     let imageUrl = null;
@@ -273,9 +287,10 @@ async function handleSearchViaSpApi(req, res, code, credentials, cacheKey) {
       });
     }
 
-    const [newOffersResp, usedOffersResp] = await Promise.all([
+    const [newOffersResp, usedOffersResp, keepaEnrichment] = await Promise.all([
       pricing.getItemOffers(asin, 'New', credentials).catch(() => null),
       pricing.getItemOffers(asin, 'Used', credentials).catch(() => null),
+      keepaEnrichmentPromise,
     ]);
 
     const newSummary = pricing.extractOffersSummary(newOffersResp, 'New');
@@ -297,9 +312,10 @@ async function handleSearchViaSpApi(req, res, code, credentials, cacheKey) {
       isbn13,
       imageUrl,
       salesRank,
-      brand: null,
-      dimensionsMm: null,
-      weightG: null,
+      // Pro限定でKeepaから補完(無料は常にnull)。listPrice・prices等はSP-API側の値を維持し、Keepaと混ぜない。
+      brand: keepaEnrichment ? keepaEnrichment.brand : null,
+      dimensionsMm: keepaEnrichment ? keepaEnrichment.dimensionsMm : null,
+      weightG: keepaEnrichment ? keepaEnrichment.weightG : null,
       prices: {
         cart: cart != null ? cart : null,
         new: newPrice != null ? newPrice : null,
@@ -453,7 +469,10 @@ router.get('/api/search', async (req, res) => {
   const credentials = resolveSpApiCredentials(req.headers);
 
   if (credentials) {
-    const cacheKey = `spapi:${credentialsHashPrefix(credentials)}:${code}`;
+    // キャッシュキーにプランを含める(spapi:<hash>:<plan>:<code>)。
+    // プラン非依存だと無料での検索結果(brand等null)が、30分以内のPro再検索に誤って返ってしまうため。
+    const plan = isProRequest(req.headers) ? 'pro' : 'free';
+    const cacheKey = `spapi:${credentialsHashPrefix(credentials)}:${plan}:${code}`;
     const cached = searchCache.get(cacheKey);
     if (cached) return res.json(cached);
     return handleSearchViaSpApi(req, res, code, credentials, cacheKey);
