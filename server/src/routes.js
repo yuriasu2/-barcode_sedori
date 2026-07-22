@@ -29,6 +29,13 @@ const graphCache = new LruCache({ ttlMs: 60 * 60 * 1000, maxSize: 200 }); // グ
  */
 const KEEPA_CACHE_TTL_MS = 30 * 60 * 1000;
 
+/**
+ * SP-API経路でPro時にKeepa第1段階を並行取得し、brand/dimensionsMm/weightGを補完する機能のフラグ。
+ * Proスキャン1回につきKeepaトークン1を消費するため、ユーザー判断で無効化中(2026-07-22)。
+ * trueに戻せば補完が復活する(実装・テストは残してある)。
+ */
+const SPAPI_KEEPA_ENRICHMENT_ENABLED = false;
+
 const router = new MiniRouter();
 
 const SPAPI_CREDENTIALS_MISSING_MESSAGE = 'SP-API連携またはサーバーのKeepa設定が必要です';
@@ -210,7 +217,7 @@ async function handleSearchViaSpApi(req, res, code, credentials, cacheKey) {
     // Keepa未設定/呼び出し失敗/トークン枯渇時は握りつぶしてnullのまま返す(検索自体は失敗させない)。
     const isPro = isProRequest(req.headers);
     const keepaEnrichmentPromise =
-      isPro && identifier && keepa.getApiKey()
+      SPAPI_KEEPA_ENRICHMENT_ENABLED && isPro && identifier && keepa.getApiKey()
         ? keepa
             .getProduct({ code: identifier })
             .then(({ product }) => keepa.mapProductToSearchResult(product))
@@ -814,6 +821,8 @@ router.offersCache = offersCache;
 router.graphCache = graphCache;
 // テスト用途にプラン判定関数を公開する。
 router.isProRequest = isProRequest;
+// テスト用途に補完フラグを公開する(フラグの値に応じてテスト側が期待値を切り替える)。
+router.SPAPI_KEEPA_ENRICHMENT_ENABLED = SPAPI_KEEPA_ENRICHMENT_ENABLED;
 // テスト用途に定価抽出ヘルパーを公開する。
 router.extractListPriceJpy = extractListPriceJpy;
 

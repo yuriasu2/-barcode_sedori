@@ -78,7 +78,7 @@ const SPAPI_ENV = {
   KEEPA_API_KEY: 'keepa-key',
 };
 
-test('/api/search spapi経路 + Pro: Keepaのbrand/dimensionsMm/weightGが応答にマージされる', async () => {
+test('/api/search spapi経路 + Pro: 補完フラグに応じてKeepaのbrand/dimensionsMm/weightGがマージされる', async () => {
   await withEnv(SPAPI_ENV, async () => {
     const { routes, pricing, keepa } = freshModules();
     mockCatalogAndOffers(pricing, 'B000TEST1');
@@ -102,11 +102,20 @@ test('/api/search spapi経路 + Pro: Keepaのbrand/dimensionsMm/weightGが応答
       res
     );
 
-    assert.equal(keepaCalled, true, 'Proではkeepa.getProductが呼ばれること');
     assert.equal(res.body.source, 'spapi');
-    assert.equal(res.body.brand, 'テストブランド');
-    assert.deepEqual(res.body.dimensionsMm, { length: 200, width: 150, height: 10 });
-    assert.equal(res.body.weightG, 300);
+    if (routes.SPAPI_KEEPA_ENRICHMENT_ENABLED) {
+      // フラグON: Keepa1トークンを消費して補完する
+      assert.equal(keepaCalled, true, 'Proではkeepa.getProductが呼ばれること');
+      assert.equal(res.body.brand, 'テストブランド');
+      assert.deepEqual(res.body.dimensionsMm, { length: 200, width: 150, height: 10 });
+      assert.equal(res.body.weightG, 300);
+    } else {
+      // フラグOFF(現在の運用): Proでもトークンを消費せずnullのまま
+      assert.equal(keepaCalled, false, 'フラグOFFではProでもkeepa.getProductが呼ばれないこと');
+      assert.equal(res.body.brand, null);
+      assert.equal(res.body.dimensionsMm, null);
+      assert.equal(res.body.weightG, null);
+    }
   });
 });
 
@@ -192,6 +201,10 @@ test('/api/search spapi経路 キャッシュ分離: 無料でキャッシュさ
       { query: { code: '9784000000004' }, headers: { 'x-app-plan': 'pro' } },
       proRes
     );
-    assert.equal(proRes.body.brand, 'Proブランド');
+    // フラグOFF中はProでも補完されないためnull(キー分離自体はフラグONに戻したとき効く)
+    assert.equal(
+      proRes.body.brand,
+      routes.SPAPI_KEEPA_ENRICHMENT_ENABLED ? 'Proブランド' : null
+    );
   });
 });
