@@ -119,9 +119,25 @@ struct PaywallView: View {
                         .foregroundColor(.secondary)
 
                     if entitlements.product == nil {
-                        Text("※ 商品情報を読み込めませんでした。ネットワーク接続、またはStoreKit設定をご確認ください。")
-                            .font(.caption2)
-                            .foregroundColor(.orange)
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("※ 商品情報を読み込めませんでした。ネットワーク接続、またはStoreKit設定をご確認ください。")
+                                .font(.caption2)
+                                .foregroundColor(.orange)
+
+                            if entitlements.isLoadingProduct {
+                                HStack(spacing: 6) {
+                                    ProgressView()
+                                    Text("読み込み中…")
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
+                                }
+                            } else {
+                                Button("再読み込み") {
+                                    Task { await entitlements.loadProduct() }
+                                }
+                                .font(.caption2)
+                            }
+                        }
                     }
                 }
                 .padding()
@@ -135,5 +151,24 @@ struct PaywallView: View {
             }
         }
         .navigationViewStyle(.stack)
+        .task {
+            // 画面表示のたびに、商品未取得なら再取得を試みる(起動時取得が失敗したままでも購入不能にしない)
+            if entitlements.product == nil && !entitlements.isLoadingProduct {
+                await entitlements.loadProduct()
+            }
+        }
+        .alert(
+            "エラー",
+            isPresented: Binding(
+                get: { entitlements.lastActionErrorMessage != nil },
+                set: { newValue in
+                    if !newValue { entitlements.lastActionErrorMessage = nil }
+                }
+            )
+        ) {
+            Button("OK", role: .cancel) { entitlements.lastActionErrorMessage = nil }
+        } message: {
+            Text(entitlements.lastActionErrorMessage ?? "")
+        }
     }
 }

@@ -677,6 +677,8 @@ private struct KeepaGraphImageView: View {
 
     @State private var image: UIImage?
     @State private var loadFailed = false
+    /// タップでの再読込を`.task(id:)`に伝えるためのカウンタ(idに含めて再実行させる)。
+    @State private var retryToken = 0
 
     var body: some View {
         Group {
@@ -687,11 +689,20 @@ private struct KeepaGraphImageView: View {
                     .frame(maxWidth: .infinity)
                     .cornerRadius(10)
             } else if loadFailed {
-                Text("グラフを一時的に取得できません")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 20)
+                VStack(spacing: 4) {
+                    Text("グラフを一時的に取得できません")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text("タップして再読み込み")
+                        .font(.caption2)
+                        .foregroundColor(.accentColor)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 20)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    retryToken += 1
+                }
             } else {
                 HStack {
                     Spacer()
@@ -701,8 +712,8 @@ private struct KeepaGraphImageView: View {
                 .frame(height: 80)
             }
         }
-        // asin/range が変わるたびに再取得する。
-        .task(id: "\(asin)-\(range)") {
+        // asin/range/retryToken が変わるたびに再取得する。
+        .task(id: "\(asin)-\(range)-\(retryToken)") {
             image = nil
             loadFailed = false
             if let loaded = await APIClient.shared.graphImage(asin: asin, range: range) {

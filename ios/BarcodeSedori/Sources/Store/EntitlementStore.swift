@@ -25,6 +25,8 @@ final class EntitlementStore: ObservableObject {
     @Published private(set) var product: Product?
     @Published private(set) var isLoadingProduct = false
     @Published private(set) var purchaseInProgress = false
+    /// 購入・復元の失敗時に表示する日本語メッセージ。表示後は呼び出し側でnilに戻すこと。
+    @Published var lastActionErrorMessage: String?
 
     private var updatesTask: Task<Void, Never>?
 
@@ -70,6 +72,7 @@ final class EntitlementStore: ObservableObject {
     func purchase() async -> Bool {
         guard let product else { return false }
         purchaseInProgress = true
+        lastActionErrorMessage = nil
         defer { purchaseInProgress = false }
         do {
             let result = try await product.purchase()
@@ -80,13 +83,20 @@ final class EntitlementStore: ObservableObject {
                     await refreshEntitlements()
                     return isPro
                 }
+                lastActionErrorMessage = "購入を完了できませんでした。通信環境をご確認のうえ再度お試しください。"
                 return false
-            case .userCancelled, .pending:
+            case .userCancelled:
+                // ユーザーキャンセルはエラー扱いにしない
+                return false
+            case .pending:
+                lastActionErrorMessage = "購入は承認待ちです。完了後に自動で反映されます。"
                 return false
             @unknown default:
+                lastActionErrorMessage = "購入を完了できませんでした。通信環境をご確認のうえ再度お試しください。"
                 return false
             }
         } catch {
+            lastActionErrorMessage = "購入を完了できませんでした。通信環境をご確認のうえ再度お試しください。"
             return false
         }
     }
@@ -94,12 +104,17 @@ final class EntitlementStore: ObservableObject {
     /// 購入の復元。App Storeと同期後にエンタイトルメントを再評価する。
     @discardableResult
     func restore() async -> Bool {
+        lastActionErrorMessage = nil
         do {
             try await AppStore.sync()
         } catch {
-            // 同期に失敗しても currentEntitlements で判定を試みる
+            // 同期に失敗しても currentEntitlements で判定を試みるが、失敗はユーザーに伝える
+            lastActionErrorMessage = "復元を完了できませんでした。通信環境をご確認のうえ再度お試しください。"
         }
         await refreshEntitlements()
+        if isPro {
+            lastActionErrorMessage = nil
+        }
         return isPro
     }
 
