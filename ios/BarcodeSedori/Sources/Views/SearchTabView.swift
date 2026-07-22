@@ -305,8 +305,11 @@ struct SearchTabView: View {
         HStack {
             Image(systemName: "magnifyingglass")
                 .foregroundColor(.secondary)
-            TextField("商品名、JANコードで検索", text: $searchBarText)
+            TextField("ISBN、JANコードで検索", text: $searchBarText)
                 .textFieldStyle(.plain)
+                // 数字レイアウトで開く。numberPadだとReturnキーが無く onSubmit で検索できなくなり、
+                // ISBN-10のチェック文字"X"も打てなくなるため numbersAndPunctuation を使う。
+                .keyboardType(.numbersAndPunctuation)
                 .onSubmit {
                     submitSearchBarText()
                 }
