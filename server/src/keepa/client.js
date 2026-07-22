@@ -406,8 +406,10 @@ async function getGraphImage(asin, range) {
     new: '1',
     used: '1',
     range: String(range || 90),
-    width: '1000',
-    height: '400',
+    // Keepaのフォント・線幅はピクセル固定のため、大きなキャンバスで取ると画面上で文字が極小になる。
+    // iPhoneの表示幅(約1100px)より小さめに取り、画面幅へ拡大表示させることで文字・線を相対的に大きく見せる。
+    width: '600',
+    height: '300',
   });
   const url = `${KEEPA_BASE_URL}/graphimage?${query.toString()}`;
 
