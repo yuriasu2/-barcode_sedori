@@ -106,6 +106,10 @@ struct SettingsView: View {
     /// 設定値の唯一の真実。OAuthコールバックでの更新を画面に反映させるため直接監視する。
     @ObservedObject private var settings = SettingsStore.shared
     @State private var showPaywall = false
+    #if DEBUG
+    /// 開発用Pro強制トグルの表示state(実体はEntitlementStore側のUserDefaults)。
+    @State private var debugForcePro = EntitlementStore.shared.debugForcePro
+    #endif
 
     var body: some View {
         NavigationView {
@@ -174,6 +178,15 @@ struct SettingsView: View {
                 }
 
                 Section("開発者向け") {
+                    #if DEBUG
+                    // 開発ビルド専用。シミュレータではStoreKitの実購入ができずPro限定画面を検証できないため、
+                    // 強制的にProとして扱えるようにする。Releaseビルドにはコンパイルされない。
+                    Toggle("【開発用】Proとして扱う", isOn: $debugForcePro)
+                        .onChange(of: debugForcePro) { newValue in
+                            entitlements.debugForcePro = newValue
+                        }
+                    #endif
+
                     Toggle("サーバー側SP-APIを使用する", isOn: $viewModel.renderSpApiEnabled)
                     Text("SP-API未連携のときのみ有効な開発用トグルです。オフにするとサーバーのSP-APIを使わずKeepaのみで価格を取得します。連携済みの場合はご自身のSP-APIが優先されるため、この設定は影響しません。")
                         .font(.footnote)

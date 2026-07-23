@@ -30,6 +30,27 @@ final class EntitlementStore: ObservableObject {
 
     private var updatesTask: Task<Void, Never>?
 
+    #if DEBUG
+    /// 開発ビルド専用のPro強制フラグ。シミュレータではStoreKitの実購入ができず
+    /// Pro限定画面(利益アラート設定・出品フォーム等)を一切検証できないため、開発時のみ上書きできるようにする。
+    /// `#if DEBUG` で囲っているためReleaseビルドには存在せず、消し忘れて出荷する事故は起きない。
+    static let debugForceProKey = "settings.debugForcePro"
+
+    /// 開発用トグルの現在値。オンにすると実際のエンタイトルメントに関わらずProとして扱う。
+    var debugForcePro: Bool {
+        get { UserDefaults.standard.bool(forKey: Self.debugForceProKey) }
+        set {
+            UserDefaults.standard.set(newValue, forKey: Self.debugForceProKey)
+            // 即座に反映する(オフに戻したときは実エンタイトルメントで再評価)。
+            if newValue {
+                setIsPro(true)
+            } else {
+                Task { await refreshEntitlements() }
+            }
+        }
+    }
+    #endif
+
     private init() {}
 
     /// アプリ起動時に一度呼ぶ。
@@ -57,6 +78,15 @@ final class EntitlementStore: ObservableObject {
 
     /// 現在有効なエンタイトルメントから `isPro` を再評価する。
     func refreshEntitlements() async {
+        #if DEBUG
+        // 開発用のPro強制がオンの間は実エンタイトルメントで上書きしない
+        // (StoreKitの監視や起動時の再評価でfalseへ戻ってしまうのを防ぐ)。
+        if debugForcePro {
+            setIsPro(true)
+            return
+        }
+        #endif
+
         var active = false
         for await result in Transaction.currentEntitlements {
             guard case .verified(let transaction) = result else { continue }
