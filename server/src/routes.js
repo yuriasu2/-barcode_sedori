@@ -979,7 +979,7 @@ router.post('/api/listings', async (req, res) => {
       issues: (response && response.issues) || [],
     });
   } catch (err) {
-    console.error(`[listings:put] asin=${input.asin} sku=${input.sku} failed:`, err.message);
+    console.error(`[listings:put] asin=${input.asin} failed:`, err.message);
     res.status(502).json({ error: 'listing_failed', message: err.message });
   }
 });
