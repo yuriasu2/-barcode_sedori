@@ -81,6 +81,26 @@ final class PurchaseListStore: ObservableObject {
         save()
     }
 
+    /// 仕入れタブの選択モードでの一括削除用。
+    func remove(ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        items.removeAll { ids.contains($0.id) }
+        save()
+    }
+
+    /// 仕入れタブの選択モードでの一括コンディション変更用。
+    func updateCondition(ids: Set<UUID>, condition: ListingConditionType) {
+        guard !ids.isEmpty else { return }
+        var changed = false
+        for index in items.indices where ids.contains(items[index].id) {
+            items[index].condition = condition
+            changed = true
+        }
+        if changed {
+            save()
+        }
+    }
+
     /// 出品受理(ACCEPTED)時に呼ぶ。該当項目に出品済みマークとSKUを付ける。
     func markListed(id: UUID, sku: String) {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }

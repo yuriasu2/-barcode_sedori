@@ -61,10 +61,13 @@ final class ListingFormViewModel: ObservableObject {
         self.settings = settings
         self.purchaseList = purchaseList
         self.latestOffers = numberedItem.offersResult
+        // アイテムに保存済みのコンディションがあればそれを初期値にする(無ければ従来の既定)。
+        let initialCondition = numberedItem.condition ?? .usedVeryGood
         // didSetはinit中に走らないため初期値を明示的に組み立てる。
-        self.conditionNote = settings.listingTemplate(for: .usedVeryGood)
+        self.condition = initialCondition
+        self.conditionNote = settings.listingTemplate(for: initialCondition)
         self.sku = settings.listingSku(for: numberedItem)
-        self.price = ListingModels.suggestedPrice(offers: numberedItem.offersResult, condition: .usedVeryGood)
+        self.price = ListingModels.suggestedPrice(offers: numberedItem.offersResult, condition: initialCondition)
     }
 
     /// 画面表示時: 制限チェックと最新オファー再取得を並行実行する。

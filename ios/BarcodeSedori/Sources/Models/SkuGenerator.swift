@@ -53,7 +53,8 @@ enum SkuGenerator {
         return 1
     }
 
-    /// 部品列からSKU文字列を組み立てる。末尾に `-%03d` の枝番を必ず付与する。
+    /// 部品列からSKU文字列を組み立てる。末尾に `%03d` の枝番(ハイフン無し)を必ず付与する。
+    /// 区切りが欲しい場合は自由文字部品で"-"などを置ける。
     /// 40文字(サーバー制約 `/^[A-Za-z0-9._-]{1,40}$/`)を超えても切り詰めず、そのまま返す
     /// (設定画面側で警告表示する方針。送信時はサーバーが400で弾く)。
     static func build(
@@ -90,6 +91,6 @@ enum SkuGenerator {
             }
         }.joined()
 
-        return "\(body)-\(String(format: "%03d", sequence))"
+        return "\(body)\(String(format: "%03d", sequence))"
     }
 }

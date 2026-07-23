@@ -28,6 +28,9 @@ struct PurchaseListItem: Codable, Equatable, Identifiable {
     var skuSequence: Int?
     /// 採番した日(yyyyMMdd)。skuSequenceとセットで永続化する(採番のやり直し防止用)。
     var skuSequenceDate: String?
+    /// 出品コンディション(仕入れタブの一括変更・単品出品フォームの初期値に使う)。
+    /// 旧データ(導入前に追加された項目)はnilのまま残る。未設定時の既定は`.usedGood`(良い)。
+    var condition: ListingConditionType?
 
     init(
         id: UUID = UUID(),
@@ -43,7 +46,8 @@ struct PurchaseListItem: Codable, Equatable, Identifiable {
         listedSku: String? = nil,
         listedAt: Date? = nil,
         skuSequence: Int? = nil,
-        skuSequenceDate: String? = nil
+        skuSequenceDate: String? = nil,
+        condition: ListingConditionType? = nil
     ) {
         self.id = id
         self.addedAt = addedAt
@@ -59,6 +63,7 @@ struct PurchaseListItem: Codable, Equatable, Identifiable {
         self.listedAt = listedAt
         self.skuSequence = skuSequence
         self.skuSequenceDate = skuSequenceDate
+        self.condition = condition
     }
 
     /// 検索タブの最新結果カードから追加する場合のコンビニエンスinit。

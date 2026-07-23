@@ -2,7 +2,7 @@ import SwiftUI
 
 /// SKUフォーマットの並べ替え画面(Pro限定)。設定タブの「出品」セクションから遷移する。
 /// 部品(年/月/日/商品コード/自由文字)をドラッグで並べ替えて出品SKUの書式を決める。
-/// 末尾の枝番(-001)は自動付与のためここでは編集できない(SkuGenerator.build参照)。
+/// 末尾の枝番(001)は自動付与のためここでは編集できない(SkuGenerator.build参照)。
 struct SkuFormatSettingsView: View {
     @ObservedObject private var settings = SettingsStore.shared
     /// 自由文字部品の編集シート。編集中の部品のindexを保持する(nilなら非表示)。
@@ -47,7 +47,7 @@ struct SkuFormatSettingsView: View {
             }
 
             Section {
-                Text("末尾に枝番(-001)が自動で付きます。年月日は仕入れリストに追加した日付です。")
+                Text("末尾に枝番(001)が自動で付きます。区切りが欲しい場合は自由文字部品で\"-\"を追加できます。年月日は仕入れリストに追加した日付です。")
                     .font(.footnote)
                     .foregroundColor(.secondary)
             }
