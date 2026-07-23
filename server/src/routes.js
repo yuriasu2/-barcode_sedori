@@ -10,6 +10,8 @@ const spapiAuth = require('./spapi/auth');
 const oauth = require('./oauth');
 const keepa = require('./keepa/client');
 const deviceRateLimit = require('./deviceRateLimit');
+const sellers = require('./spapi/sellers');
+const listings = require('./spapi/listings');
 
 /**
  * 無料プランのデバイス単位・日次バックストップ上限。
@@ -40,6 +42,19 @@ const router = new MiniRouter();
 
 const SPAPI_CREDENTIALS_MISSING_MESSAGE = 'SP-API連携またはサーバーのKeepa設定が必要です';
 const PLAN_REQUIRED_MESSAGE = 'この機能はProプランでご利用いただけます。';
+const SPAPI_LINK_REQUIRED_MESSAGE = '出品にはSP-API連携が必要です。設定タブでAmazon連携を行ってください。';
+
+/**
+ * 出品系APIが受理するconditionType(Listings Items APIのcondition_type値)。
+ * アプリの出品フォームと同じ5種(新品+中古4種)を受理する。
+ */
+const LISTING_CONDITION_TYPES = [
+  'new_new',
+  'used_like_new',
+  'used_very_good',
+  'used_good',
+  'used_acceptable',
+];
 
 /**
  * アプリが自己申告するプランを判定する(フリーミアム Phase 1: X-App-Plan ヘッダー)。
@@ -49,6 +64,52 @@ const PLAN_REQUIRED_MESSAGE = 'この機能はProプランでご利用いただ�
 function isProRequest(headers) {
   const plan = headers && (headers['x-app-plan'] || headers['X-App-Plan']);
   return String(plan || '').toLowerCase() === 'pro';
+}
+
+/**
+ * 出品系API共通ゲート: Pro + BYOトークン(X-Spapi-Refresh-Token)必須。
+ * .envのLWA_REFRESH_TOKENにはフォールバックしない(他人のsellerで出品してしまう事故防止)。
+ * 通過時はcredentialsを返し、弾いた場合はresへ403/503を書き込んでnullを返す。
+ */
+function requireProByoCredentials(req, res) {
+  if (!isProRequest(req.headers)) {
+    res.status(403).json({ error: 'plan_required', message: PLAN_REQUIRED_MESSAGE });
+    return null;
+  }
+  const headerToken =
+    req.headers && (req.headers['x-spapi-refresh-token'] || req.headers['X-Spapi-Refresh-Token']);
+  if (!headerToken) {
+    res.status(403).json({ error: 'spapi_link_required', message: SPAPI_LINK_REQUIRED_MESSAGE });
+    return null;
+  }
+  const credentials = resolveSpApiCredentials(req.headers);
+  if (!credentials) {
+    // clientId/clientSecret未設定(サーバー構成不備)またはX-Disable-Spapi。
+    res.status(503).json({ error: 'spapi_credentials_missing', message: SPAPI_CREDENTIALS_MISSING_MESSAGE });
+    return null;
+  }
+  return credentials;
+}
+
+/**
+ * Listings Restrictions API応答をアプリ向けに要約する。
+ * restrictionsが1件でもあれば制限あり。理由メッセージは全件を改行連結し、
+ * 解除申請リンクは最初に見つかったlinks[].resourceを使う。
+ */
+function summarizeRestrictions(response) {
+  const restrictions = (response && response.restrictions) || [];
+  if (!Array.isArray(restrictions) || !restrictions.length) {
+    return { restricted: false, message: null, approvalUrl: null };
+  }
+  const reasons = restrictions.flatMap((r) => (r && r.reasons) || []);
+  const messages = reasons.map((r) => r && r.message).filter(Boolean);
+  const links = reasons.flatMap((r) => (r && r.links) || []);
+  const firstLink = links.find((l) => l && l.resource);
+  return {
+    restricted: true,
+    message: messages.length ? messages.join('\n') : '出品制限があります。',
+    approvalUrl: firstLink ? firstLink.resource : null,
+  };
 }
 
 /**
@@ -796,6 +857,40 @@ router.get('/api/graph', async (req, res) => {
   }
 });
 
+// GET /api/listings/restrictions?asin=&condition= — 出品制限の事前チェック(Pro+BYOトークン必須)
+//
+// 入力バリデーション(asin/condition)を先に行い、その後にPro+BYOトークンのゲートを通す。
+// 逆順(ゲート→入力検証)にすると、サーバー側のLWA_CLIENT_ID/LWA_CLIENT_SECRET未設定時に
+// 400で返すべき不正入力が503(spapi_credentials_missing)に化けてしまう
+// (resolveSpApiCredentialsがclientId/clientSecret欠落でnullを返すため)。
+router.get('/api/listings/restrictions', async (req, res) => {
+  const asin = String(req.query.asin || '').trim();
+  if (!asin) {
+    return res.status(400).json({ error: 'asin query parameter is required' });
+  }
+  const condition = String(req.query.condition || '').trim();
+  if (!LISTING_CONDITION_TYPES.includes(condition)) {
+    return res.status(400).json({ error: 'invalid_condition', message: `conditionは ${LISTING_CONDITION_TYPES.join(' / ')} のいずれかを指定してください` });
+  }
+
+  const credentials = requireProByoCredentials(req, res);
+  if (!credentials) return;
+
+  try {
+    const sellerId = await sellers.resolveSellerId(credentials);
+    const response = await listings.getListingsRestrictions({
+      asin,
+      sellerId,
+      conditionType: condition,
+      credentials,
+    });
+    res.json(summarizeRestrictions(response));
+  } catch (err) {
+    console.error(`[listings:restrictions] asin=${asin} failed:`, err.message);
+    res.status(502).json({ error: 'restrictions_failed', message: err.message });
+  }
+});
+
 // GET /api/spapi/test
 // ヘッダー(なければ.env)の認証情報でLWAトークン取得を1回試行し、疎通確認する。
 // SP-API本体(Catalog/Pricing等)は呼ばない。トークン取得成功=連携成功とみなす。
@@ -825,5 +920,8 @@ router.isProRequest = isProRequest;
 router.SPAPI_KEEPA_ENRICHMENT_ENABLED = SPAPI_KEEPA_ENRICHMENT_ENABLED;
 // テスト用途に定価抽出ヘルパーを公開する。
 router.extractListPriceJpy = extractListPriceJpy;
+// テスト用途に出品系ヘルパーを公開する。
+router.summarizeRestrictions = summarizeRestrictions;
+router.LISTING_CONDITION_TYPES = LISTING_CONDITION_TYPES;
 
 module.exports = router;
