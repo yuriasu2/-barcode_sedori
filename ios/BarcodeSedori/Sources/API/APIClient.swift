@@ -79,6 +79,20 @@ final class APIClient {
         return request
     }
 
+    /// JSONボディ付きPOSTリクエストを作る。ヘッダー類(X-App-Plan / X-Device-Id /
+    /// X-Spapi-Refresh-Token)はmakeRequestと同一の付与ロジックを通す。
+    private func makePostRequest<Body: Encodable>(path: String, body: Body) throws -> URLRequest {
+        var request = try makeRequest(path: path)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        do {
+            request.httpBody = try JSONEncoder().encode(body)
+        } catch {
+            throw APIClientError.underlying(error)
+        }
+        return request
+    }
+
     /// 端末識別子ヘッダー(X-Device-Id)を付与する。サーバー側の無料デバイス日次バックストップ用。
     private func addDeviceHeader(to request: inout URLRequest) {
         if let deviceId {
@@ -174,6 +188,23 @@ final class APIClient {
         } catch {
             return nil
         }
+    }
+
+    /// GET /api/listings/restrictions?asin=&condition=
+    /// 出品フォーム表示時の出品制限チェック(Pro+SP-API連携必須。サーバー側403ゲートあり)。
+    func listingsRestrictions(asin: String, condition: String) async throws -> ListingRestrictionsResult {
+        let request = try makeRequest(path: "/api/listings/restrictions", queryItems: [
+            URLQueryItem(name: "asin", value: asin),
+            URLQueryItem(name: "condition", value: condition),
+        ])
+        return try await perform(request, as: ListingRestrictionsResult.self)
+    }
+
+    /// POST /api/listings — オファー出品(putListingsItem)。
+    /// 出品は非同期受理のため、ACCEPTEDでも反映まで数分かかる。
+    func submitListing(_ payload: ListingSubmissionRequest) async throws -> ListingSubmissionResult {
+        let request = try makePostRequest(path: "/api/listings", body: payload)
+        return try await perform(request, as: ListingSubmissionResult.self)
     }
 
     /// GET /api/spapi/test
