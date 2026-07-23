@@ -16,7 +16,7 @@
 
 1. **「仕入れリストへ追加」ボタンの設置場所**: specでは商品詳細画面のみだが、商品詳細はSP-API経路のオファーパネルタップでしか開けず、Keepa経路ユーザーが到達できない。そのため**最新スキャン結果カード(SearchTabViewのLatestResultCardView)にも追加ボタンを置く**(Pro限定)。商品詳細画面にも置く(spec通り)。
 2. sellerId解決: Listings Restrictions APIがsellerId必須のため、サーバーでSellers API `GET /sellers/v1/marketplaceParticipations` をBYOトークンで呼んでsellerIdを取得し、**トークンハッシュをキーにインメモリキャッシュする**(保存はこのキャッシュのみ許容)。
-3. 出品フォームのコンディション選択はspec通り**中古4種(ほぼ新品/非常に良い/良い/可)のみ**。サーバー側の受理ホワイトリストは将来用に `new_new` も含む5種とする。
+3. 出品フォームのコンディション選択は**新品+中古4種の5種類**(ユーザー指示により新品も選択可。specの「中古4種のみ」から変更)。サーバー側の受理ホワイトリストも同じ5種。
 
 ## ユーザーが実施する前提作業(コード実装より先。エージェントは実施不可)
 
@@ -1055,7 +1055,7 @@ const SPAPI_LINK_REQUIRED_MESSAGE = '出品にはSP-API連携が必要です。�
 
 /**
  * 出品系APIが受理するconditionType(Listings Items APIのcondition_type値)。
- * アプリの出品フォームは中古4種のみだが、サーバーは将来用にnew_newも受理する。
+ * アプリの出品フォームと同じ5種(新品+中古4種)を受理する。
  */
 const LISTING_CONDITION_TYPES = [
   'new_new',
@@ -1481,7 +1481,7 @@ git commit -m "オファー出品API POST /api/listings を追加(putListingsIte
 **Interfaces:**
 - Consumes: サーバー契約(Task 5/6): `GET /api/listings/restrictions?asin=&condition=` → `{restricted, message, approvalUrl}` / `POST /api/listings` → `{status, submissionId, issues}`。既存 `makeRequest` / `perform`(X-App-Plan / X-Spapi-Refresh-Token付与済み)
 - Produces:
-  - `enum ListingConditionType: String, CaseIterable, Identifiable, Codable` — `usedLikeNew="used_like_new"` / `usedVeryGood="used_very_good"` / `usedGood="used_good"` / `usedAcceptable="used_acceptable"`、`displayName: String`、`offerConditionCode: String`
+  - `enum ListingConditionType: String, CaseIterable, Identifiable, Codable` — `newNew="new_new"` / `usedLikeNew="used_like_new"` / `usedVeryGood="used_very_good"` / `usedGood="used_good"` / `usedAcceptable="used_acceptable"`、`isNew: Bool`、`displayName: String`、`offerConditionCode: String`
   - `ListingModels.suggestedPrice(offers:condition:) -> Int?`(純粋関数)
   - `struct ListingRestrictionsResult: Codable, Equatable` — `restricted: Bool`, `message: String?`, `approvalUrl: String?`
   - `struct ListingSubmissionRequest: Codable` — `asin/sku/conditionType: String`, `price/quantity: Int`, `conditionNote: String`
@@ -1495,8 +1495,9 @@ git commit -m "オファー出品API POST /api/listings を追加(putListingsIte
 import Foundation
 
 /// 出品フォームのコンディション(Listings Items APIのcondition_type値)。
-/// specにより出品フォームは中古4種のみ(新品出品は対象外)。サーバー側は将来用にnew_newも受理する。
+/// 新品+中古4種の5種類(ユーザー指示により新品も選択可能)。
 enum ListingConditionType: String, CaseIterable, Identifiable, Codable {
+    case newNew = "new_new"
     case usedLikeNew = "used_like_new"
     case usedVeryGood = "used_very_good"
     case usedGood = "used_good"
@@ -1504,9 +1505,13 @@ enum ListingConditionType: String, CaseIterable, Identifiable, Codable {
 
     var id: String { rawValue }
 
+    /// 新品コンディションか(初期価格・出品者数の参照バケットの切替に使う)。
+    var isNew: Bool { self == .newNew }
+
     /// 画面表示名(オファー一覧のconditionDisplayNameと同じ語彙)。
     var displayName: String {
         switch self {
+        case .newNew: return "新品"
         case .usedLikeNew: return "ほぼ新品"
         case .usedVeryGood: return "非常に良い"
         case .usedGood: return "良い"
@@ -1517,6 +1522,7 @@ enum ListingConditionType: String, CaseIterable, Identifiable, Codable {
     /// /api/offers のOffer.condition正規化コードとの対応(初期価格の同コンディション検索に使う)。
     var offerConditionCode: String {
         switch self {
+        case .newNew: return "new"
         case .usedLikeNew: return "like_new"
         case .usedVeryGood: return "very_good"
         case .usedGood: return "good"
@@ -1528,16 +1534,18 @@ enum ListingConditionType: String, CaseIterable, Identifiable, Codable {
 /// 出品まわりの純粋ロジック(swiftc単体コンパイルで検証可能なようViewから分離)。
 enum ListingModels {
     /// 出品価格の初期値: 同コンディション最安値(送料込みlanded)。
-    /// 同コンディションのオファーが無い場合は中古全体の最安landed、それも無ければnil。
+    /// 同コンディションのオファーが無い場合は同バケット(新品なら新品全体/中古なら中古全体)の
+    /// 最安landedへフォールバックし、それも無ければnil。
     static func suggestedPrice(offers: OffersResult?, condition: ListingConditionType) -> Int? {
-        let used = offers?.used ?? []
-        let sameCondition = used
+        // 新品コンディションは新品オファー、そうでなければ中古オファーを参照する。
+        let bucket = (condition.isNew ? offers?.new : offers?.used) ?? []
+        let sameCondition = bucket
             .filter { $0.condition == condition.offerConditionCode }
             .compactMap { $0.landed }
         if let lowest = sameCondition.min() {
             return lowest
         }
-        return used.compactMap { $0.landed }.min()
+        return bucket.compactMap { $0.landed }.min()
     }
 }
 
@@ -1603,10 +1611,13 @@ let offers = OffersResult(
 )
 assert(ListingModels.suggestedPrice(offers: offers, condition: .usedGood) == 1250)
 assert(ListingModels.suggestedPrice(offers: offers, condition: .usedVeryGood) == 1400)
-// 同コンディション無し -> 中古全体の最安landedへフォールバック
+// 同コンディション無し -> 同バケット(中古全体)の最安landedへフォールバック
 assert(ListingModels.suggestedPrice(offers: offers, condition: .usedLikeNew) == 1250)
+// 新品コンディションは新品バケットを参照する(中古の安値に引きずられない)
+assert(ListingModels.suggestedPrice(offers: offers, condition: .newNew) == 2000)
 assert(ListingModels.suggestedPrice(offers: nil, condition: .usedGood) == nil)
 assert(ListingConditionType.usedLikeNew.offerConditionCode == "like_new")
+assert(ListingConditionType.newNew.offerConditionCode == "new")
 print("ListingModels checks passed")
 ```
 
@@ -1687,16 +1698,17 @@ git commit -m "出品モデルとAPIClientの出品制限チェック・出品�
 **Interfaces:**
 - Consumes: `ListingConditionType`(Task 7)、既存の `Keys` enum / `@Published + didSet` 作法、`ProfitAlertSettingsView` の分離画面方式
 - Produces:
-  - `SettingsStore.listingTemplateLikeNew / listingTemplateVeryGood / listingTemplateGood / listingTemplateAcceptable: String`(@Published)
+  - `SettingsStore.listingTemplateNew / listingTemplateLikeNew / listingTemplateVeryGood / listingTemplateGood / listingTemplateAcceptable: String`(@Published)
   - `SettingsStore.listingTemplate(for condition: ListingConditionType) -> String`
   - `struct ListingTemplateSettingsView: View`
 
-- [ ] **Step 1: SettingsStore にテンプレート4種を追加**
+- [ ] **Step 1: SettingsStore にテンプレート5種(新品含む)を追加**
 
 `Keys` enum に追加(`profitAlertHapticsEnabled` の直後):
 
 ```swift
         // 出品(Phase 2): コンディション別説明文テンプレート。
+        static let listingTemplateNew = "settings.listing.template.new"
         static let listingTemplateLikeNew = "settings.listing.template.likeNew"
         static let listingTemplateVeryGood = "settings.listing.template.veryGood"
         static let listingTemplateGood = "settings.listing.template.good"
@@ -1707,6 +1719,8 @@ git commit -m "出品モデルとAPIClientの出品制限チェック・出品�
 
 ```swift
     // 出品説明文テンプレートの既定値(設定画面・出品フォームで編集可)。
+    static let defaultListingTemplateNew =
+        "新品・未使用品です。丁寧に梱包して自己発送でお届けします。"
     static let defaultListingTemplateLikeNew =
         "使用感がほとんど無い美品です。目立った傷・汚れはありません。丁寧に梱包して自己発送でお届けします。"
     static let defaultListingTemplateVeryGood =
@@ -1721,6 +1735,13 @@ git commit -m "出品モデルとAPIClientの出品制限チェック・出品�
 
 ```swift
     // 出品(Phase 2): コンディション別説明文テンプレート。
+
+    /// 出品説明文テンプレート(新品)
+    @Published var listingTemplateNew: String {
+        didSet {
+            defaults.set(listingTemplateNew, forKey: Keys.listingTemplateNew)
+        }
+    }
 
     /// 出品説明文テンプレート(ほぼ新品)
     @Published var listingTemplateLikeNew: String {
@@ -1755,6 +1776,8 @@ git commit -m "出品モデルとAPIClientの出品制限チェック・出品�
 
 ```swift
         // 出品説明文テンプレート(Phase 2)。未設定時は既定文で読み込む。
+        self.listingTemplateNew =
+            defaults.string(forKey: Keys.listingTemplateNew) ?? Self.defaultListingTemplateNew
         self.listingTemplateLikeNew =
             defaults.string(forKey: Keys.listingTemplateLikeNew) ?? Self.defaultListingTemplateLikeNew
         self.listingTemplateVeryGood =
@@ -1771,6 +1794,7 @@ git commit -m "出品モデルとAPIClientの出品制限チェック・出品�
     /// 出品フォームがコンディション選択に応じて自動適用するテンプレート本文を返す。
     func listingTemplate(for condition: ListingConditionType) -> String {
         switch condition {
+        case .newNew: return listingTemplateNew
         case .usedLikeNew: return listingTemplateLikeNew
         case .usedVeryGood: return listingTemplateVeryGood
         case .usedGood: return listingTemplateGood
@@ -1785,12 +1809,16 @@ git commit -m "出品モデルとAPIClientの出品制限チェック・出品�
 import SwiftUI
 
 /// 出品説明文テンプレートの編集画面(Pro限定)。設定タブの「出品」セクションから遷移する。
-/// ProfitAlertSettingsViewと同じ分離画面方式。コンディション4種それぞれのテンプレートを編集できる。
+/// ProfitAlertSettingsViewと同じ分離画面方式。コンディション5種(新品含む)それぞれのテンプレートを編集できる。
 struct ListingTemplateSettingsView: View {
     @ObservedObject private var settings = SettingsStore.shared
 
     var body: some View {
         Form {
+            Section("新品") {
+                TextEditor(text: $settings.listingTemplateNew)
+                    .frame(minHeight: 80)
+            }
             Section("ほぼ新品") {
                 TextEditor(text: $settings.listingTemplateLikeNew)
                     .frame(minHeight: 80)
@@ -1863,7 +1891,7 @@ body内の変更:
 - [ ] **Step 4: ビルド+シミュレータ確認**
 
 Run: ビルド→起動→設定タブ→「出品説明文テンプレート」→テンプレを編集→アプリ再起動(`xcrun simctl terminate` → `launch`)→編集内容が保持されていることをスクリーンショット確認。
-Expected: 4種のテンプレ編集UI表示・永続化OK。無料プランでは鍵行になる。
+Expected: 5種(新品含む)のテンプレ編集UI表示・永続化OK。無料プランでは鍵行になる。
 
 - [ ] **Step 5: コミット**
 
