@@ -80,7 +80,7 @@ final class APIClient {
     }
 
     /// JSONボディ付きPOSTリクエストを作る。ヘッダー類(X-App-Plan / X-Device-Id /
-    /// X-Spapi-Refresh-Token)はmakeRequestと同一の付与ロジックを通す。
+    /// X-Spapi-Refresh-Token / X-Spapi-Seller-Id)はmakeRequestと同一の付与ロジックを通す。
     private func makePostRequest<Body: Encodable>(path: String, body: Body) throws -> URLRequest {
         var request = try makeRequest(path: path)
         request.httpMethod = "POST"
@@ -119,6 +119,12 @@ final class APIClient {
         // 連携済みでもオファーが出なくなるため(実際にその不具合が発生した)。
         if settings.isSpApiLinkUsable {
             request.setValue(settings.spapiRefreshToken, forHTTPHeaderField: "X-Spapi-Refresh-Token")
+            // sellerId(出品系APIが必須とするIDで、Sellers APIからは取得不可能なためOAuth認可時に
+            // 受け取った値をここで送る)。未取得(旧認可のまま)の場合は付与しない。
+            let sellerId = settings.spapiSellerId.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !sellerId.isEmpty {
+                request.setValue(sellerId, forHTTPHeaderField: "X-Spapi-Seller-Id")
+            }
             return
         }
 

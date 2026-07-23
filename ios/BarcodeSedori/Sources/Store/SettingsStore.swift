@@ -18,6 +18,9 @@ final class SettingsStore: ObservableObject {
         /// 旧: UserDefaultsに平文保存していたキー。現在はKeychainへ移行済み(初回起動時に自動移行して削除)。
         static let legacySpapiRefreshToken = "settings.spapiRefreshToken"
         static let renderSpApiEnabled = "settings.renderSpApiEnabled"
+        /// OAuth認可コールバックのselling_partner_id(公開の出品者ID)。
+        /// リフレッシュトークンと異なり機密度が低いためKeychainではなくUserDefaultsに保存する。
+        static let spapiSellerId = "settings.spapiSellerId"
 
         // 利益アラート(Phase 1a)。既定は全条件OFFで既存ユーザーの挙動を変えない。
         static let profitAlertEnabled = "settings.profitAlert.enabled"
@@ -68,6 +71,15 @@ final class SettingsStore: ObservableObject {
     @Published var spapiRefreshToken: String {
         didSet {
             KeychainStore.set(spapiRefreshToken, for: Self.keychainRefreshTokenAccount)
+        }
+    }
+
+    /// SP-API出品者ID(selling_partner_id)。OAuth認可コールバックでAmazonから受け取る公開ID。
+    /// Sellers APIからは取得不可能(応答にsellerId相当のフィールドが無い)なため、認可時に一度だけ
+    /// 受け取ってここに保持し、出品系APIリクエストのヘッダー(X-Spapi-Seller-Id)で送る。
+    @Published var spapiSellerId: String {
+        didSet {
+            defaults.set(spapiSellerId, forKey: Keys.spapiSellerId)
         }
     }
 
@@ -218,6 +230,7 @@ final class SettingsStore: ObservableObject {
         self.spapiLinkEnabled = defaults.bool(forKey: Keys.spapiLinkEnabled)
         // 未設定時は既定でオン(サーバー側SP-APIを使う従来動作)にする。
         self.renderSpApiEnabled = (defaults.object(forKey: Keys.renderSpApiEnabled) as? Bool) ?? true
+        self.spapiSellerId = defaults.string(forKey: Keys.spapiSellerId) ?? ""
 
         // 利益アラート(Phase 1a)。未設定時は全条件OFF・既定値で読み込む(既存ユーザーの挙動は不変)。
         self.profitAlertEnabled = defaults.bool(forKey: Keys.profitAlertEnabled)
@@ -266,6 +279,14 @@ final class SettingsStore: ObservableObject {
     var isSpApiLinkUsable: Bool {
         spapiLinkEnabled
             && !spapiRefreshToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// 出品導線を表示してよいか(SP-API連携が利用可能、かつsellerIdも取得済み)。
+    /// sellerIdはOAuth再認可時のコールバックでのみ取得できるため、旧認可のまま
+    /// (連携済みだがsellerId未取得)のユーザーはfalseとなり出品導線を出さない。
+    var isListingReady: Bool {
+        isSpApiLinkUsable
+            && !spapiSellerId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     /// 出品フォームがコンディション選択に応じて自動適用するテンプレート本文を返す。

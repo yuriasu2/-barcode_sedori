@@ -10,7 +10,6 @@ const spapiAuth = require('./spapi/auth');
 const oauth = require('./oauth');
 const keepa = require('./keepa/client');
 const deviceRateLimit = require('./deviceRateLimit');
-const sellers = require('./spapi/sellers');
 const listings = require('./spapi/listings');
 const spapiClient = require('./spapi/client');
 
@@ -44,6 +43,7 @@ const router = new MiniRouter();
 const SPAPI_CREDENTIALS_MISSING_MESSAGE = 'SP-API連携またはサーバーのKeepa設定が必要です';
 const PLAN_REQUIRED_MESSAGE = 'この機能はProプランでご利用いただけます。';
 const SPAPI_LINK_REQUIRED_MESSAGE = '出品にはSP-API連携が必要です。設定タブでAmazon連携を行ってください。';
+const SELLER_ID_REQUIRED_MESSAGE = '出品にはAmazon連携のやり直しが必要です。設定タブでAmazon連携を行い直してください。';
 
 /**
  * 出品系APIが受理するconditionType(Listings Items APIのcondition_type値)。
@@ -68,9 +68,11 @@ function isProRequest(headers) {
 }
 
 /**
- * 出品系API共通ゲート: Pro + BYOトークン(X-Spapi-Refresh-Token)必須。
+ * 出品系API共通ゲート: Pro + BYOトークン(X-Spapi-Refresh-Token)+ sellerId(X-Spapi-Seller-Id)必須。
  * .envのLWA_REFRESH_TOKENにはフォールバックしない(他人のsellerで出品してしまう事故防止)。
- * 通過時はcredentialsを返し、弾いた場合はresへ403/503を書き込んでnullを返す。
+ * sellerIdはSellers APIには含まれず取得不可能なため、OAuth認可時のコールバック
+ * (selling_partner_id)でアプリが受け取り保持した値をこのヘッダーで送ってもらう方式にしている。
+ * 通過時はsellerId込みのcredentialsを返し、弾いた場合はresへ403/503を書き込んでnullを返す。
  */
 function requireProByoCredentials(req, res) {
   if (!isProRequest(req.headers)) {
@@ -89,7 +91,13 @@ function requireProByoCredentials(req, res) {
     res.status(503).json({ error: 'spapi_credentials_missing', message: SPAPI_CREDENTIALS_MISSING_MESSAGE });
     return null;
   }
-  return credentials;
+  const sellerId =
+    req.headers && (req.headers['x-spapi-seller-id'] || req.headers['X-Spapi-Seller-Id']);
+  if (!sellerId) {
+    res.status(403).json({ error: 'seller_id_required', message: SELLER_ID_REQUIRED_MESSAGE });
+    return null;
+  }
+  return { ...credentials, sellerId };
 }
 
 /**
@@ -938,10 +946,9 @@ router.get('/api/listings/restrictions', async (req, res) => {
   if (!credentials) return;
 
   try {
-    const sellerId = await sellers.resolveSellerId(credentials);
     const response = await listings.getListingsRestrictions({
       asin,
-      sellerId,
+      sellerId: credentials.sellerId,
       conditionType: condition,
       credentials,
     });
@@ -965,10 +972,9 @@ router.post('/api/listings', async (req, res) => {
   const input = validated.value;
 
   try {
-    const sellerId = await sellers.resolveSellerId(credentials);
     const body = buildListingItemBody(input, spapiClient.getMarketplaceId());
     const response = await listings.putListingsItem({
-      sellerId,
+      sellerId: credentials.sellerId,
       sku: input.sku,
       body,
       credentials,

@@ -45,10 +45,19 @@ struct PurchaseTabView: View {
                         .font(.footnote)
                         .foregroundColor(.secondary)
                 }
+            } else if entitlements.isPro && settings.isSpApiLinkUsable && !settings.isListingReady {
+                // 連携済みだがsellerId未取得(旧認可のまま)のケース。
+                // Sellers APIからは取得不可能なため、再認可でOAuthコールバックのselling_partner_idを
+                // 取得し直してもらう必要がある。
+                Section {
+                    Text("出品にはAmazon連携のやり直しが必要です(設定タブ→Amazon連携)")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                }
             }
 
             ForEach(store.items) { item in
-                if entitlements.isPro && settings.isSpApiLinkUsable && !item.isListed {
+                if entitlements.isPro && settings.isListingReady && !item.isListed {
                     NavigationLink {
                         ListingFormView(item: item)
                     } label: {

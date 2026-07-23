@@ -23,7 +23,6 @@ async function withEnv(vars, fn) {
 function freshRoutes() {
   delete require.cache[require.resolve('../src/routes')];
   delete require.cache[require.resolve('../src/spapi/listings')];
-  delete require.cache[require.resolve('../src/spapi/sellers')];
   delete require.cache[require.resolve('../src/deviceRateLimit')];
   return require('../src/routes');
 }
@@ -45,8 +44,12 @@ function createMockRes() {
 
 const ENV = { LWA_CLIENT_ID: 'cid', LWA_CLIENT_SECRET: 'sec' };
 
+// sellerIdはSellers APIから解決せず、X-Spapi-Seller-Idヘッダーで渡す方式(OAuth時のselling_partner_idを
+// アプリが保持してヘッダー送信する)。テストのゲート通過用に共通のヘッダーセットを用意する。
+const PRO_HEADERS = { 'x-app-plan': 'pro', 'x-spapi-refresh-token': 'rt', 'x-spapi-seller-id': 'SELLER123' };
+
 /**
- * LWAトークン + Sellers API + Listings系APIをまとめてモックするfetch。
+ * LWAトークン + Listings系APIをまとめてモックするfetch。
  * handlers: { restrictions(url), putItem(url, init) } を上書き可能。
  */
 function mockFetch(handlers = {}) {
@@ -61,13 +64,6 @@ function mockFetch(handlers = {}) {
     });
     if (u.includes('api.amazon.com/auth/o2/token')) {
       return ok({ access_token: 'at', expires_in: 3600 });
-    }
-    if (u.includes('/sellers/v1/marketplaceParticipations')) {
-      return ok({
-        payload: [
-          { sellerId: 'SELLER123', marketplace: { id: 'A1VC38T7YXB528' }, participation: { isParticipating: true } },
-        ],
-      });
     }
     if (u.includes('/listings/2021-08-01/restrictions')) {
       return handlers.restrictions ? handlers.restrictions(u, ok) : ok({ restrictions: [] });
@@ -86,7 +82,7 @@ test('restrictions: 無料は403 plan_required', async () => {
   const res = createMockRes();
   const route = routes.match('GET', '/api/listings/restrictions');
   await route.handler(
-    { query: { asin: 'B000TEST', condition: 'used_good' }, headers: { 'x-spapi-refresh-token': 'rt' } },
+    { query: { asin: 'B000TEST', condition: 'used_good' }, headers: { 'x-spapi-refresh-token': 'rt', 'x-spapi-seller-id': 'SELLER123' } },
     res
   );
   assert.equal(res.statusCode, 403);
@@ -99,11 +95,25 @@ test('restrictions: ProでもX-Spapi-Refresh-Tokenが無ければ403 spapi_link_
     const res = createMockRes();
     const route = routes.match('GET', '/api/listings/restrictions');
     await route.handler(
-      { query: { asin: 'B000TEST', condition: 'used_good' }, headers: { 'x-app-plan': 'pro' } },
+      { query: { asin: 'B000TEST', condition: 'used_good' }, headers: { 'x-app-plan': 'pro', 'x-spapi-seller-id': 'SELLER123' } },
       res
     );
     assert.equal(res.statusCode, 403);
     assert.equal(res.body.error, 'spapi_link_required');
+  });
+});
+
+test('restrictions: ProかつトークンありでもX-Spapi-Seller-Idが無ければ403 seller_id_required', async () => {
+  await withEnv(ENV, async () => {
+    const routes = freshRoutes();
+    const res = createMockRes();
+    const route = routes.match('GET', '/api/listings/restrictions');
+    await route.handler(
+      { query: { asin: 'B000TEST', condition: 'used_good' }, headers: { 'x-app-plan': 'pro', 'x-spapi-refresh-token': 'rt' } },
+      res
+    );
+    assert.equal(res.statusCode, 403);
+    assert.equal(res.body.error, 'seller_id_required');
   });
 });
 
@@ -112,7 +122,7 @@ test('restrictions: asin欠落は400', async () => {
   const res = createMockRes();
   const route = routes.match('GET', '/api/listings/restrictions');
   await route.handler(
-    { query: {}, headers: { 'x-app-plan': 'pro', 'x-spapi-refresh-token': 'rt' } },
+    { query: {}, headers: PRO_HEADERS },
     res
   );
   assert.equal(res.statusCode, 400);
@@ -131,7 +141,7 @@ test('restrictions: 制限なしは restricted:false', async () => {
       await route.handler(
         {
           query: { asin: 'B000TEST', condition: 'used_good' },
-          headers: { 'x-app-plan': 'pro', 'x-spapi-refresh-token': 'rt-norestrict' },
+          headers: PRO_HEADERS,
         },
         res
       );
@@ -143,7 +153,7 @@ test('restrictions: 制限なしは restricted:false', async () => {
   });
 });
 
-test('restrictions: 制限ありは理由メッセージと解除申請リンクを返し、リクエストURLにsellerId/conditionTypeが入る', async () => {
+test('restrictions: 制限ありは理由メッセージと解除申請リンクを返し、リクエストURLにヘッダー由来のsellerId/conditionTypeが入る', async () => {
   await withEnv(ENV, async () => {
     const routes = freshRoutes();
     const originalFetch = global.fetch;
@@ -176,7 +186,7 @@ test('restrictions: 制限ありは理由メッセージと解除申請リンク
       await route.handler(
         {
           query: { asin: 'B000TEST', condition: 'used_good' },
-          headers: { 'x-app-plan': 'pro', 'x-spapi-refresh-token': 'rt-restricted' },
+          headers: { 'x-app-plan': 'pro', 'x-spapi-refresh-token': 'rt-restricted', 'x-spapi-seller-id': 'SELLER123' },
         },
         res
       );
@@ -194,12 +204,41 @@ test('restrictions: 制限ありは理由メッセージと解除申請リンク
   });
 });
 
+test('restrictions: 異なるX-Spapi-Seller-IdヘッダーはそのままリクエストURLのsellerIdに反映される', async () => {
+  await withEnv(ENV, async () => {
+    const routes = freshRoutes();
+    const originalFetch = global.fetch;
+    let requestedUrl = null;
+    global.fetch = mockFetch({
+      restrictions: (u, ok) => {
+        requestedUrl = u;
+        return ok({ restrictions: [] });
+      },
+    });
+    try {
+      const res = createMockRes();
+      const route = routes.match('GET', '/api/listings/restrictions');
+      await route.handler(
+        {
+          query: { asin: 'B000TEST', condition: 'used_good' },
+          headers: { 'x-app-plan': 'pro', 'x-spapi-refresh-token': 'rt', 'x-spapi-seller-id': 'A2OTHERSELLER' },
+        },
+        res
+      );
+      assert.equal(res.statusCode, 200);
+      assert.ok(requestedUrl.includes('sellerId=A2OTHERSELLER'));
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+});
+
 test('restrictions: condition不正値は400', async () => {
   const routes = freshRoutes();
   const res = createMockRes();
   const route = routes.match('GET', '/api/listings/restrictions');
   await route.handler(
-    { query: { asin: 'B000TEST', condition: 'brand_new' }, headers: { 'x-app-plan': 'pro', 'x-spapi-refresh-token': 'rt' } },
+    { query: { asin: 'B000TEST', condition: 'brand_new' }, headers: PRO_HEADERS },
     res
   );
   assert.equal(res.statusCode, 400);
@@ -207,19 +246,26 @@ test('restrictions: condition不正値は400', async () => {
 
 // --- POST /api/listings ---
 
-test('listings POST: 無料は403 plan_required、Proでもトークン無しは403 spapi_link_required', async () => {
-  const routes = freshRoutes();
-  const route = routes.match('POST', '/api/listings');
+test('listings POST: 無料は403 plan_required、Proでもトークン無しは403 spapi_link_required、Proかつトークンありでもseller_id無しは403 seller_id_required', async () => {
+  await withEnv(ENV, async () => {
+    const routes = freshRoutes();
+    const route = routes.match('POST', '/api/listings');
 
-  const res1 = createMockRes();
-  await route.handler({ body: {}, headers: { 'x-spapi-refresh-token': 'rt' } }, res1);
-  assert.equal(res1.statusCode, 403);
-  assert.equal(res1.body.error, 'plan_required');
+    const res1 = createMockRes();
+    await route.handler({ body: {}, headers: { 'x-spapi-refresh-token': 'rt', 'x-spapi-seller-id': 'SELLER123' } }, res1);
+    assert.equal(res1.statusCode, 403);
+    assert.equal(res1.body.error, 'plan_required');
 
-  const res2 = createMockRes();
-  await route.handler({ body: {}, headers: { 'x-app-plan': 'pro' } }, res2);
-  assert.equal(res2.statusCode, 403);
-  assert.equal(res2.body.error, 'spapi_link_required');
+    const res2 = createMockRes();
+    await route.handler({ body: {}, headers: { 'x-app-plan': 'pro' } }, res2);
+    assert.equal(res2.statusCode, 403);
+    assert.equal(res2.body.error, 'spapi_link_required');
+
+    const res3 = createMockRes();
+    await route.handler({ body: {}, headers: { 'x-app-plan': 'pro', 'x-spapi-refresh-token': 'rt' } }, res3);
+    assert.equal(res3.statusCode, 403);
+    assert.equal(res3.body.error, 'seller_id_required');
+  });
 });
 
 test('listings POST: 入力バリデーション(asin欠落/価格0以下/数量0以下/SKU不正/conditionType不正は400)', async () => {
@@ -230,7 +276,7 @@ test('listings POST: 入力バリデーション(asin欠落/価格0以下/数量
   await withEnv(ENV, async () => {
     const routes = freshRoutes();
     const route = routes.match('POST', '/api/listings');
-    const headers = { 'x-app-plan': 'pro', 'x-spapi-refresh-token': 'rt' };
+    const headers = PRO_HEADERS;
     const valid = {
       asin: 'B000TEST',
       sku: 'AMLZ-20260722-001',
@@ -255,7 +301,7 @@ test('listings POST: 入力バリデーション(asin欠落/価格0以下/数量
   });
 });
 
-test('listings POST: putListingsItemへ正しいURL/ボディで送り、ACCEPTED応答を透過する', async () => {
+test('listings POST: putListingsItemへ正しいURL(ヘッダー由来のsellerId)/ボディで送り、ACCEPTED応答を透過する', async () => {
   await withEnv(ENV, async () => {
     const routes = freshRoutes();
     const originalFetch = global.fetch;
@@ -281,7 +327,7 @@ test('listings POST: putListingsItemへ正しいURL/ボディで送り、ACCEPTE
             quantity: 1,
             conditionNote: '書き込みはありません。',
           },
-          headers: { 'x-app-plan': 'pro', 'x-spapi-refresh-token': 'rt-put' },
+          headers: { 'x-app-plan': 'pro', 'x-spapi-refresh-token': 'rt-put', 'x-spapi-seller-id': 'SELLER123' },
         },
         res
       );
@@ -290,7 +336,7 @@ test('listings POST: putListingsItemへ正しいURL/ボディで送り、ACCEPTE
       assert.equal(res.body.submissionId, 'sub-99');
       assert.deepEqual(res.body.issues, []);
 
-      // PUT URL: sellerId + SKU + marketplaceIds
+      // PUT URL: sellerId(ヘッダー由来) + SKU + marketplaceIds
       assert.ok(putUrl.includes('/listings/2021-08-01/items/SELLER123/AMLZ-20260722-001'));
       assert.ok(putUrl.includes('marketplaceIds=A1VC38T7YXB528'));
 
@@ -313,6 +359,42 @@ test('listings POST: putListingsItemへ正しいURL/ボディで送り、ACCEPTE
       assert.deepEqual(attrs.fulfillment_availability, [
         { fulfillment_channel_code: 'DEFAULT', quantity: 1 },
       ]);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+});
+
+test('listings POST: 異なるX-Spapi-Seller-IdヘッダーはそのままputListingsItemのURLパスに反映される', async () => {
+  await withEnv(ENV, async () => {
+    const routes = freshRoutes();
+    const originalFetch = global.fetch;
+    let putUrl = null;
+    global.fetch = mockFetch({
+      putItem: (u, init, ok) => {
+        putUrl = u;
+        return ok({ status: 'ACCEPTED', submissionId: 'sub-other', issues: [] });
+      },
+    });
+    try {
+      const res = createMockRes();
+      const route = routes.match('POST', '/api/listings');
+      await route.handler(
+        {
+          body: {
+            asin: 'B000TEST',
+            sku: 'AMLZ-20260722-003',
+            conditionType: 'used_good',
+            price: 1500,
+            quantity: 1,
+            conditionNote: '',
+          },
+          headers: { 'x-app-plan': 'pro', 'x-spapi-refresh-token': 'rt', 'x-spapi-seller-id': 'A2OTHERSELLER' },
+        },
+        res
+      );
+      assert.equal(res.statusCode, 200);
+      assert.ok(putUrl.includes('/listings/2021-08-01/items/A2OTHERSELLER/AMLZ-20260722-003'));
     } finally {
       global.fetch = originalFetch;
     }
@@ -345,7 +427,7 @@ test('listings POST: INVALID応答(issues付き)もそのまま透過する(日�
             quantity: 1,
             conditionNote: '',
           },
-          headers: { 'x-app-plan': 'pro', 'x-spapi-refresh-token': 'rt-invalid' },
+          headers: { 'x-app-plan': 'pro', 'x-spapi-refresh-token': 'rt-invalid', 'x-spapi-seller-id': 'SELLER123' },
         },
         res
       );

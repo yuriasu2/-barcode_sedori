@@ -59,6 +59,12 @@ private struct RootContainerView: View {
               !refreshToken.isEmpty else { return }
         SettingsStore.shared.spapiRefreshToken = refreshToken
         SettingsStore.shared.spapiLinkEnabled = true
+        // selling_partner_id(公開の出品者ID)。Sellers APIからは取得不可能なため、
+        // この認可コールバックで受け取れた場合のみ保存する(空なら保存しない=既存値を維持)。
+        if let sellerId = items.first(where: { $0.name == "selling_partner_id" })?.value,
+           !sellerId.isEmpty {
+            SettingsStore.shared.spapiSellerId = sellerId
+        }
         // サーバー側SP-APIを無効化するトグル(開発用)がオフのままだと X-Disable-Spapi が送られ、
         // 連携済みでもSP-APIが使われずオファーが出ないため、連携完了時に必ずオンへ戻す。
         SettingsStore.shared.renderSpApiEnabled = true
