@@ -137,3 +137,76 @@ test('resolveSellerId: sellerIdが応答から取れない場合はエラーをt
     }
   });
 });
+
+test('resolveSellerId: 異なるrefreshTokenはキャッシュが分離され、各自でAPIを呼び出す。同一トークンの再呼び出しはキャッシュヒット', async () => {
+  await withEnv({ LWA_CLIENT_ID: 'cid', LWA_CLIENT_SECRET: 'sec' }, async () => {
+    const sellers = freshSellers();
+    const originalFetch = global.fetch;
+    let apiCalls = 0;
+    global.fetch = async (url) => {
+      const u = String(url);
+      if (u.includes('api.amazon.com/auth/o2/token')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ access_token: 'at-token-sep', expires_in: 3600 }),
+          text: async () => '',
+          headers: { get: () => null },
+        };
+      }
+      if (u.includes('/sellers/v1/marketplaceParticipations')) {
+        apiCalls += 1;
+        // リフレッシュトークンを検査してレスポンスを分岐
+        // 実装では Authorization ヘッダ経由で渡されるため、
+        // ここでは API 呼び出し回数でトークン別の処理を判定
+        if (apiCalls === 1) {
+          // 第1回目は token-A
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              payload: [
+                { sellerId: 'SELLER_A', marketplace: { id: 'A1VC38T7YXB528' }, participation: { isParticipating: true } },
+              ],
+            }),
+            text: async () => '',
+            headers: { get: () => null },
+          };
+        } else if (apiCalls === 2) {
+          // 第2回目は token-B
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              payload: [
+                { sellerId: 'SELLER_B', marketplace: { id: 'A1VC38T7YXB528' }, participation: { isParticipating: true } },
+              ],
+            }),
+            text: async () => '',
+            headers: { get: () => null },
+          };
+        }
+        throw new Error('unexpected third API call');
+      }
+      throw new Error(`unexpected fetch: ${u}`);
+    };
+    try {
+      // 第1回: token-A で呼び出し
+      const first = await sellers.resolveSellerId({ clientId: 'cid', clientSecret: 'sec', refreshToken: 'token-A' });
+      assert.equal(first, 'SELLER_A');
+      assert.equal(apiCalls, 1);
+
+      // 第2回: token-B で呼び出し（異なるトークン→新たにAPI呼び出し）
+      const second = await sellers.resolveSellerId({ clientId: 'cid', clientSecret: 'sec', refreshToken: 'token-B' });
+      assert.equal(second, 'SELLER_B');
+      assert.equal(apiCalls, 2);
+
+      // 第3回: token-A で再度呼び出し（キャッシュヒット→API呼び出しなし）
+      const third = await sellers.resolveSellerId({ clientId: 'cid', clientSecret: 'sec', refreshToken: 'token-A' });
+      assert.equal(third, 'SELLER_A');
+      assert.equal(apiCalls, 2); // API呼び出しは増えない
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+});
