@@ -117,16 +117,17 @@ final class ListingFormViewModel: ObservableObject {
         isSubmitting = true
         defer { isSubmitting = false }
         do {
+            let trimmedSku = sku.trimmingCharacters(in: .whitespaces)
             let result = try await apiClient.submitListing(ListingSubmissionRequest(
                 asin: item.asin,
-                sku: sku.trimmingCharacters(in: .whitespaces),
+                sku: trimmedSku,
                 conditionType: condition.rawValue,
                 price: price,
                 quantity: quantity,
                 conditionNote: conditionNote
             ))
             if result.isAccepted {
-                purchaseList.markListed(id: item.id, sku: sku)
+                purchaseList.markListed(id: item.id, sku: trimmedSku)
                 resultAlert = ResultAlert(
                     title: "出品を受け付けました",
                     message: "反映まで数分かかります。",
