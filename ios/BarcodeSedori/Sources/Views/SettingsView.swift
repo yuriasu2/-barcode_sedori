@@ -279,6 +279,9 @@ struct SettingsView: View {
                 NavigationLink("出品説明文テンプレート") {
                     ListingTemplateSettingsView()
                 }
+                NavigationLink("SKUフォーマット") {
+                    SkuFormatSettingsView()
+                }
             } else {
                 Button {
                     showPaywall = true

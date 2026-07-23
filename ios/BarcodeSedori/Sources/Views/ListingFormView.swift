@@ -53,15 +53,18 @@ final class ListingFormViewModel: ObservableObject {
         settings: SettingsStore = .shared,
         purchaseList: PurchaseListStore = .shared
     ) {
-        self.item = item
+        // 旧データ(SKU枝番の採番導入前に仕入れリストへ追加された項目)は、ここで遅延採番してから
+        // 組み立てる(採番済みならそのまま返る。冪等)。
+        let numberedItem = purchaseList.assignSkuSequenceIfNeeded(id: item.id) ?? item
+        self.item = numberedItem
         self.apiClient = apiClient
         self.settings = settings
         self.purchaseList = purchaseList
-        self.latestOffers = item.offersResult
+        self.latestOffers = numberedItem.offersResult
         // didSetはinit中に走らないため初期値を明示的に組み立てる。
         self.conditionNote = settings.listingTemplate(for: .usedVeryGood)
-        self.sku = settings.nextListingSku()
-        self.price = ListingModels.suggestedPrice(offers: item.offersResult, condition: .usedVeryGood)
+        self.sku = settings.listingSku(for: numberedItem)
+        self.price = ListingModels.suggestedPrice(offers: numberedItem.offersResult, condition: .usedVeryGood)
     }
 
     /// 画面表示時: 制限チェックと最新オファー再取得を並行実行する。

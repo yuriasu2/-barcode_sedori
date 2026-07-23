@@ -42,9 +42,8 @@ final class SettingsStore: ObservableObject {
         static let listingTemplateGood = "settings.listing.template.good"
         static let listingTemplateAcceptable = "settings.listing.template.acceptable"
 
-        // 出品SKUの日次連番(AMLZ-YYYYMMDD-NNN)。
-        static let listingSkuLastDate = "settings.listing.skuLastDate"
-        static let listingSkuLastSequence = "settings.listing.skuLastSequence"
+        // 出品SKUフォーマット(部品列。JSONエンコードして保存)。
+        static let listingSkuFormat = "settings.listing.skuFormat"
     }
 
     /// Keychain上のアカウント名(リフレッシュトークン用)。
@@ -208,6 +207,18 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    /// 出品SKUフォーマット(部品列)。並べ替え画面(SkuFormatSettingsView)で編集する。
+    /// JSONエンコードしてUserDefaultsに保存し、読めない/未設定時は既定フォーマットに戻す。
+    @Published var listingSkuFormat: [SkuComponent] {
+        didSet {
+            guard let data = try? JSONEncoder().encode(listingSkuFormat) else { return }
+            defaults.set(data, forKey: Keys.listingSkuFormat)
+        }
+    }
+
+    /// 既定のSKUフォーマット。従来の `AMLZ-YYYYMMDD-連番` と同じ見た目になる並び。
+    static let defaultListingSkuFormat: [SkuComponent] = [.text("AMLZ-"), .year4, .month, .day]
+
     // 出品説明文テンプレートの既定値(設定画面・出品フォームで編集可)。
     static let defaultListingTemplateNew =
         "新品・未使用品です。丁寧に梱包して自己発送でお届けします。"
@@ -259,6 +270,14 @@ final class SettingsStore: ObservableObject {
         self.listingTemplateAcceptable =
             defaults.string(forKey: Keys.listingTemplateAcceptable) ?? Self.defaultListingTemplateAcceptable
 
+        // 出品SKUフォーマット。未設定/デコード失敗時は既定フォーマット(従来と同じ見た目)で読み込む。
+        if let data = defaults.data(forKey: Keys.listingSkuFormat),
+           let decoded = try? JSONDecoder().decode([SkuComponent].self, from: data) {
+            self.listingSkuFormat = decoded
+        } else {
+            self.listingSkuFormat = Self.defaultListingSkuFormat
+        }
+
         // リフレッシュトークンはKeychainから読む。
         // 旧バージョンでUserDefaultsに平文保存されていた場合は、ここでKeychainへ移行し平文を削除する。
         if let keychainToken = KeychainStore.get(Self.keychainRefreshTokenAccount) {
@@ -300,20 +319,17 @@ final class SettingsStore: ObservableObject {
         }
     }
 
-    /// 次の出品SKUを発行する(呼ぶたびに連番を進めて永続化する)。
-    /// 形式: AMLZ-YYYYMMDD-連番(日付ごとに001から)。ユーザーがフォームで編集した場合も
-    /// 連番は消費済みでよい(重複防止を優先。putListingsItemは同一SKU再実行で上書きされる)。
-    func nextListingSku(now: Date = Date()) -> String {
-        let today = SkuGenerator.dateString(from: now)
-        let lastDate = defaults.string(forKey: Keys.listingSkuLastDate)
-        let lastSequence = defaults.integer(forKey: Keys.listingSkuLastSequence)
-        let sequence = SkuGenerator.nextSequence(
-            lastDateString: lastDate,
-            lastSequence: lastSequence,
-            todayString: today
+    /// 仕入れリスト項目の出品SKUを組み立てる。年月日は「仕入れリストに追加した日付」、
+    /// 枝番は追加時(または旧データは遅延採番時)に確定済みの値をそのまま使う。
+    /// 枝番が未採番(skuSequenceがnil)の場合は呼び出し側(ListingFormViewModel)が
+    /// PurchaseListStore.assignSkuSequenceIfNeededで先に採番してから呼ぶこと。
+    func listingSku(for item: PurchaseListItem) -> String {
+        SkuGenerator.build(
+            components: listingSkuFormat,
+            addedDate: item.addedAt,
+            asin: item.asin,
+            jan: item.scannedCode,
+            sequence: item.skuSequence ?? 1
         )
-        defaults.set(today, forKey: Keys.listingSkuLastDate)
-        defaults.set(sequence, forKey: Keys.listingSkuLastSequence)
-        return SkuGenerator.make(dateString: today, sequence: sequence)
     }
 }

@@ -23,6 +23,11 @@ struct PurchaseListItem: Codable, Equatable, Identifiable {
     var listedSku: String?
     /// 出品受理日時(出品済みのときのみ)。
     var listedAt: Date?
+    /// SKU枝番(仕入れリストに追加した順に採番。追加日が変わったら1にリセット、削除しても詰めない)。
+    /// 旧データ(採番導入前に追加された項目)はnilのまま残り、出品フォーム表示時に遅延採番する。
+    var skuSequence: Int?
+    /// 採番した日(yyyyMMdd)。skuSequenceとセットで永続化する(採番のやり直し防止用)。
+    var skuSequenceDate: String?
 
     init(
         id: UUID = UUID(),
@@ -36,7 +41,9 @@ struct PurchaseListItem: Codable, Equatable, Identifiable {
         offersResult: OffersResult? = nil,
         isListed: Bool = false,
         listedSku: String? = nil,
-        listedAt: Date? = nil
+        listedAt: Date? = nil,
+        skuSequence: Int? = nil,
+        skuSequenceDate: String? = nil
     ) {
         self.id = id
         self.addedAt = addedAt
@@ -50,6 +57,8 @@ struct PurchaseListItem: Codable, Equatable, Identifiable {
         self.isListed = isListed
         self.listedSku = listedSku
         self.listedAt = listedAt
+        self.skuSequence = skuSequence
+        self.skuSequenceDate = skuSequenceDate
     }
 
     /// 検索タブの最新結果カードから追加する場合のコンビニエンスinit。
