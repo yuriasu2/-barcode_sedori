@@ -204,3 +204,157 @@ test('restrictions: condition不正値は400', async () => {
   );
   assert.equal(res.statusCode, 400);
 });
+
+// --- POST /api/listings ---
+
+test('listings POST: 無料は403 plan_required、Proでもトークン無しは403 spapi_link_required', async () => {
+  const routes = freshRoutes();
+  const route = routes.match('POST', '/api/listings');
+
+  const res1 = createMockRes();
+  await route.handler({ body: {}, headers: { 'x-spapi-refresh-token': 'rt' } }, res1);
+  assert.equal(res1.statusCode, 403);
+  assert.equal(res1.body.error, 'plan_required');
+
+  const res2 = createMockRes();
+  await route.handler({ body: {}, headers: { 'x-app-plan': 'pro' } }, res2);
+  assert.equal(res2.statusCode, 403);
+  assert.equal(res2.body.error, 'spapi_link_required');
+});
+
+test('listings POST: 入力バリデーション(asin欠落/価格0以下/数量0以下/SKU不正/conditionType不正は400)', async () => {
+  // ゲート(requireProByoCredentials)は入力検証より先に走る(plan/token不足時の403を
+  // 壊れたbodyの内容に関わらず優先させるため)。そのためこのテストではプラン/トークンの
+  // ゲート自体は通過させる必要があり、LWA_CLIENT_ID/LWA_CLIENT_SECRET未設定による
+  // 503(spapi_credentials_missing)化を避けるためwithEnv(ENV)で環境変数を設定する。
+  await withEnv(ENV, async () => {
+    const routes = freshRoutes();
+    const route = routes.match('POST', '/api/listings');
+    const headers = { 'x-app-plan': 'pro', 'x-spapi-refresh-token': 'rt' };
+    const valid = {
+      asin: 'B000TEST',
+      sku: 'AMLZ-20260722-001',
+      conditionType: 'used_good',
+      price: 1500,
+      quantity: 1,
+      conditionNote: '状態良好です。',
+    };
+
+    for (const broken of [
+      { ...valid, asin: '' },
+      { ...valid, price: 0 },
+      { ...valid, price: 1500.5 },
+      { ...valid, quantity: 0 },
+      { ...valid, sku: 'bad sku with spaces' },
+      { ...valid, conditionType: 'poor' },
+    ]) {
+      const res = createMockRes();
+      await route.handler({ body: broken, headers }, res);
+      assert.equal(res.statusCode, 400, JSON.stringify(broken));
+    }
+  });
+});
+
+test('listings POST: putListingsItemへ正しいURL/ボディで送り、ACCEPTED応答を透過する', async () => {
+  await withEnv(ENV, async () => {
+    const routes = freshRoutes();
+    const originalFetch = global.fetch;
+    let putUrl = null;
+    let putBody = null;
+    global.fetch = mockFetch({
+      putItem: (u, init, ok) => {
+        putUrl = u;
+        putBody = JSON.parse(init.body);
+        return ok({ sku: 'AMLZ-20260722-001', status: 'ACCEPTED', submissionId: 'sub-99', issues: [] });
+      },
+    });
+    try {
+      const res = createMockRes();
+      const route = routes.match('POST', '/api/listings');
+      await route.handler(
+        {
+          body: {
+            asin: 'B000TEST',
+            sku: 'AMLZ-20260722-001',
+            conditionType: 'used_good',
+            price: 1500,
+            quantity: 1,
+            conditionNote: '書き込みはありません。',
+          },
+          headers: { 'x-app-plan': 'pro', 'x-spapi-refresh-token': 'rt-put' },
+        },
+        res
+      );
+      assert.equal(res.statusCode, 200);
+      assert.equal(res.body.status, 'ACCEPTED');
+      assert.equal(res.body.submissionId, 'sub-99');
+      assert.deepEqual(res.body.issues, []);
+
+      // PUT URL: sellerId + SKU + marketplaceIds
+      assert.ok(putUrl.includes('/listings/2021-08-01/items/SELLER123/AMLZ-20260722-001'));
+      assert.ok(putUrl.includes('marketplaceIds=A1VC38T7YXB528'));
+
+      // ボディ: productType/requirements/attributes(spec準拠)
+      assert.equal(putBody.productType, 'PRODUCT');
+      assert.equal(putBody.requirements, 'LISTING_OFFER_ONLY');
+      const attrs = putBody.attributes;
+      assert.deepEqual(attrs.merchant_suggested_asin, [{ value: 'B000TEST', marketplace_id: 'A1VC38T7YXB528' }]);
+      assert.deepEqual(attrs.condition_type, [{ value: 'used_good', marketplace_id: 'A1VC38T7YXB528' }]);
+      assert.deepEqual(attrs.condition_note, [
+        { language_tag: 'ja_JP', value: '書き込みはありません。', marketplace_id: 'A1VC38T7YXB528' },
+      ]);
+      assert.deepEqual(attrs.purchasable_offer, [
+        {
+          currency: 'JPY',
+          marketplace_id: 'A1VC38T7YXB528',
+          our_price: [{ schedule: [{ value_with_tax: 1500 }] }],
+        },
+      ]);
+      assert.deepEqual(attrs.fulfillment_availability, [
+        { fulfillment_channel_code: 'DEFAULT', quantity: 1 },
+      ]);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+});
+
+test('listings POST: INVALID応答(issues付き)もそのまま透過する(日本語化しない)', async () => {
+  await withEnv(ENV, async () => {
+    const routes = freshRoutes();
+    const originalFetch = global.fetch;
+    global.fetch = mockFetch({
+      putItem: (u, init, ok) =>
+        ok({
+          sku: 'AMLZ-20260722-002',
+          status: 'INVALID',
+          submissionId: 'sub-bad',
+          issues: [{ code: '90220', message: 'Value is invalid for purchasable_offer.', severity: 'ERROR', attributeNames: ['purchasable_offer'] }],
+        }),
+    });
+    try {
+      const res = createMockRes();
+      const route = routes.match('POST', '/api/listings');
+      await route.handler(
+        {
+          body: {
+            asin: 'B000TEST',
+            sku: 'AMLZ-20260722-002',
+            conditionType: 'used_acceptable',
+            price: 800,
+            quantity: 1,
+            conditionNote: '',
+          },
+          headers: { 'x-app-plan': 'pro', 'x-spapi-refresh-token': 'rt-invalid' },
+        },
+        res
+      );
+      assert.equal(res.statusCode, 200);
+      assert.equal(res.body.status, 'INVALID');
+      assert.equal(res.body.issues[0].message, 'Value is invalid for purchasable_offer.');
+      // conditionNoteが空文字のときはcondition_note属性自体を送らない
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+});

@@ -12,6 +12,7 @@ const keepa = require('./keepa/client');
 const deviceRateLimit = require('./deviceRateLimit');
 const sellers = require('./spapi/sellers');
 const listings = require('./spapi/listings');
+const spapiClient = require('./spapi/client');
 
 /**
  * 無料プランのデバイス単位・日次バックストップ上限。
@@ -109,6 +110,66 @@ function summarizeRestrictions(response) {
     restricted: true,
     message: messages.length ? messages.join('\n') : '出品制限があります。',
     approvalUrl: firstLink ? firstLink.resource : null,
+  };
+}
+
+// SKUの許容形式: 英数字とハイフン・ドット・アンダースコア、1〜40文字(Amazonの一般的なSKU制約に合わせる)。
+const SKU_PATTERN = /^[A-Za-z0-9._-]{1,40}$/;
+
+/**
+ * POST /api/listings の入力を検証する。
+ * @param {object} body リクエストボディ
+ * @returns {{ok:true, value:object}|{ok:false, message:string}}
+ */
+function validateListingInput(body) {
+  const asin = String((body && body.asin) || '').trim();
+  const sku = String((body && body.sku) || '').trim();
+  const conditionType = String((body && body.conditionType) || '').trim();
+  const price = body && body.price;
+  const quantity = body && body.quantity;
+  const conditionNote = String((body && body.conditionNote) || '');
+
+  if (!asin) return { ok: false, message: 'asinは必須です' };
+  if (!SKU_PATTERN.test(sku)) return { ok: false, message: 'skuは英数字と-._の1〜40文字で指定してください' };
+  if (!LISTING_CONDITION_TYPES.includes(conditionType)) {
+    return { ok: false, message: `conditionTypeは ${LISTING_CONDITION_TYPES.join(' / ')} のいずれかを指定してください` };
+  }
+  if (!Number.isInteger(price) || price <= 0) return { ok: false, message: 'priceは1以上の整数(円)で指定してください' };
+  if (!Number.isInteger(quantity) || quantity <= 0) return { ok: false, message: 'quantityは1以上の整数で指定してください' };
+
+  return { ok: true, value: { asin, sku, conditionType, price, quantity, conditionNote } };
+}
+
+/**
+ * putListingsItemのリクエストボディを組み立てる(spec準拠・PRODUCT/LISTING_OFFER_ONLY固定)。
+ * conditionNoteが空のときはcondition_note属性自体を含めない。
+ * @param {{asin:string, conditionType:string, price:number, quantity:number, conditionNote:string}} input
+ * @param {string} marketplaceId
+ */
+function buildListingItemBody(input, marketplaceId) {
+  const attributes = {
+    merchant_suggested_asin: [{ value: input.asin, marketplace_id: marketplaceId }],
+    condition_type: [{ value: input.conditionType, marketplace_id: marketplaceId }],
+    purchasable_offer: [
+      {
+        currency: 'JPY',
+        marketplace_id: marketplaceId,
+        our_price: [{ schedule: [{ value_with_tax: input.price }] }],
+      },
+    ],
+    fulfillment_availability: [
+      { fulfillment_channel_code: 'DEFAULT', quantity: input.quantity },
+    ],
+  };
+  if (input.conditionNote) {
+    attributes.condition_note = [
+      { language_tag: 'ja_JP', value: input.conditionNote, marketplace_id: marketplaceId },
+    ];
+  }
+  return {
+    productType: 'PRODUCT',
+    requirements: 'LISTING_OFFER_ONLY',
+    attributes,
   };
 }
 
@@ -891,6 +952,38 @@ router.get('/api/listings/restrictions', async (req, res) => {
   }
 });
 
+// POST /api/listings — オファー出品(putListingsItem)。Pro+BYOトークン必須。
+// トークン・出品内容はサーバーに保存しない(DPP整合)。応答のstatus/issuesはそのまま透過する。
+router.post('/api/listings', async (req, res) => {
+  const credentials = requireProByoCredentials(req, res);
+  if (!credentials) return;
+
+  const validated = validateListingInput(req.body);
+  if (!validated.ok) {
+    return res.status(400).json({ error: 'invalid_request', message: validated.message });
+  }
+  const input = validated.value;
+
+  try {
+    const sellerId = await sellers.resolveSellerId(credentials);
+    const body = buildListingItemBody(input, spapiClient.getMarketplaceId());
+    const response = await listings.putListingsItem({
+      sellerId,
+      sku: input.sku,
+      body,
+      credentials,
+    });
+    res.json({
+      status: (response && response.status) || null,
+      submissionId: (response && response.submissionId) || null,
+      issues: (response && response.issues) || [],
+    });
+  } catch (err) {
+    console.error(`[listings:put] asin=${input.asin} sku=${input.sku} failed:`, err.message);
+    res.status(502).json({ error: 'listing_failed', message: err.message });
+  }
+});
+
 // GET /api/spapi/test
 // ヘッダー(なければ.env)の認証情報でLWAトークン取得を1回試行し、疎通確認する。
 // SP-API本体(Catalog/Pricing等)は呼ばない。トークン取得成功=連携成功とみなす。
@@ -923,5 +1016,7 @@ router.extractListPriceJpy = extractListPriceJpy;
 // テスト用途に出品系ヘルパーを公開する。
 router.summarizeRestrictions = summarizeRestrictions;
 router.LISTING_CONDITION_TYPES = LISTING_CONDITION_TYPES;
+router.validateListingInput = validateListingInput;
+router.buildListingItemBody = buildListingItemBody;
 
 module.exports = router;
