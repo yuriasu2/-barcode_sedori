@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// 「仕入れ」タブ(Phase 1b): 仕入れリストの一覧・スワイプ削除・出品済みマーク。
-/// 「出品」導線(Pro+SP-API連携時のみ・未出品行のみ)はPhase 2(ListingFormView)で追加済み。
-/// 選択モード(EditButton)での一括削除・一括コンディション変更・一括出品(Phase 2b)を持つ。
+/// 「仕入れ」タブ: 仕入れリストの一覧・スワイプ削除・出品済みマーク。
+/// 行タップ(非選択モード時)で仕入れフォーム(PurchaseFormView・編集モード)を開く
+/// (誰でも編集可。単品の「出品する」導線は無い)。
+/// 選択モード(EditButton)での一括削除・一括コンディション変更・一括出品を持つ。
 struct PurchaseTabView: View {
     @ObservedObject private var store = PurchaseListStore.shared
     @ObservedObject private var entitlements = EntitlementStore.shared
@@ -52,7 +53,7 @@ struct PurchaseTabView: View {
             Button("キャンセル", role: .cancel) {}
         }
         .confirmationDialog(
-            "選択\(selectedIds.count)件を出品します。価格は各商品の同コンディション最安値になります。",
+            "選択\(selectedIds.count)件を出品します。各商品の仕入れフォームで保存した価格・数量で出品します。",
             isPresented: $showListingConfirm,
             titleVisibility: .visible
         ) {
@@ -194,9 +195,11 @@ struct PurchaseTabView: View {
 
             Section {
                 ForEach(store.items) { item in
-                    if !isSelecting && entitlements.isPro && settings.isListingReady && !item.isListed {
+                    // 行タップでの編集は誰でも可(Pro/SP-API連携の状態やisListedに関わらず開ける)。
+                    // 選択モード中はタップが選択操作に使われるため遷移させない。
+                    if !isSelecting {
                         NavigationLink {
-                            ListingFormView(item: item)
+                            PurchaseFormView(mode: .edit(item: item))
                         } label: {
                             PurchaseListRow(item: item)
                         }
@@ -270,6 +273,14 @@ struct PurchaseListRow: View {
                     Text((item.condition ?? .usedGood).displayName)
                         .font(.caption)
                         .foregroundColor(.secondary)
+
+                    // 仕入れフォームで保存済みの価格(あれば表示)。
+                    if let price = item.price {
+                        Text("¥\(price)")
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.secondary)
+                    }
 
                     if item.isListed {
                         // 出品受理済みマーク(Phase 2: markListedで付与される)。

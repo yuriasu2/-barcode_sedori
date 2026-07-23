@@ -39,18 +39,11 @@ enum ListingConditionType: String, CaseIterable, Identifiable, Codable {
 
 /// 出品まわりの純粋ロジック(swiftc単体コンパイルで検証可能なようViewから分離)。
 enum ListingModels {
-    /// 出品価格の初期値: 同コンディション最安値(送料込みlanded)。
-    /// 同コンディションのオファーが無い場合は同バケット(新品なら新品全体/中古なら中古全体)の
-    /// 最安landedへフォールバックし、それも無ければnil。
-    static func suggestedPrice(offers: OffersResult?, condition: ListingConditionType) -> Int? {
-        // 新品コンディションは新品オファー、そうでなければ中古オファーを参照する。
+    /// 仕入れフォームの価格初期値: 新品/中古の2区分(バケット)だけで選ぶ最安値(送料込みlanded)。
+    /// コンディションが新品なら新品バケット全体の最安landed、中古系4種なら中古バケット全体の
+    /// 最安landedを返す(同コンディション細分での絞り込みはしない)。オファーが無ければnil。
+    static func bucketLowestPrice(offers: OffersResult?, condition: ListingConditionType) -> Int? {
         let bucket = (condition.isNew ? offers?.new : offers?.used) ?? []
-        let sameCondition = bucket
-            .filter { $0.condition == condition.offerConditionCode }
-            .compactMap { $0.landed }
-        if let lowest = sameCondition.min() {
-            return lowest
-        }
         return bucket.compactMap { $0.landed }.min()
     }
 }

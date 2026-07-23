@@ -28,9 +28,19 @@ struct PurchaseListItem: Codable, Equatable, Identifiable {
     var skuSequence: Int?
     /// 採番した日(yyyyMMdd)。skuSequenceとセットで永続化する(採番のやり直し防止用)。
     var skuSequenceDate: String?
-    /// 出品コンディション(仕入れタブの一括変更・単品出品フォームの初期値に使う)。
+    /// 出品コンディション(仕入れタブの一括変更・仕入れフォームの初期値に使う)。
     /// 旧データ(導入前に追加された項目)はnilのまま残る。未設定時の既定は`.usedGood`(良い)。
     var condition: ListingConditionType?
+    /// 仕入れフォーム(PurchaseFormView)で保存した価格(円)。未保存(旧データ含む)はnil。
+    /// 一括出品はこの値をそのまま使い、nilの商品は失敗リストへ回す(価格の再取得はしない)。
+    var price: Int?
+    /// 仕入れフォームで保存した数量。未保存(旧データ含む)はnil(一括出品時は1として扱う)。
+    var quantity: Int?
+    /// 仕入れフォームで保存したコンディション説明文。未保存(旧データ含む)はnil
+    /// (一括出品時はコンディションに応じたテンプレートを都度適用する)。
+    var conditionNote: String?
+    /// 仕入れフォームで保存したSKU。未保存(旧データ含む)はnil(一括出品時は従来経路で生成する)。
+    var sku: String?
 
     init(
         id: UUID = UUID(),
@@ -47,7 +57,11 @@ struct PurchaseListItem: Codable, Equatable, Identifiable {
         listedAt: Date? = nil,
         skuSequence: Int? = nil,
         skuSequenceDate: String? = nil,
-        condition: ListingConditionType? = nil
+        condition: ListingConditionType? = nil,
+        price: Int? = nil,
+        quantity: Int? = nil,
+        conditionNote: String? = nil,
+        sku: String? = nil
     ) {
         self.id = id
         self.addedAt = addedAt
@@ -64,6 +78,10 @@ struct PurchaseListItem: Codable, Equatable, Identifiable {
         self.skuSequence = skuSequence
         self.skuSequenceDate = skuSequenceDate
         self.condition = condition
+        self.price = price
+        self.quantity = quantity
+        self.conditionNote = conditionNote
+        self.sku = sku
     }
 
     /// 検索タブの最新結果カードから追加する場合のコンビニエンスinit。

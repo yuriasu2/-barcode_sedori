@@ -174,6 +174,9 @@ struct SearchTabView: View {
     @State private var showsInvalidCodeAlert = false
     /// フリーミアム: 各ゲート(OCR/オファー/グラフ/日次上限)から提示するペイウォール。
     @State private var showPaywall = false
+    /// 「仕入れリストへ追加」タップで開く仕入れフォーム(新規追加モード)の下書き。
+    /// 保存(緑チェック)されるまでPurchaseListStoreへは登録しない。
+    @State private var purchaseFormDraft: PurchaseListItem?
     /// CHANGES-v6.1.md: Keepaグラフの期間切替。初期値は90日。
     @State private var selectedGraphRange: GraphRange = .ninetyDays
 
@@ -206,6 +209,11 @@ struct SearchTabView: View {
             }
             .sheet(isPresented: $showPaywall) {
                 PaywallView()
+            }
+            .sheet(item: $purchaseFormDraft) { draft in
+                NavigationView {
+                    PurchaseFormView(mode: .add(draft: draft))
+                }
             }
             .background {
                 NavigationLink(
@@ -406,11 +414,13 @@ struct SearchTabView: View {
                 isInPurchaseList: result.asin.map { purchaseList.contains(asin: $0) } ?? false,
                 onAddToPurchaseList: {
                     guard let asin = result.asin, !asin.isEmpty else { return }
-                    purchaseList.add(PurchaseListItem(
+                    // まだ仕入れリストへは登録せず、仕入れフォームの下書きとしてシート表示する。
+                    // 保存(緑チェック)で初めてPurchaseListStoreへ追加される。
+                    purchaseFormDraft = PurchaseListItem(
                         result: result,
                         scannedCode: viewModel.latestScannedCode,
                         offersResult: viewModel.offersResult
-                    ))
+                    )
                 }
             )
         } else if let errorMessage = viewModel.searchErrorMessage {

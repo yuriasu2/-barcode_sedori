@@ -1,8 +1,11 @@
 import Foundation
 
 /// 仕入れタブの選択モードから複数商品をまとめて出品するためのViewModel(Phase 2b)。
-/// 選択商品を直列で1件ずつ処理し、1件の失敗で全体を止めない(ListingFormViewModelと同じ
+/// 選択商品を直列で1件ずつ処理し、1件の失敗で全体を止めない(PurchaseFormViewModelと同じ
 /// APIClient/SettingsStore/PurchaseListStoreの作法に合わせる)。
+/// 仕入れフローの再設計により、価格の再取得(/api/offers・suggestedPrice)は行わない。
+/// 仕入れフォームで保存済みの price/quantity/conditionNote/sku をそのまま使い、
+/// priceが未保存の商品は失敗リストへ回して次の商品へ続行する。
 @MainActor
 final class BulkListingViewModel: ObservableObject {
     struct FailureEntry: Identifiable {
@@ -82,24 +85,22 @@ final class BulkListingViewModel: ObservableObject {
                 continue
             }
 
-            let offers: OffersResult?
-            do {
-                offers = try await apiClient.offers(asin: item.asin, source: "spapi")
-            } catch {
-                failures.append(FailureEntry(title: title, reason: "価格取得に失敗しました: \(error.localizedDescription)"))
+            // 価格はフォームで保存済みの値をそのまま使う(再取得はしない)。未設定なら出品せず
+            // 仕入れフォームでの設定を促して次の商品へ続行する。
+            guard let price = item.price, price > 0 else {
+                failures.append(FailureEntry(
+                    title: title,
+                    reason: "価格が未設定です。商品をタップして仕入れフォームで設定してください。"
+                ))
                 continue
             }
 
-            // 価格不明のまま出品しない(安全側)。
-            guard let price = ListingModels.suggestedPrice(offers: offers, condition: condition) else {
-                failures.append(FailureEntry(title: title, reason: "同コンディションの価格が取得できませんでした。"))
-                continue
-            }
-
-            // SKUはフォームと同じ経路(遅延採番→settings.listingSku)。編集不可。
+            // SKU・数量・コンディション説明文もフォームで保存済みの値をそのまま使う。
+            // SKUのみ、旧データ(採番導入前)への遅延採番を先に済ませてからフォールバックする。
             let numberedItem = purchaseList.assignSkuSequenceIfNeeded(id: item.id) ?? item
-            let sku = settings.listingSku(for: numberedItem)
-            let conditionNote = settings.listingTemplate(for: condition)
+            let sku = numberedItem.sku ?? settings.listingSku(for: numberedItem)
+            let conditionNote = numberedItem.conditionNote ?? settings.listingTemplate(for: condition)
+            let quantity = numberedItem.quantity ?? 1
 
             do {
                 let result = try await apiClient.submitListing(ListingSubmissionRequest(
@@ -107,7 +108,7 @@ final class BulkListingViewModel: ObservableObject {
                     sku: sku,
                     conditionType: condition.rawValue,
                     price: price,
-                    quantity: 1,
+                    quantity: quantity,
                     conditionNote: conditionNote
                 ))
                 if result.isAccepted {

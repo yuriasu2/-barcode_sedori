@@ -51,6 +51,9 @@ struct ProductDetailView: View {
     let janCode: String?
     @ObservedObject private var entitlements = EntitlementStore.shared
     @ObservedObject private var purchaseList = PurchaseListStore.shared
+    /// 「仕入れリストへ追加」タップで開く仕入れフォーム(新規追加モード)の下書き。
+    /// 保存(緑チェック)されるまでPurchaseListStoreへは登録しない。
+    @State private var purchaseFormDraft: PurchaseListItem?
 
     /// 通常モード(検索タブ経由): /api/offersを呼び出して表示する。
     init(asin: String, title: String?, source: String? = nil, janCode: String? = nil) {
@@ -97,6 +100,11 @@ struct ProductDetailView: View {
         .modifier(RefreshableIfNeeded(isStaticMode: viewModel.isStaticMode) {
             await viewModel.load()
         })
+        .sheet(item: $purchaseFormDraft) { draft in
+            NavigationView {
+                PurchaseFormView(mode: .add(draft: draft))
+            }
+        }
         .task {
             // 静的モード(履歴経由)ではload()は即returnするだけの安全策として残すが、
             // 実質的にAPI呼び出しコードパスには入らない(load()内のguardで早期return)。
@@ -132,11 +140,13 @@ struct ProductDetailView: View {
                     .foregroundColor(.secondary)
             }
 
-            // 仕入れリストへ追加(Pro限定・spec Phase 1b)。
+            // 仕入れリストへ追加(Pro限定)。
             // 商品詳細は画像URLを保持していないためimageUrlはnil(仕入れタブではプレースホルダ表示)。
             if entitlements.isPro {
                 Button {
-                    purchaseList.add(PurchaseListItem(
+                    // まだ仕入れリストへは登録せず、仕入れフォームの下書きとしてシート表示する。
+                    // 保存(緑チェック)で初めてPurchaseListStoreへ追加される。
+                    purchaseFormDraft = PurchaseListItem(
                         asin: viewModel.asin,
                         title: title,
                         imageUrl: nil,
@@ -144,7 +154,7 @@ struct ProductDetailView: View {
                         isbn13: nil,
                         salesRank: nil,
                         offersResult: viewModel.offers
-                    ))
+                    )
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: purchaseList.contains(asin: viewModel.asin) ? "checkmark.circle.fill" : "cart.badge.plus")

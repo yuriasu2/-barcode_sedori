@@ -44,6 +44,9 @@ final class SettingsStore: ObservableObject {
 
         // 出品SKUフォーマット(部品列。JSONエンコードして保存)。
         static let listingSkuFormat = "settings.listing.skuFormat"
+
+        // 仕入れフォーム(PurchaseFormView): 直近保存したコンディション(新規追加時の初期値に使う)。
+        static let listingLastCondition = "settings.listing.lastCondition"
     }
 
     /// Keychain上のアカウント名(リフレッシュトークン用)。
@@ -219,6 +222,18 @@ final class SettingsStore: ObservableObject {
     /// 既定のSKUフォーマット。従来の `AMLZ-YYYYMMDD-連番` と同じ見た目になる並び。
     static let defaultListingSkuFormat: [SkuComponent] = [.text("AMLZ-"), .year4, .month, .day]
 
+    /// 仕入れフォームで直近保存したコンディション(新規追加時の初期値に使う)。
+    /// 一度も保存していなければnil(この場合フォーム側が`.usedVeryGood`を既定値として使う)。
+    @Published var lastListingCondition: ListingConditionType? {
+        didSet {
+            if let lastListingCondition {
+                defaults.set(lastListingCondition.rawValue, forKey: Keys.listingLastCondition)
+            } else {
+                defaults.removeObject(forKey: Keys.listingLastCondition)
+            }
+        }
+    }
+
     // 出品説明文テンプレートの既定値(設定画面・出品フォームで編集可)。
     static let defaultListingTemplateNew =
         "新品・未使用品です。丁寧に梱包して自己発送でお届けします。"
@@ -278,6 +293,10 @@ final class SettingsStore: ObservableObject {
             self.listingSkuFormat = Self.defaultListingSkuFormat
         }
 
+        // 仕入れフォームの直近コンディション。未設定(一度も保存していない)ならnilのまま。
+        self.lastListingCondition = defaults.string(forKey: Keys.listingLastCondition)
+            .flatMap(ListingConditionType.init(rawValue:))
+
         // リフレッシュトークンはKeychainから読む。
         // 旧バージョンでUserDefaultsに平文保存されていた場合は、ここでKeychainへ移行し平文を削除する。
         if let keychainToken = KeychainStore.get(Self.keychainRefreshTokenAccount) {
@@ -321,7 +340,7 @@ final class SettingsStore: ObservableObject {
 
     /// 仕入れリスト項目の出品SKUを組み立てる。年月日は「仕入れリストに追加した日付」、
     /// 枝番は追加時(または旧データは遅延採番時)に確定済みの値をそのまま使う。
-    /// 枝番が未採番(skuSequenceがnil)の場合は呼び出し側(ListingFormViewModel)が
+    /// 枝番が未採番(skuSequenceがnil)の場合は呼び出し側(PurchaseFormViewModel等)が
     /// PurchaseListStore.assignSkuSequenceIfNeededで先に採番してから呼ぶこと。
     func listingSku(for item: PurchaseListItem) -> String {
         SkuGenerator.build(

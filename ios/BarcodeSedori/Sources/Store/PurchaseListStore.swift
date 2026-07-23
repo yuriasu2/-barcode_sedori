@@ -75,6 +75,20 @@ final class PurchaseListStore: ObservableObject {
         return sequence
     }
 
+    /// 実際には連番を進めず「次に採番される番号」だけを返す(仕入れフォームの新規追加時、
+    /// まだ仕入れリストへ登録していない段階でSKUプレビューを表示するために使う)。
+    /// キャンセルされた場合でも連番を消費しない。
+    func peekNextSequence(for date: Date = Date()) -> Int {
+        let today = SkuGenerator.dateString(from: date)
+        let lastDate = defaults.string(forKey: SequenceKeys.lastDate)
+        let lastSequence = defaults.integer(forKey: SequenceKeys.lastSequence)
+        return SkuGenerator.nextSequence(
+            lastDateString: lastDate,
+            lastSequence: lastSequence,
+            todayString: today
+        )
+    }
+
     /// スワイプ削除(ForEach.onDelete)用。
     func remove(atOffsets offsets: IndexSet) {
         items.remove(atOffsets: offsets)
@@ -99,6 +113,25 @@ final class PurchaseListStore: ObservableObject {
         if changed {
             save()
         }
+    }
+
+    /// 仕入れフォーム(PurchaseFormView)での編集保存用。コンディション・価格・数量・
+    /// コンディション説明文・SKUをまとめて上書きする(新規追加時はadd(_:)を使う)。
+    func update(
+        id: UUID,
+        condition: ListingConditionType,
+        price: Int?,
+        quantity: Int,
+        conditionNote: String,
+        sku: String
+    ) {
+        guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+        items[index].condition = condition
+        items[index].price = price
+        items[index].quantity = quantity
+        items[index].conditionNote = conditionNote
+        items[index].sku = sku
+        save()
     }
 
     /// 出品受理(ACCEPTED)時に呼ぶ。該当項目に出品済みマークとSKUを付ける。
