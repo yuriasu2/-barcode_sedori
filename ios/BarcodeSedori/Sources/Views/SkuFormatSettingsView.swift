@@ -26,7 +26,9 @@ struct SkuFormatSettingsView: View {
             }
 
             Section("部品(ドラッグで並べ替え)") {
-                ForEach(Array(settings.listingSkuFormat.enumerated()), id: \.element.id) { index, component in
+                // 同じ部品を複数置ける(例: 区切りの"-"を2箇所)ため、要素内容ベースのIDだと重複して
+                // 並べ替え・削除が誤動作する。位置(offset)をIDにして一意性を保証する。
+                ForEach(Array(settings.listingSkuFormat.enumerated()), id: \.offset) { index, component in
                     componentRow(index: index, component: component)
                 }
                 .onMove(perform: move)

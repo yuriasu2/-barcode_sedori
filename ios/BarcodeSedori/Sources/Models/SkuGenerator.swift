@@ -4,7 +4,7 @@ import Foundation
 /// 年月日は「仕入れリストに追加した日付」を表す(出品日ではない)。枝番が追加日基準の
 /// ため、日付を出品日にすると「昨日追加の005」と「今日追加の005」を同日に出品した場合に
 /// 同一SKUが生成され既存出品を上書きする事故が起きるため(計画で確定済みの帰結)。
-enum SkuComponent: Codable, Equatable, Identifiable {
+enum SkuComponent: Codable, Equatable {
     case year4        // 追加日の年4桁 "2026"
     case year2        // 追加日の年2桁 "26"
     case month        // 追加日の月2桁 "07"
@@ -12,18 +12,8 @@ enum SkuComponent: Codable, Equatable, Identifiable {
     case productCode  // ASINがあればASIN、無ければJAN
     case text(String) // 自由文字(A-Za-z0-9._- のみ)
 
-    /// ForEach/.onMoveで使う識別子。text部品は内容が変わってもswitchでの分岐だけ安定させたいため
-    /// caseの種類名を返す(text同士の重複はEquatableの一致判定に任せる)。
-    var id: String {
-        switch self {
-        case .year4: return "year4"
-        case .year2: return "year2"
-        case .month: return "month"
-        case .day: return "day"
-        case .productCode: return "productCode"
-        case .text(let value): return "text:\(value)"
-        }
-    }
+    // 注意: Identifiableは意図的に付けない。同じ部品を複数置ける(例: 区切り"-"を2箇所)ため
+    // 内容ベースのIDは必ず重複し、ForEach/.onMoveが誤動作する。一覧表示は位置(offset)をIDにすること。
 
     /// 部品追加メニューや一覧表示用のラベル。
     var displayName: String {
@@ -89,7 +79,12 @@ enum SkuGenerator {
             case .day:
                 return String(format: "%02d", day)
             case .productCode:
-                return asin ?? jan ?? ""
+                // asinはPurchaseListItem側が非Optional(空文字あり得る)のため、空文字も「無し」として扱い
+                // JANへフォールバックする(?? だけだと空文字がそのまま採用されてしまう)。
+                if let asin, !asin.isEmpty {
+                    return asin
+                }
+                return jan ?? ""
             case .text(let value):
                 return value
             }
