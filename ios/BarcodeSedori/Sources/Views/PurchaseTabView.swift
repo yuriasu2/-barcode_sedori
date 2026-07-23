@@ -1,10 +1,11 @@
 import SwiftUI
 
 /// 「仕入れ」タブ(Phase 1b): 仕入れリストの一覧・スワイプ削除・出品済みマーク。
-/// 「出品」導線(Pro+SP-API連携時のみ)はPhase 2(ListingFormView)で追加する。
+/// 「出品」導線(Pro+SP-API連携時のみ・未出品行のみ)はPhase 2(ListingFormView)で追加済み。
 struct PurchaseTabView: View {
     @ObservedObject private var store = PurchaseListStore.shared
     @ObservedObject private var entitlements = EntitlementStore.shared
+    @ObservedObject private var settings = SettingsStore.shared
 
     var body: some View {
         NavigationView {
@@ -38,8 +39,24 @@ struct PurchaseTabView: View {
 
     private var listContent: some View {
         List {
+            if entitlements.isPro && !settings.isSpApiLinkUsable {
+                Section {
+                    Text("出品するには設定タブでAmazon連携(SP-API)が必要です。")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                }
+            }
+
             ForEach(store.items) { item in
-                PurchaseListRow(item: item)
+                if entitlements.isPro && settings.isSpApiLinkUsable && !item.isListed {
+                    NavigationLink {
+                        ListingFormView(item: item)
+                    } label: {
+                        PurchaseListRow(item: item)
+                    }
+                } else {
+                    PurchaseListRow(item: item)
+                }
             }
             .onDelete { offsets in
                 store.remove(atOffsets: offsets)

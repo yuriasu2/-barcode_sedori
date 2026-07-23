@@ -38,6 +38,10 @@ final class SettingsStore: ObservableObject {
         static let listingTemplateVeryGood = "settings.listing.template.veryGood"
         static let listingTemplateGood = "settings.listing.template.good"
         static let listingTemplateAcceptable = "settings.listing.template.acceptable"
+
+        // 出品SKUの日次連番(AMLZ-YYYYMMDD-NNN)。
+        static let listingSkuLastDate = "settings.listing.skuLastDate"
+        static let listingSkuLastSequence = "settings.listing.skuLastSequence"
     }
 
     /// Keychain上のアカウント名(リフレッシュトークン用)。
@@ -273,5 +277,22 @@ final class SettingsStore: ObservableObject {
         case .usedGood: return listingTemplateGood
         case .usedAcceptable: return listingTemplateAcceptable
         }
+    }
+
+    /// 次の出品SKUを発行する(呼ぶたびに連番を進めて永続化する)。
+    /// 形式: AMLZ-YYYYMMDD-連番(日付ごとに001から)。ユーザーがフォームで編集した場合も
+    /// 連番は消費済みでよい(重複防止を優先。putListingsItemは同一SKU再実行で上書きされる)。
+    func nextListingSku(now: Date = Date()) -> String {
+        let today = SkuGenerator.dateString(from: now)
+        let lastDate = defaults.string(forKey: Keys.listingSkuLastDate)
+        let lastSequence = defaults.integer(forKey: Keys.listingSkuLastSequence)
+        let sequence = SkuGenerator.nextSequence(
+            lastDateString: lastDate,
+            lastSequence: lastSequence,
+            todayString: today
+        )
+        defaults.set(today, forKey: Keys.listingSkuLastDate)
+        defaults.set(sequence, forKey: Keys.listingSkuLastSequence)
+        return SkuGenerator.make(dateString: today, sequence: sequence)
     }
 }
