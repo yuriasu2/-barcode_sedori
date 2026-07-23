@@ -139,6 +139,8 @@ struct SettingsView: View {
 
                 profitAlertSection
 
+                listingSection
+
                 Section("サーバー設定") {
                     TextField(SettingsStore.defaultServerURL, text: $viewModel.serverURLString)
                         .keyboardType(.URL)
@@ -256,6 +258,34 @@ struct SettingsView: View {
                     HStack(spacing: 6) {
                         Image(systemName: "lock.fill")
                         Text("利益アラートはProで")
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption)
+                    }
+                    .foregroundColor(.primary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    // MARK: - 出品
+
+    /// 出品設定セクション。無料は鍵行のみでタップでペイウォール(profitAlertSectionと同じ作法)。
+    @ViewBuilder
+    private var listingSection: some View {
+        Section("出品") {
+            if entitlements.isPro {
+                NavigationLink("出品説明文テンプレート") {
+                    ListingTemplateSettingsView()
+                }
+            } else {
+                Button {
+                    showPaywall = true
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "lock.fill")
+                        Text("アプリ内出品はProで")
                         Spacer()
                         Image(systemName: "chevron.right")
                             .font(.caption)

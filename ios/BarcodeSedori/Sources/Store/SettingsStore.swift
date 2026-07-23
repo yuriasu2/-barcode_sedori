@@ -31,6 +31,13 @@ final class SettingsStore: ObservableObject {
         static let profitAlertSellerCountThreshold = "settings.profitAlert.sellerCountThreshold"
         static let profitAlertListPriceEnabled = "settings.profitAlert.listPriceEnabled"
         static let profitAlertHapticsEnabled = "settings.profitAlert.hapticsEnabled"
+
+        // 出品(Phase 2): コンディション別説明文テンプレート。
+        static let listingTemplateNew = "settings.listing.template.new"
+        static let listingTemplateLikeNew = "settings.listing.template.likeNew"
+        static let listingTemplateVeryGood = "settings.listing.template.veryGood"
+        static let listingTemplateGood = "settings.listing.template.good"
+        static let listingTemplateAcceptable = "settings.listing.template.acceptable"
     }
 
     /// Keychain上のアカウント名(リフレッシュトークン用)。
@@ -148,6 +155,55 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    // 出品(Phase 2): コンディション別説明文テンプレート。
+
+    /// 出品説明文テンプレート(新品)
+    @Published var listingTemplateNew: String {
+        didSet {
+            defaults.set(listingTemplateNew, forKey: Keys.listingTemplateNew)
+        }
+    }
+
+    /// 出品説明文テンプレート(ほぼ新品)
+    @Published var listingTemplateLikeNew: String {
+        didSet {
+            defaults.set(listingTemplateLikeNew, forKey: Keys.listingTemplateLikeNew)
+        }
+    }
+
+    /// 出品説明文テンプレート(非常に良い)
+    @Published var listingTemplateVeryGood: String {
+        didSet {
+            defaults.set(listingTemplateVeryGood, forKey: Keys.listingTemplateVeryGood)
+        }
+    }
+
+    /// 出品説明文テンプレート(良い)
+    @Published var listingTemplateGood: String {
+        didSet {
+            defaults.set(listingTemplateGood, forKey: Keys.listingTemplateGood)
+        }
+    }
+
+    /// 出品説明文テンプレート(可)
+    @Published var listingTemplateAcceptable: String {
+        didSet {
+            defaults.set(listingTemplateAcceptable, forKey: Keys.listingTemplateAcceptable)
+        }
+    }
+
+    // 出品説明文テンプレートの既定値(設定画面・出品フォームで編集可)。
+    static let defaultListingTemplateNew =
+        "新品・未使用品です。丁寧に梱包して自己発送でお届けします。"
+    static let defaultListingTemplateLikeNew =
+        "使用感がほとんど無い美品です。目立った傷・汚れはありません。丁寧に梱包して自己発送でお届けします。"
+    static let defaultListingTemplateVeryGood =
+        "使用感は少なく良好な状態です。目立つ傷・汚れはありません。丁寧に梱包してお届けします。"
+    static let defaultListingTemplateGood =
+        "通常の使用感がありますが、問題なくお使いいただけます。検品のうえ丁寧に梱包してお届けします。"
+    static let defaultListingTemplateAcceptable =
+        "使用感・傷みがありますが、使用には支障ありません。状態をご了承のうえご購入ください。"
+
     /// 本番APIの既定URL(独自ドメイン)。
     /// Cloudflare Workers を指すが、DNSで切替可能なため将来サーバーを移してもアプリ更新は不要。
     static let defaultServerURL = "https://api.sellira.jp"
@@ -174,6 +230,18 @@ final class SettingsStore: ObservableObject {
         self.profitAlertListPriceEnabled = defaults.bool(forKey: Keys.profitAlertListPriceEnabled)
         self.profitAlertHapticsEnabled = (defaults.object(forKey: Keys.profitAlertHapticsEnabled) as? Bool) ?? true
 
+        // 出品説明文テンプレート(Phase 2)。未設定時は既定文で読み込む。
+        self.listingTemplateNew =
+            defaults.string(forKey: Keys.listingTemplateNew) ?? Self.defaultListingTemplateNew
+        self.listingTemplateLikeNew =
+            defaults.string(forKey: Keys.listingTemplateLikeNew) ?? Self.defaultListingTemplateLikeNew
+        self.listingTemplateVeryGood =
+            defaults.string(forKey: Keys.listingTemplateVeryGood) ?? Self.defaultListingTemplateVeryGood
+        self.listingTemplateGood =
+            defaults.string(forKey: Keys.listingTemplateGood) ?? Self.defaultListingTemplateGood
+        self.listingTemplateAcceptable =
+            defaults.string(forKey: Keys.listingTemplateAcceptable) ?? Self.defaultListingTemplateAcceptable
+
         // リフレッシュトークンはKeychainから読む。
         // 旧バージョンでUserDefaultsに平文保存されていた場合は、ここでKeychainへ移行し平文を削除する。
         if let keychainToken = KeychainStore.get(Self.keychainRefreshTokenAccount) {
@@ -194,5 +262,16 @@ final class SettingsStore: ObservableObject {
     var isSpApiLinkUsable: Bool {
         spapiLinkEnabled
             && !spapiRefreshToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// 出品フォームがコンディション選択に応じて自動適用するテンプレート本文を返す。
+    func listingTemplate(for condition: ListingConditionType) -> String {
+        switch condition {
+        case .newNew: return listingTemplateNew
+        case .usedLikeNew: return listingTemplateLikeNew
+        case .usedVeryGood: return listingTemplateVeryGood
+        case .usedGood: return listingTemplateGood
+        case .usedAcceptable: return listingTemplateAcceptable
+        }
     }
 }
