@@ -167,6 +167,8 @@ struct SearchTabView: View {
     let isActive: Bool
     @StateObject private var viewModel = SearchTabViewModel()
     @ObservedObject private var entitlements = EntitlementStore.shared
+    /// 仕入れリスト(Phase 1b)。「追加済み」表示の再描画のため監視する。
+    @ObservedObject private var purchaseList = PurchaseListStore.shared
     @State private var selectedResult: SearchResult?
     @State private var searchBarText: String = ""
     @State private var showsInvalidCodeAlert = false
@@ -400,7 +402,16 @@ struct SearchTabView: View {
                 result: result,
                 scannedCode: viewModel.latestScannedCode ?? "",
                 profitVerdict: viewModel.profitAlertVerdict,
-                isPro: entitlements.isPro
+                isPro: entitlements.isPro,
+                isInPurchaseList: result.asin.map { purchaseList.contains(asin: $0) } ?? false,
+                onAddToPurchaseList: {
+                    guard let asin = result.asin, !asin.isEmpty else { return }
+                    purchaseList.add(PurchaseListItem(
+                        result: result,
+                        scannedCode: viewModel.latestScannedCode,
+                        offersResult: viewModel.offersResult
+                    ))
+                }
             )
         } else if let errorMessage = viewModel.searchErrorMessage {
             Text(errorMessage)
@@ -510,6 +521,10 @@ private struct LatestResultCardView: View {
     let profitVerdict: ProfitAlertEvaluator.Verdict?
     /// ブランド・サイズ・重量ブロックの表示可否(Pro限定)。依存は呼び出し元から引数で渡す(View内でEntitlementStoreを直接触らない)。
     let isPro: Bool
+    /// 仕入れリストに追加済みか(追加済みならボタンを無効化して「追加済み」表示)。
+    let isInPurchaseList: Bool
+    /// 「仕入れリストへ追加」タップ時の処理。Pro限定表示のため非Proでは使われない。
+    let onAddToPurchaseList: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -518,6 +533,13 @@ private struct LatestResultCardView: View {
             }
 
             cardContent
+
+            // 仕入れリストへ追加(Pro限定・ASINがある場合のみ)。
+            // specでは商品詳細画面だが、Keepa経路ユーザーは商品詳細に到達できないため
+            // 最新スキャン結果カードにも置く(承認済み逸脱)。
+            if isPro && result.asin != nil && result.codeType != .unresolved {
+                addToPurchaseListButton
+            }
         }
         // カードは現在囲み枠なしのため、発火時のみ縁取りを付けて視認差を大きくする。
         .overlay(
@@ -543,6 +565,27 @@ private struct LatestResultCardView: View {
         .padding(.vertical, 4)
         .background(Color.green)
         .cornerRadius(8)
+    }
+
+    /// 「仕入れリストへ追加」ボタン。追加済みはチェックマーク+無効化。
+    private var addToPurchaseListButton: some View {
+        Button {
+            onAddToPurchaseList()
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: isInPurchaseList ? "checkmark.circle.fill" : "cart.badge.plus")
+                Text(isInPurchaseList ? "仕入れリストに追加済み" : "仕入れリストへ追加")
+                    .fontWeight(.semibold)
+            }
+            .font(.subheadline)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+            .foregroundColor(isInPurchaseList ? .secondary : .white)
+            .background(isInPurchaseList ? Color(.secondarySystemBackground) : Color.accentColor)
+            .cornerRadius(8)
+        }
+        .buttonStyle(.plain)
+        .disabled(isInPurchaseList)
     }
 
     private var cardContent: some View {

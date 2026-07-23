@@ -49,6 +49,8 @@ struct ProductDetailView: View {
     let title: String?
     /// 商品情報セクションの「JANコード」行に表示する値(isbn13 ?? スキャンコード)。
     let janCode: String?
+    @ObservedObject private var entitlements = EntitlementStore.shared
+    @ObservedObject private var purchaseList = PurchaseListStore.shared
 
     /// 通常モード(検索タブ経由): /api/offersを呼び出して表示する。
     init(asin: String, title: String?, source: String? = nil, janCode: String? = nil) {
@@ -128,6 +130,28 @@ struct ProductDetailView: View {
                 Spacer()
                 Text(viewModel.offers?.releaseDate ?? "-")
                     .foregroundColor(.secondary)
+            }
+
+            // 仕入れリストへ追加(Pro限定・spec Phase 1b)。
+            // 商品詳細は画像URLを保持していないためimageUrlはnil(仕入れタブではプレースホルダ表示)。
+            if entitlements.isPro {
+                Button {
+                    purchaseList.add(PurchaseListItem(
+                        asin: viewModel.asin,
+                        title: title,
+                        imageUrl: nil,
+                        scannedCode: janCode,
+                        isbn13: nil,
+                        salesRank: nil,
+                        offersResult: viewModel.offers
+                    ))
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: purchaseList.contains(asin: viewModel.asin) ? "checkmark.circle.fill" : "cart.badge.plus")
+                        Text(purchaseList.contains(asin: viewModel.asin) ? "仕入れリストに追加済み" : "仕入れリストへ追加")
+                    }
+                }
+                .disabled(purchaseList.contains(asin: viewModel.asin))
             }
         }
     }
