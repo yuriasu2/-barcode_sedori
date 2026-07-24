@@ -600,28 +600,43 @@ private struct LatestResultCardView: View {
 
     private var cardContent: some View {
         HStack(alignment: .top, spacing: 12) {
-            AsyncImage(url: result.imageUrl.flatMap(URL.init(string:))) { phase in
-                switch phase {
-                case .success(let image):
-                    image.resizable().aspectRatio(contentMode: .fit)
-                case .failure:
-                    Image(systemName: "photo")
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .foregroundColor(.secondary)
-                case .empty:
-                    ProgressView()
-                @unknown default:
-                    Color.clear
+            // 画像URLが無い(見つからない商品等)場合、AsyncImageはempty phaseのまま
+            // スピナーが永久に回り続けるため、URL有無で先に分岐してプレースホルダを出す。
+            if let imageUrl = result.imageUrl.flatMap(URL.init(string:)) {
+                AsyncImage(url: imageUrl) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image.resizable().aspectRatio(contentMode: .fit)
+                    case .failure:
+                        Image(systemName: "photo")
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .foregroundColor(.secondary)
+                    case .empty:
+                        ProgressView()
+                    @unknown default:
+                        Color.clear
+                    }
                 }
+                .frame(width: 80, height: 80)
+                .background(Color(.secondarySystemBackground))
+                .cornerRadius(8)
+            } else {
+                Image(systemName: "photo")
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .foregroundColor(.secondary)
+                    .padding(20)
+                    .frame(width: 80, height: 80)
+                    .background(Color(.secondarySystemBackground))
+                    .cornerRadius(8)
             }
-            .frame(width: 80, height: 80)
-            .background(Color(.secondarySystemBackground))
-            .cornerRadius(8)
 
             VStack(alignment: .leading, spacing: 6) {
                 if result.codeType == .unresolved {
-                    Text("対応していないコードです")
+                    // コード形式非対応もカタログ未収載もここに来るが、カメラはEAN-13しか
+                    // 読まないため実態はほぼ「商品が見つからない」。文言もそれに合わせる。
+                    Text("見つかりません")
                         .font(.subheadline)
                         .foregroundColor(.orange)
                 } else {
