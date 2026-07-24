@@ -21,10 +21,15 @@ final class PurchaseFormViewModel: ObservableObject {
             if case .add(let draft) = mode {
                 price = ListingModels.bucketLowestPrice(offers: draft.offersResult, condition: condition)
             }
+            regenerateSkuIfNotEdited()
         }
     }
     @Published var price: Int?
-    @Published var quantity: Int
+    @Published var quantity: Int {
+        didSet {
+            regenerateSkuIfNotEdited()
+        }
+    }
     @Published var sku: String
     @Published var conditionNote: String
 
@@ -32,6 +37,13 @@ final class PurchaseFormViewModel: ObservableObject {
 
     private let settings: SettingsStore
     private let purchaseList: PurchaseListStore
+    /// SKU組み立てに使う枝番。init時に確定した値をそのまま再生成にも使い回す
+    /// (addモードは覗き見の連番、editモードは遅延採番済みの確定値)。
+    private let skuSequence: Int
+    /// 直近の自動生成SKU。現在の`sku`がこれと一致する間だけ「未編集」とみなし再生成する。
+    /// SwiftUIのTextFieldは初期化時のprogrammatic設定とユーザー入力を区別できないため、
+    /// 値の一致比較で判定する(onChangeフラグ方式は使わない)。
+    private var lastAutoSku: String
 
     var title: String? {
         switch mode {
@@ -67,13 +79,17 @@ final class PurchaseFormViewModel: ObservableObject {
             // SKUプレビュー: まだ仕入れリストへ登録していないため、連番は「消費せず覗き見る」だけにする
             // (実際の採番はadd()保存時にPurchaseListStore.add(_:)が行う)。
             let previewSequence = purchaseList.peekNextSequence(for: draft.addedAt)
-            self.sku = SkuGenerator.build(
+            self.skuSequence = previewSequence
+            let generatedSku = SkuGenerator.build(
                 components: settings.listingSkuFormat,
                 addedDate: draft.addedAt,
                 asin: draft.asin,
                 jan: draft.scannedCode,
-                sequence: previewSequence
+                sequence: previewSequence,
+                quantity: 1
             )
+            self.sku = generatedSku
+            self.lastAutoSku = generatedSku
         case .edit(let item):
             // 旧データ(SKU枝番の採番導入前に仕入れリストへ追加された項目)は、ここで遅延採番する
             // (採番済みならそのまま返る。冪等)。
@@ -84,8 +100,40 @@ final class PurchaseFormViewModel: ObservableObject {
             self.conditionNote = numberedItem.conditionNote ?? settings.listingTemplate(for: initialCondition)
             self.quantity = numberedItem.quantity ?? 1
             self.price = numberedItem.price
-            self.sku = numberedItem.sku ?? settings.listingSku(for: numberedItem)
+            self.skuSequence = numberedItem.skuSequence ?? 1
+            let generatedSku = numberedItem.sku ?? settings.listingSku(for: numberedItem)
+            self.sku = generatedSku
+            self.lastAutoSku = generatedSku
         }
+    }
+
+    /// 現在のSKUが直近の自動生成値(lastAutoSku)と一致する場合のみ、現在のquantity/コンディションで
+    /// SKUを再生成する(=ユーザー未編集のときだけ再生成する。手入力済みなら何もしない)。
+    private func regenerateSkuIfNotEdited() {
+        guard sku == lastAutoSku else { return }
+        let newSku: String
+        switch mode {
+        case .add(let draft):
+            newSku = SkuGenerator.build(
+                components: settings.listingSkuFormat,
+                addedDate: draft.addedAt,
+                asin: draft.asin,
+                jan: draft.scannedCode,
+                sequence: skuSequence,
+                quantity: quantity
+            )
+        case .edit(let item):
+            newSku = SkuGenerator.build(
+                components: settings.listingSkuFormat,
+                addedDate: item.addedAt,
+                asin: item.asin,
+                jan: item.scannedCode,
+                sequence: skuSequence,
+                quantity: quantity
+            )
+        }
+        sku = newSku
+        lastAutoSku = newSku
     }
 
     var canSave: Bool {

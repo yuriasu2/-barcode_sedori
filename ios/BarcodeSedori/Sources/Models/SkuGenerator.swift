@@ -11,6 +11,8 @@ enum SkuComponent: Codable, Equatable {
     case day          // 追加日の日2桁 "23"
     case productCode  // ASINがあればASIN、無ければJAN
     case text(String) // 自由文字(A-Za-z0-9._- のみ)
+    case sequence     // 日次枝番(3桁ゼロ埋め)。自動付与ではなく部品として任意の位置に置ける
+    case quantity     // 数量(ゼロ埋めなし)
 
     // 注意: Identifiableは意図的に付けない。同じ部品を複数置ける(例: 区切り"-"を2箇所)ため
     // 内容ベースのIDは必ず重複し、ForEach/.onMoveが誤動作する。一覧表示は位置(offset)をIDにすること。
@@ -24,11 +26,14 @@ enum SkuComponent: Codable, Equatable {
         case .day: return "日"
         case .productCode: return "商品コード"
         case .text: return "自由文字"
+        case .sequence: return "枝番"
+        case .quantity: return "数量"
         }
     }
 }
 
-/// 出品SKUの自動生成。部品(SkuComponent)を並べた書式 + 末尾の枝番(3桁ゼロ埋め)で組み立てる。
+/// 出品SKUの自動生成。部品(SkuComponent)を並べた書式で組み立てる純粋関数。
+/// 枝番(.sequence)は自動付与ではなく部品の一つであり、フォーマットに含めなければ出力に現れない。
 /// 連番の永続化はPurchaseListStore側で行い、ここは純粋関数のみ(swiftc単体検証のため)。
 enum SkuGenerator {
     /// 日付部分(yyyyMMdd)。端末ローカルのタイムゾーン・グレゴリオ暦で固定フォーマット。
@@ -53,7 +58,8 @@ enum SkuGenerator {
         return 1
     }
 
-    /// 部品列からSKU文字列を組み立てる。末尾に `%03d` の枝番(ハイフン無し)を必ず付与する。
+    /// 部品列からSKU文字列を組み立てる。枝番(.sequence)・数量(.quantity)も部品の一つであり、
+    /// フォーマットに含めない限り出力には現れない(自動付与は行わない)。
     /// 区切りが欲しい場合は自由文字部品で"-"などを置ける。
     /// 40文字(サーバー制約 `/^[A-Za-z0-9._-]{1,40}$/`)を超えても切り詰めず、そのまま返す
     /// (設定画面側で警告表示する方針。送信時はサーバーが400で弾く)。
@@ -62,14 +68,15 @@ enum SkuGenerator {
         addedDate: Date,
         asin: String?,
         jan: String?,
-        sequence: Int
+        sequence: Int,
+        quantity: Int
     ) -> String {
         let calendar = Calendar(identifier: .gregorian)
         let year = calendar.component(.year, from: addedDate)
         let month = calendar.component(.month, from: addedDate)
         let day = calendar.component(.day, from: addedDate)
 
-        let body = components.map { component -> String in
+        return components.map { component -> String in
             switch component {
             case .year4:
                 return String(format: "%04d", year)
@@ -88,9 +95,11 @@ enum SkuGenerator {
                 return jan ?? ""
             case .text(let value):
                 return value
+            case .sequence:
+                return String(format: "%03d", sequence)
+            case .quantity:
+                return String(quantity)
             }
         }.joined()
-
-        return "\(body)\(String(format: "%03d", sequence))"
     }
 }

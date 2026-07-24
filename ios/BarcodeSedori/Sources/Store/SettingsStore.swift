@@ -219,8 +219,9 @@ final class SettingsStore: ObservableObject {
         }
     }
 
-    /// 既定のSKUフォーマット。従来の `AMLZ-YYYYMMDD-連番` と同じ見た目になる並び。
-    static let defaultListingSkuFormat: [SkuComponent] = [.text("AMLZ-"), .year4, .month, .day]
+    /// 既定のSKUフォーマット。従来の `AMLZ-YYYYMMDD-連番` と同じ見た目になる並び
+    /// (枝番は自動付与ではなく部品として含めている)。
+    static let defaultListingSkuFormat: [SkuComponent] = [.text("AMLZ-"), .year4, .month, .day, .sequence]
 
     /// 仕入れフォームで直近保存したコンディション(新規追加時の初期値に使う)。
     /// 一度も保存していなければnil(この場合フォーム側が`.usedVeryGood`を既定値として使う)。
@@ -348,7 +349,8 @@ final class SettingsStore: ObservableObject {
             addedDate: item.addedAt,
             asin: item.asin,
             jan: item.scannedCode,
-            sequence: item.skuSequence ?? 1
+            sequence: item.skuSequence ?? 1,
+            quantity: item.quantity ?? 1
         )
     }
 }

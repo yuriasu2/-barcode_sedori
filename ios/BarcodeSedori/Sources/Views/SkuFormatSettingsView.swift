@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// SKUフォーマットの並べ替え画面(Pro限定)。設定タブの「出品」セクションから遷移する。
-/// 部品(年/月/日/商品コード/自由文字)をドラッグで並べ替えて出品SKUの書式を決める。
-/// 末尾の枝番(001)は自動付与のためここでは編集できない(SkuGenerator.build参照)。
+/// 部品(年/月/日/商品コード/自由文字/枝番/数量)をドラッグで並べ替えて出品SKUの書式を決める。
+/// 枝番・数量は自動付与ではなく他の部品と同様に任意の位置へ追加・削除できる(SkuGenerator.build参照)。
 struct SkuFormatSettingsView: View {
     @ObservedObject private var settings = SettingsStore.shared
     /// 自由文字部品の編集シート。編集中の部品のindexを保持する(nilなら非表示)。
@@ -41,13 +41,15 @@ struct SkuFormatSettingsView: View {
                     Button("日") { addComponent(.day) }
                     Button("商品コード") { addComponent(.productCode) }
                     Button("自由文字") { addComponent(.text("")) }
+                    Button("枝番") { addComponent(.sequence) }
+                    Button("数量") { addComponent(.quantity) }
                 } label: {
                     Label("部品を追加", systemImage: "plus")
                 }
             }
 
             Section {
-                Text("末尾に枝番(001)が自動で付きます。区切りが欲しい場合は自由文字部品で\"-\"を追加できます。年月日は仕入れリストに追加した日付です。")
+                Text("枝番は日付でリセットされます。")
                     .font(.footnote)
                     .foregroundColor(.secondary)
             }
@@ -92,7 +94,8 @@ struct SkuFormatSettingsView: View {
             addedDate: previewDate,
             asin: previewAsin,
             jan: nil,
-            sequence: 1
+            sequence: 1,
+            quantity: 3
         )
     }
 
