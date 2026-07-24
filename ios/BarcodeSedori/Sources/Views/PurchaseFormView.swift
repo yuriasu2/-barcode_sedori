@@ -12,6 +12,17 @@ enum PurchaseFormMode {
 
 @MainActor
 final class PurchaseFormViewModel: ObservableObject {
+    /// 出品制限チェックの状態(仕入れフォームでは表示のみ。保存はブロックしない)。
+    /// SP-API未連携/Pro未加入では`.unavailable`のままチェック自体を行わず、セクションも表示しない
+    /// (Keepa経路ユーザーのフォームを汚さないため)。
+    enum RestrictionState: Equatable {
+        case unavailable
+        case checking
+        case allowed
+        case restricted(message: String?, approvalUrl: String?)
+        case failed(String)
+    }
+
     @Published var condition: ListingConditionType {
         didSet {
             // コンディション変更でテンプレートを再適用する(旧ListingFormViewと同じ挙動)。
@@ -22,8 +33,11 @@ final class PurchaseFormViewModel: ObservableObject {
                 price = ListingModels.bucketLowestPrice(offers: draft.offersResult, condition: condition)
             }
             regenerateSkuIfNotEdited()
+            // コンディションが変われば制限判定も変わり得るため再チェックする。
+            startRestrictionCheck()
         }
     }
+    @Published private(set) var restrictionState: RestrictionState = .unavailable
     @Published var price: Int?
     @Published var quantity: Int {
         didSet {
@@ -37,6 +51,11 @@ final class PurchaseFormViewModel: ObservableObject {
 
     private let settings: SettingsStore
     private let purchaseList: PurchaseListStore
+    private let apiClient: APIClient
+    private let entitlements: EntitlementStore
+    /// 制限チェックのリクエスト連番。コンディション連打で古いチェックの結果が後から返っても
+    /// 「実行時点の最新連番と一致するときだけ反映する」ことで、新しい結果を古い結果が上書きしないようにする。
+    private var restrictionCheckSequence = 0
     /// SKU組み立てに使う枝番。init時に確定した値をそのまま再生成にも使い回す
     /// (addモードは覗き見の連番、editモードは遅延採番済みの確定値)。
     private let skuSequence: Int
@@ -62,11 +81,15 @@ final class PurchaseFormViewModel: ObservableObject {
     init(
         mode: PurchaseFormMode,
         settings: SettingsStore = .shared,
-        purchaseList: PurchaseListStore = .shared
+        purchaseList: PurchaseListStore = .shared,
+        apiClient: APIClient = .shared,
+        entitlements: EntitlementStore = .shared
     ) {
         self.mode = mode
         self.settings = settings
         self.purchaseList = purchaseList
+        self.apiClient = apiClient
+        self.entitlements = entitlements
 
         switch mode {
         case .add(let draft):
@@ -140,6 +163,50 @@ final class PurchaseFormViewModel: ObservableObject {
         !sku.trimmingCharacters(in: .whitespaces).isEmpty && quantity > 0
     }
 
+    /// フォーム表示時に呼ぶ。制限チェックの実行条件(Pro+SP-API連携済み)を満たさなければ
+    /// `.unavailable`のままセクション自体を出さない(Keepa経路ユーザーのフォームを汚さない)。
+    func onAppear() {
+        startRestrictionCheck()
+    }
+
+    /// 「再確認」ボタンからの再チェック(failed時)。挙動はstartRestrictionCheckと同じ。
+    func retryRestrictionCheck() {
+        startRestrictionCheck()
+    }
+
+    /// 出品制限チェックを開始する。Pro+SP-API連携済みのときだけAPIを呼ぶ。
+    /// コンディション変更で連打されても、実行完了時点の連番が最新でなければ結果を捨てる
+    /// (古いチェックが後から返って新しい結果を上書きしないようにするガード)。
+    private func startRestrictionCheck() {
+        guard entitlements.isPro && settings.isListingReady else {
+            restrictionState = .unavailable
+            return
+        }
+        restrictionCheckSequence += 1
+        let sequence = restrictionCheckSequence
+        let checkAsin = asin
+        let checkCondition = condition
+        restrictionState = .checking
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let result = try await self.apiClient.listingsRestrictions(
+                    asin: checkAsin,
+                    condition: checkCondition.rawValue
+                )
+                guard sequence == self.restrictionCheckSequence else { return }
+                if result.restricted {
+                    self.restrictionState = .restricted(message: result.message, approvalUrl: result.approvalUrl)
+                } else {
+                    self.restrictionState = .allowed
+                }
+            } catch {
+                guard sequence == self.restrictionCheckSequence else { return }
+                self.restrictionState = .failed(error.localizedDescription)
+            }
+        }
+    }
+
     /// 保存(緑チェック)。新規追加時はPurchaseListStoreへ登録し、編集時は上書きする。
     /// 直近コンディションはSettingsStoreへ記憶し、次回の新規追加フォームの初期値にする。
     func save() {
@@ -195,6 +262,8 @@ struct PurchaseFormView: View {
                         .foregroundColor(.secondary)
                 }
             }
+
+            restrictionSection
 
             Section("仕入れ内容") {
                 Picker("コンディション", selection: $viewModel.condition) {
@@ -256,6 +325,63 @@ struct PurchaseFormView: View {
                         .foregroundColor(.green)
                 }
                 .disabled(!viewModel.canSave)
+            }
+        }
+        .task {
+            viewModel.onAppear()
+        }
+    }
+
+    /// 出品制限の状態表示。Pro+SP-API連携済みのときだけ表示し(unavailableはセクション自体を出さない)、
+    /// 保存はブロックしない(制限があっても仕入れ登録は可能。出品時のブロックは一括出品側が担う)。
+    @ViewBuilder
+    private var restrictionSection: some View {
+        switch viewModel.restrictionState {
+        case .unavailable:
+            EmptyView()
+        case .checking:
+            Section("出品制限") {
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text("確認中…")
+                        .foregroundColor(.secondary)
+                }
+            }
+        case .allowed:
+            Section("出品制限") {
+                HStack(spacing: 8) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(.green)
+                    Text("出品可能です")
+                }
+            }
+        case .restricted(let message, let approvalUrl):
+            Section("出品制限") {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(.orange)
+                    Text("出品制限があります")
+                }
+                if let message {
+                    Text(message)
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                }
+                if let approvalUrl, let url = URL(string: approvalUrl) {
+                    Link("Seller Centralで解除申請", destination: url)
+                        .font(.footnote)
+                }
+            }
+        case .failed(let message):
+            Section("出品制限") {
+                Text("確認できませんでした")
+                    .foregroundColor(.secondary)
+                Text(message)
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+                Button("再確認") {
+                    viewModel.retryRestrictionCheck()
+                }
             }
         }
     }
