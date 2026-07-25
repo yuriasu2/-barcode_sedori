@@ -177,6 +177,8 @@ struct SearchTabView: View {
     /// 「仕入れリストへ追加」タップで開く仕入れフォーム(新規追加モード)の下書き。
     /// 保存(緑チェック)されるまでPurchaseListStoreへは登録しない。
     @State private var purchaseFormDraft: PurchaseListItem?
+    /// アクションボタン(a/m/価)で開くアプリ内ブラウザの対象URL(nilならシート非表示)。
+    @State private var browserTarget: BrowserTarget?
     /// CHANGES-v6.1.md: Keepaグラフの期間切替。初期値は90日。
     @State private var selectedGraphRange: GraphRange = .ninetyDays
 
@@ -214,6 +216,11 @@ struct SearchTabView: View {
                 NavigationView {
                     PurchaseFormView(mode: .add(draft: draft))
                 }
+            }
+            // 外部リンク(a/m/価)はアプリ内ブラウザ(SFSafariViewController)で開く。
+            .sheet(item: $browserTarget) { target in
+                SafariView(url: target.url)
+                    .ignoresSafeArea()
             }
             .background {
                 NavigationLink(
@@ -421,6 +428,9 @@ struct SearchTabView: View {
                         scannedCode: viewModel.latestScannedCode,
                         offersResult: viewModel.offersResult
                     )
+                },
+                onOpenLink: { url in
+                    browserTarget = BrowserTarget(url: url)
                 }
             )
         } else if let errorMessage = viewModel.searchErrorMessage {
@@ -535,6 +545,8 @@ private struct LatestResultCardView: View {
     let isInPurchaseList: Bool
     /// 「仕入れリストへ追加」タップ時の処理。Pro限定表示のため非Proでは使われない。
     let onAddToPurchaseList: () -> Void
+    /// 外部リンク(a/m/価)タップ時の処理。親側でアプリ内ブラウザ(SafariView)のシートを開く。
+    let onOpenLink: (URL) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -646,7 +658,8 @@ private struct LatestResultCardView: View {
                             result: result,
                             isPro: isPro,
                             isInPurchaseList: isInPurchaseList,
-                            onAddToPurchaseList: onAddToPurchaseList
+                            onAddToPurchaseList: onAddToPurchaseList,
+                            onOpenLink: onOpenLink
                         )
                     }
                 }
@@ -670,6 +683,8 @@ private struct ResultCardActionButtons: View {
     let isPro: Bool
     let isInPurchaseList: Bool
     let onAddToPurchaseList: () -> Void
+    /// 外部リンク(a/m/価)タップ時の処理。親側でアプリ内ブラウザ(SafariView)のシートを開く。
+    let onOpenLink: (URL) -> Void
 
     private let buttonSize: CGFloat = 44
 
@@ -753,22 +768,38 @@ private struct ResultCardActionButtons: View {
         return title.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)
     }
 
+    /// 商品名をShift_JISのパーセントエンコードに変換する(価格.com専用)。
+    /// 価格.comの検索URLはShift_JIS前提のためUTF-8エンコードだと文字化け/404になる
+    /// (実リクエストで確認済み)。Shift_JISに無い文字は損失変換で近似する。
+    private func shiftJISEncodedTitle() -> String? {
+        guard let title = result.title,
+              let data = title.data(using: .shiftJIS, allowLossyConversion: true) else { return nil }
+        return data.map { byte -> String in
+            // RFC 3986のunreserved(英数字と-._~)のみ素通しし、他は%XXにする。
+            let isUnreserved =
+                (0x30...0x39).contains(byte) || (0x41...0x5A).contains(byte)
+                || (0x61...0x7A).contains(byte) || byte == 0x2D || byte == 0x2E
+                || byte == 0x5F || byte == 0x7E
+            return isUnreserved ? String(UnicodeScalar(byte)) : String(format: "%%%02X", byte)
+        }.joined()
+    }
+
     private func openAmazon() {
         guard let asin = result.asin,
               let url = URL(string: "https://www.amazon.co.jp/dp/\(asin)") else { return }
-        UIApplication.shared.open(url)
+        onOpenLink(url)
     }
 
     private func openMercari() {
         guard let encoded = encodedTitle(),
               let url = URL(string: "https://jp.mercari.com/search?keyword=\(encoded)") else { return }
-        UIApplication.shared.open(url)
+        onOpenLink(url)
     }
 
     private func openKakaku() {
-        guard let encoded = encodedTitle(),
+        guard let encoded = shiftJISEncodedTitle(),
               let url = URL(string: "https://kakaku.com/search_results/\(encoded)/") else { return }
-        UIApplication.shared.open(url)
+        onOpenLink(url)
     }
 }
 
