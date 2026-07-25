@@ -12,5 +12,14 @@ final class AppNavigation: ObservableObject {
     /// 設定タブのタグ。
     static let settingsTab = 3
 
+    #if DEBUG
+    /// 開発ビルド専用: ディープリンクから流し込まれた検索コード。
+    /// シミュレータではタップ・文字入力の注入が使えない環境があり画面遷移を自動化できないため、
+    /// `barcodesedori://debug-search?code=9784566034600` で検索を発火できるようにする。
+    /// SearchTabViewがこれを監視して検索を実行し、消費後にnilへ戻す。
+    /// `#if DEBUG` で囲っているためReleaseビルドには存在しない。
+    @Published var pendingDebugSearchCode: String?
+    #endif
+
     private init() {}
 }

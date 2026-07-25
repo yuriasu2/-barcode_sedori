@@ -179,6 +179,8 @@ struct SearchTabView: View {
     @State private var purchaseFormDraft: PurchaseListItem?
     /// アクションボタン(a/m/価)で開くアプリ内ブラウザの対象URL(nilならシート非表示)。
     @State private var browserTarget: BrowserTarget?
+    /// タブ状態。開発用ディープリンク(debug-search)で流し込まれた検索コードを受け取るため監視する。
+    @ObservedObject private var navigation = AppNavigation.shared
     /// CHANGES-v6.1.md: Keepaグラフの期間切替。初期値は90日。
     @State private var selectedGraphRange: GraphRange = .ninetyDays
 
@@ -219,6 +221,14 @@ struct SearchTabView: View {
                 SafariView(url: target.url)
                     .ignoresSafeArea()
             }
+            // 開発ビルド専用: barcodesedori://debug-search?code=... で流し込まれたコードを検索する
+            // (シミュレータでタップ・文字入力の注入が効かない環境向けの検証用ルート)。
+            #if DEBUG
+            .onReceive(navigation.$pendingDebugSearchCode.compactMap { $0 }) { code in
+                navigation.pendingDebugSearchCode = nil
+                viewModel.handleScan(code)
+            }
+            #endif
             .background {
                 NavigationLink(
                     destination: destinationView,
