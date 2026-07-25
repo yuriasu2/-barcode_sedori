@@ -791,9 +791,11 @@ private struct ResultCardActionButtons: View {
         }.joined()
     }
 
+    /// Amazonの出品者一覧(すべての出品を表示)を開く。商品ページではなく相場が一覧できる
+    /// aod=1 のページへ直接飛ばす(せどりでは出品者と価格の一覧を見たいため)。
     private func openAmazon() {
         guard let asin = result.asin,
-              let url = URL(string: "https://www.amazon.co.jp/dp/\(asin)") else { return }
+              let url = URL(string: "https://www.amazon.co.jp/dp/\(asin)/ref=olp-opf-redir?aod=1") else { return }
         onOpenLink(url)
     }
 
