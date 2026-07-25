@@ -115,23 +115,15 @@ final class APIClient {
         let settings = SettingsStore.shared
 
         // 利用者自身の連携(BYO)が有効なら、そのリフレッシュトークンを常に送る。
-        // このとき X-Disable-Spapi は付けない。付けるとサーバーがSP-APIを一切使わなくなり、
-        // 連携済みでもオファーが出なくなるため(実際にその不具合が発生した)。
-        if settings.isSpApiLinkUsable {
-            request.setValue(settings.spapiRefreshToken, forHTTPHeaderField: "X-Spapi-Refresh-Token")
-            // sellerId(出品系APIが必須とするIDで、Sellers APIからは取得不可能なためOAuth認可時に
-            // 受け取った値をここで送る)。未取得(旧認可のまま)の場合は付与しない。
-            let sellerId = settings.spapiSellerId.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !sellerId.isEmpty {
-                request.setValue(sellerId, forHTTPHeaderField: "X-Spapi-Seller-Id")
-            }
-            return
-        }
+        // 未連携のときは何も付けない(サーバーはKeepa経路へフォールバックする)。
+        guard settings.isSpApiLinkUsable else { return }
 
-        // 未連携のときだけ、開発用トグルでサーバー側SP-API(.envの開発者資格情報)の使用可否を切り替える。
-        // オフならKeepa経路の動作確認ができる。
-        if !settings.renderSpApiEnabled {
-            request.setValue("1", forHTTPHeaderField: "X-Disable-Spapi")
+        request.setValue(settings.spapiRefreshToken, forHTTPHeaderField: "X-Spapi-Refresh-Token")
+        // sellerId(出品系APIが必須とするIDで、Sellers APIからは取得不可能なためOAuth認可時に
+        // 受け取った値をここで送る)。未取得(旧認可のまま)の場合は付与しない。
+        let sellerId = settings.spapiSellerId.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !sellerId.isEmpty {
+            request.setValue(sellerId, forHTTPHeaderField: "X-Spapi-Seller-Id")
         }
     }
 

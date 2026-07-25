@@ -81,9 +81,6 @@ private struct RootContainerView: View {
            !sellerId.isEmpty {
             SettingsStore.shared.spapiSellerId = sellerId
         }
-        // サーバー側SP-APIを無効化するトグル(開発用)がオフのままだと X-Disable-Spapi が送られ、
-        // 連携済みでもSP-APIが使われずオファーが出ないため、連携完了時に必ずオンへ戻す。
-        SettingsStore.shared.renderSpApiEnabled = true
         showSpApiLinkedAlert = true
     }
 

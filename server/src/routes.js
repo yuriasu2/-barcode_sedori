@@ -80,7 +80,7 @@ function requireProByoCredentials(req, res) {
   }
   const credentials = resolveSpApiCredentials(req.headers);
   if (!credentials) {
-    // clientId/clientSecret未設定(サーバー構成不備)またはX-Disable-Spapi。
+    // clientId/clientSecret未設定(サーバー構成不備)。
     res.status(503).json({ error: 'spapi_credentials_missing', message: SPAPI_CREDENTIALS_MISSING_MESSAGE });
     return null;
   }
@@ -183,12 +183,6 @@ function buildListingItemBody(input, marketplaceId) {
  * いずれか一つでも欠ければnull。
  */
 function resolveSpApiCredentials(headers) {
-  // アプリ設定でRender側SP-APIをオフにした場合、X-Disable-Spapiヘッダーが送られる。
-  // このときは.envのSP-API認証情報も含め一切使わずnullを返し、呼び出し側をKeepaへフォールバックさせる。
-  const disableSpApi =
-    headers && (headers['x-disable-spapi'] || headers['X-Disable-Spapi']);
-  if (disableSpApi) return null;
-
   const clientId = process.env.LWA_CLIENT_ID || null;
   const clientSecret = process.env.LWA_CLIENT_SECRET || null;
   const refreshToken =

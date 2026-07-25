@@ -56,7 +56,7 @@ Solution Provider Portal のフォームを記入中。記入案は `APPSTORE-LI
 
 ### 4. リリース前に必ず消すもの
 
-- 設定画面の開発者向けトグル「サーバー側SP-APIを使用する」
+- ~~設定画面の開発者向けトグル「サーバー側SP-APIを使用する」~~ → 2026-07-25に削除済み(X-Disable-Spapiヘッダー・サーバー側処理も撤去)
 - SP-APIリフレッシュトークンの手入力欄（DisclosureGroup内）
 - AdMobのテストID → 本番IDへ差し替え、SKAdNetwork全リスト追加
 - バンドルID `com.example.barcodesedori` の変更

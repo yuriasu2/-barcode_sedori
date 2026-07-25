@@ -17,7 +17,6 @@ final class SettingsStore: ObservableObject {
         static let spapiLinkEnabled = "settings.spapiLinkEnabled"
         /// 旧: UserDefaultsに平文保存していたキー。現在はKeychainへ移行済み(初回起動時に自動移行して削除)。
         static let legacySpapiRefreshToken = "settings.spapiRefreshToken"
-        static let renderSpApiEnabled = "settings.renderSpApiEnabled"
         /// OAuth認可コールバックのselling_partner_id(公開の出品者ID)。
         /// リフレッシュトークンと異なり機密度が低いためKeychainではなくUserDefaultsに保存する。
         static let spapiSellerId = "settings.spapiSellerId"
@@ -85,14 +84,6 @@ final class SettingsStore: ObservableObject {
         }
     }
 
-    /// サーバー(Render)側のSP-APIを使用するか。
-    /// オフにするとリクエストにX-Disable-Spapiヘッダーを付与し、サーバーはSP-APIを一切使わずKeepaへフォールバックする。
-    /// Keepaの動作確認をRender登録済みのSP-APIキーに邪魔されずに行うためのトグル。既定はオン。
-    @Published var renderSpApiEnabled: Bool {
-        didSet {
-            defaults.set(renderSpApiEnabled, forKey: Keys.renderSpApiEnabled)
-        }
-    }
 
     // 利益アラート(Phase 1a)。既定は全てOFF。
 
@@ -255,8 +246,6 @@ final class SettingsStore: ObservableObject {
         self.defaults = defaults
         self.serverURLString = defaults.string(forKey: Keys.serverURL) ?? Self.defaultServerURL
         self.spapiLinkEnabled = defaults.bool(forKey: Keys.spapiLinkEnabled)
-        // 未設定時は既定でオン(サーバー側SP-APIを使う従来動作)にする。
-        self.renderSpApiEnabled = (defaults.object(forKey: Keys.renderSpApiEnabled) as? Bool) ?? true
         self.spapiSellerId = defaults.string(forKey: Keys.spapiSellerId) ?? ""
 
         // 利益アラート(Phase 1a)。未設定時は全条件OFF・既定値で読み込む(既存ユーザーの挙動は不変)。

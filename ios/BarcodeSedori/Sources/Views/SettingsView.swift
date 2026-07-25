@@ -30,11 +30,6 @@ final class SettingsViewModel: ObservableObject {
         set { settingsStore.spapiRefreshToken = newValue }
     }
 
-    /// サーバー側SP-APIを使うか。オフでKeepa動作確認用にSP-APIを読み込ませない。
-    var renderSpApiEnabled: Bool {
-        get { settingsStore.renderSpApiEnabled }
-        set { settingsStore.renderSpApiEnabled = newValue }
-    }
 
     @Published var spapiTestAlert: SpApiTestAlert?
 
@@ -177,21 +172,16 @@ struct SettingsView: View {
                         .foregroundColor(.secondary)
                 }
 
+                // 開発ビルド専用。シミュレータではStoreKitの実購入ができずPro限定画面を検証できないため、
+                // 強制的にProとして扱えるようにする。Releaseビルドにはセクションごと存在しない。
+                #if DEBUG
                 Section("開発者向け") {
-                    #if DEBUG
-                    // 開発ビルド専用。シミュレータではStoreKitの実購入ができずPro限定画面を検証できないため、
-                    // 強制的にProとして扱えるようにする。Releaseビルドにはコンパイルされない。
                     Toggle("【開発用】Proとして扱う", isOn: $debugForcePro)
                         .onChange(of: debugForcePro) { newValue in
                             entitlements.debugForcePro = newValue
                         }
-                    #endif
-
-                    Toggle("サーバー側SP-APIを使用する", isOn: $viewModel.renderSpApiEnabled)
-                    Text("SP-API未連携のときのみ有効な開発用トグルです。オフにするとサーバーのSP-APIを使わずKeepaのみで価格を取得します。連携済みの場合はご自身のSP-APIが優先されるため、この設定は影響しません。")
-                        .font(.footnote)
-                        .foregroundColor(.secondary)
                 }
+                #endif
 
                 Section("SP-API連携") {
                     Toggle("自分のSP-APIを使用する", isOn: $viewModel.spapiLinkEnabled)
