@@ -756,9 +756,11 @@ private struct ResultCardActionButtons: View {
                             .font(.headline)
                             .foregroundColor(.white)
                     } else {
+                        // 「仕」「価」(CJK)と「a」「m」(ラテン文字)は同じポイント数だと
+                        // ラテン文字が小さく見えるため、1バイト文字だけ大きめのサイズにして
+                        // 見かけの大きさを揃える。
                         Text(label)
-                            .font(.headline)
-                            .fontWeight(.bold)
+                            .font(.system(size: label.allSatisfy { $0.isASCII } ? 26 : 19, weight: .bold))
                             .foregroundColor(.white)
                     }
                 }
@@ -967,26 +969,35 @@ private struct OffersPanelView: View {
                 } else if !offers.isEmpty {
                     // オファー取得済み(SP-API一括 / Keepa第2段階): 送料込・最安値順・コンディション付きで
                     // 上から並べる。第1段階の簡易価格はここで上書きされる。
-                    ForEach(sortedOffers.prefix(5)) { offer in
-                        HStack(spacing: 4) {
-                            Text(offer.conditionDisplayName)
-                                .font(.caption2)
-                                .foregroundColor(.white)
-                            if let landed = offer.landed {
-                                Text("¥\(landed)")
-                                    .font(.caption)
-                                    .fontWeight(.bold)
-                                    .foregroundColor(.white)
-                                    .monospacedDigit()
-                                    .frame(maxWidth: .infinity, alignment: .trailing)
-                            } else {
-                                Text("-")
-                                    .font(.caption)
-                                    .foregroundColor(.white)
-                                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    // 全件を出すとカードが縦に伸びてしまうため、5件分の高さに収めて中でスクロールさせる
+                    // (6件目以降もパネル内スクロールで見られる)。
+                    ScrollView(.vertical, showsIndicators: true) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            ForEach(sortedOffers) { offer in
+                                HStack(spacing: 4) {
+                                    Text(offer.conditionDisplayName)
+                                        .font(.caption2)
+                                        .foregroundColor(.white)
+                                    if let landed = offer.landed {
+                                        Text("¥\(landed)")
+                                            .font(.caption)
+                                            .fontWeight(.bold)
+                                            .foregroundColor(.white)
+                                            .monospacedDigit()
+                                            .frame(maxWidth: .infinity, alignment: .trailing)
+                                    } else {
+                                        Text("-")
+                                            .font(.caption)
+                                            .foregroundColor(.white)
+                                            .frame(maxWidth: .infinity, alignment: .trailing)
+                                    }
+                                }
                             }
                         }
                     }
+                    // 1行あたり約20pt(caption+spacing4)として5件分。オファーが5件以下なら
+                    // その分だけの高さに収まり余白は出ない。
+                    .frame(maxHeight: CGFloat(min(sortedOffers.count, 5)) * 20)
                 } else if isLoading {
                     // Keepa第2段階の読込中: 簡易価格を仮表示しつつスピナー(オファー到着で上書き)。
                     simplePriceRow
