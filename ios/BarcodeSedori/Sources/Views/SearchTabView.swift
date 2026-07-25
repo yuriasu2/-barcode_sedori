@@ -625,32 +625,38 @@ private struct LatestResultCardView: View {
                         .lineLimit(2)
                 }
 
-                // ISBN・ランキングの下に、アクションボタンを1列の横並び(全幅)で置く。
-                // 余白0でも4つが必ず収まるよう、各ボタンは幅可変(右カラム幅を等分)にする。
+                // ISBN・ランキング列の右横に、アクションボタンを1列の横並びで置く。
+                // ISBN/ランク側は自然幅(fixedSize)、ボタン側は残り幅を等分するため
+                // 余白0でも4つが必ず収まる。
                 // unresolvedカードはボタン全体を非表示(見つからない商品にリンクを出す意味が無いため)。
-                HStack(spacing: 6) {
-                    Image(systemName: "barcode.viewfinder")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Text(scannedCode)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
+                HStack(alignment: .center, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "barcode.viewfinder")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Text(scannedCode)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
 
-                if let rank = result.salesRank {
-                    Text("ランク: \(rank)位")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
+                        if let rank = result.salesRank {
+                            Text("ランク: \(rank)位")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .fixedSize(horizontal: true, vertical: false)
 
-                if result.codeType != .unresolved {
-                    ResultCardActionButtons(
-                        result: result,
-                        isPro: isPro,
-                        isInPurchaseList: isInPurchaseList,
-                        onAddToPurchaseList: onAddToPurchaseList,
-                        onOpenLink: onOpenLink
-                    )
+                    if result.codeType != .unresolved {
+                        ResultCardActionButtons(
+                            result: result,
+                            isPro: isPro,
+                            isInPurchaseList: isInPurchaseList,
+                            onAddToPurchaseList: onAddToPurchaseList,
+                            onOpenLink: onOpenLink
+                        )
+                    }
                 }
             }
         }
