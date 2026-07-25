@@ -529,7 +529,7 @@ private struct LatestResultCardView: View {
     let scannedCode: String
     /// 利益アラートの判定結果。発火時のみ緑バナー・縁取りを出す。非Pro/未評価はnil。
     let profitVerdict: ProfitAlertEvaluator.Verdict?
-    /// ブランド・サイズ・重量ブロックの表示可否(Pro限定)。依存は呼び出し元から引数で渡す(View内でEntitlementStoreを直接触らない)。
+    /// 「仕」ボタンの表示可否(Pro限定)。依存は呼び出し元から引数で渡す(View内でEntitlementStoreを直接触らない)。
     let isPro: Bool
     /// 仕入れリストに追加済みか(追加済みならボタンを無効化して「追加済み」表示)。
     let isInPurchaseList: Bool
@@ -543,13 +543,6 @@ private struct LatestResultCardView: View {
             }
 
             cardContent
-
-            // 仕入れリストへ追加(Pro限定・ASINがある場合のみ)。
-            // specでは商品詳細画面だが、Keepa経路ユーザーは商品詳細に到達できないため
-            // 最新スキャン結果カードにも置く(承認済み逸脱)。
-            if isPro && result.asin != nil && result.codeType != .unresolved {
-                addToPurchaseListButton
-            }
         }
         // カードは現在囲み枠なしのため、発火時のみ縁取りを付けて視認差を大きくする。
         .overlay(
@@ -575,27 +568,6 @@ private struct LatestResultCardView: View {
         .padding(.vertical, 4)
         .background(Color.green)
         .cornerRadius(8)
-    }
-
-    /// 「仕入れリストへ追加」ボタン。追加済みはチェックマーク+無効化。
-    private var addToPurchaseListButton: some View {
-        Button {
-            onAddToPurchaseList()
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: isInPurchaseList ? "checkmark.circle.fill" : "cart.badge.plus")
-                Text(isInPurchaseList ? "仕入れリストに追加済み" : "仕入れリストへ追加")
-                    .fontWeight(.semibold)
-            }
-            .font(.subheadline)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
-            .foregroundColor(isInPurchaseList ? .secondary : .white)
-            .background(isInPurchaseList ? Color(.secondarySystemBackground) : Color.accentColor)
-            .cornerRadius(8)
-        }
-        .buttonStyle(.plain)
-        .disabled(isInPurchaseList)
     }
 
     private var cardContent: some View {
@@ -646,10 +618,9 @@ private struct LatestResultCardView: View {
                         .lineLimit(2)
                 }
 
-                // ブランド・寸法・重量はタイトル行を侵さないよう、ISBN/ランキングと同じ行グループに置く。
-                // 左詰めのまま少しだけ間隔を空けて横に並べる。
+                // ISBN・ランキング列の右隣に2x2のアクションボタングリッドを置く。
+                // unresolvedカードはグリッド全体を非表示(見つからない商品にリンクを出す意味が無いため)。
                 HStack(alignment: .top, spacing: 14) {
-                    // 行間はブランド・サイズ側(spacing: 2)と揃える。
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 6) {
                             Image(systemName: "barcode.viewfinder")
@@ -661,8 +632,6 @@ private struct LatestResultCardView: View {
                         }
 
                         if let rank = result.salesRank {
-                            // ISBN/ランク列は fixedSize で自然幅を占めるため、
-                            // ラベルを短くするとブランド・サイズを左へ寄せられる。
                             Text("ランク: \(rank)位")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
@@ -670,68 +639,136 @@ private struct LatestResultCardView: View {
                     }
                     .fixedSize(horizontal: true, vertical: false)
 
-                    // ブランド・寸法・重量(Keepa経路のみ取得可)。Pro限定表示。
-                    // 3つともnilなら何も描画しない(SP-API経路・旧サーバー互換)。
-                    if isPro && (result.brand != nil || result.dimensionsMm != nil || result.weightG != nil) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            if let brand = result.brand {
-                                Text("ブランド：\(brand)")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.6)
-                            }
-
-                            // 寸法と重量は1行にまとめる。
-                            if let sizeText = LatestResultCardView.formatSizeLine(result.dimensionsMm, result.weightG) {
-                                Text("サイズ：\(sizeText)")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.6)
-                            }
-                        }
-                    }
-
                     Spacer(minLength: 0)
+
+                    if result.codeType != .unresolved {
+                        ResultCardActionButtons(
+                            result: result,
+                            isPro: isPro,
+                            isInPurchaseList: isInPurchaseList,
+                            onAddToPurchaseList: onAddToPurchaseList
+                        )
+                    }
                 }
             }
-            // ここに Spacer を置くとテキスト側から横幅を奪い、minimumScaleFactorによる
-            // 自動縮小を誘発する。VStack(alignment: .leading)が自然に左詰めするため不要。
         }
         // CHANGES-v6.1.md: カードの上下余白を0にし、薄灰色の囲み枠(background/cornerRadius)を削除。
         // 左右は現状維持(呼び出し元のScrollView側で.padding(.horizontal)を付与)。
         .padding(.horizontal, 0)
         .padding(.vertical, 0)
     }
+}
 
-    /// 寸法と重量を1行にまとめる(例: "25.2x18x1.4 cm　440g")。
-    /// 両方nilならnilを返し、呼び出し側で行ごと非表示にする。
-    static func formatSizeLine(_ dimensions: DimensionsMm?, _ weightG: Int?) -> String? {
-        let parts = [formatDimensionsCm(dimensions), weightG.map { "\($0)g" }].compactMap { $0 }
-        guard !parts.isEmpty else { return nil }
-        return parts.joined(separator: "　")
+// MARK: - 結果カードのアクションボタングリッド(仕/a/m/価)
+
+/// カード右側に置く2x2アクションボタングリッド。
+/// 「仕」= 仕入れフォームを開く(Pro限定・ASINあり)。「a」= Amazon商品ページ、
+/// 「m」= メルカリ検索、「価」= 価格.com検索(いずれも無料でも使え、タイトルが必要)。
+/// unresolvedカードでは呼び出し元(LatestResultCardView)が非表示にする。
+private struct ResultCardActionButtons: View {
+    let result: SearchResult
+    let isPro: Bool
+    let isInPurchaseList: Bool
+    let onAddToPurchaseList: () -> Void
+
+    private let buttonSize: CGFloat = 44
+
+    /// 仕入れボタンを表示するか(Pro限定・ASINあり)。現行の「仕入れリストへ追加」ボタンと同じゲート。
+    private var showsPurchaseButton: Bool {
+        isPro && result.asin != nil
     }
 
-    /// 寸法(mm)を「大x中x小 cm」形式にフォーマットする。
-    /// 取得できた値のみ(1〜3個)を降順で連結する。3つとも取れない場合はnil。
-    static func formatDimensionsCm(_ dimensions: DimensionsMm?) -> String? {
-        guard let dimensions else { return nil }
-        let mmValues = [dimensions.length, dimensions.width, dimensions.height].compactMap { $0 }
-        guard !mmValues.isEmpty else { return nil }
-        let sortedDesc = mmValues.sorted(by: >)
-        let parts = sortedDesc.map(formatCmValue)
-        return parts.joined(separator: "x") + " cm"
+    private var showsAmazonButton: Bool {
+        result.asin != nil
     }
 
-    /// mm値をcmに変換し、小数第1位までフォーマットする(整数なら小数点以下を出さない)。
-    /// 例: 210mm -> "21", 32mm -> "3.2"
-    private static func formatCmValue(_ mm: Int) -> String {
-        let cm = (Double(mm) / 10.0 * 10).rounded() / 10
-        if cm.truncatingRemainder(dividingBy: 1) == 0 {
-            return String(Int(cm))
+    private var showsMercariButton: Bool {
+        result.title != nil
+    }
+
+    private var showsKakakuButton: Bool {
+        result.title != nil
+    }
+
+    var body: some View {
+        // 無料ユーザーは「仕」が非表示になるため、3つのリンクボタンを均等な2x2枠に自然に並べる。
+        // (LazyVGrid 2列で、要素数に応じて自動的に折り返される)
+        let columns = [GridItem(.fixed(buttonSize), spacing: 6), GridItem(.fixed(buttonSize), spacing: 6)]
+        LazyVGrid(columns: columns, spacing: 6) {
+            if showsPurchaseButton {
+                actionButton(
+                    label: "仕",
+                    color: .accentColor,
+                    isDisabled: isInPurchaseList,
+                    systemOverlayImage: isInPurchaseList ? "checkmark" : nil,
+                    action: onAddToPurchaseList
+                )
+            }
+            if showsAmazonButton {
+                actionButton(label: "a", color: Color(red: 1.0, green: 0.55, blue: 0.0), action: openAmazon)
+            }
+            if showsMercariButton {
+                actionButton(label: "m", color: Color(red: 0.86, green: 0.15, blue: 0.15), action: openMercari)
+            }
+            if showsKakakuButton {
+                actionButton(label: "価", color: Color(red: 0.29, green: 0.29, blue: 0.72), action: openKakaku)
+            }
         }
-        return String(format: "%.1f", cm)
+        .frame(width: buttonSize * 2 + 6)
+    }
+
+    /// 1個のボタンを描画する。追加済み(isInPurchaseList)のときはチェックマークに差し替えて無効化する。
+    @ViewBuilder
+    private func actionButton(
+        label: String,
+        color: Color,
+        isDisabled: Bool = false,
+        systemOverlayImage: String? = nil,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            RoundedRectangle(cornerRadius: 10)
+                .fill(isDisabled ? Color.secondary : color)
+                .frame(width: buttonSize, height: buttonSize)
+                .overlay {
+                    if let systemOverlayImage {
+                        Image(systemName: systemOverlayImage)
+                            .font(.headline)
+                            .foregroundColor(.white)
+                    } else {
+                        Text(label)
+                            .font(.headline)
+                            .fontWeight(.bold)
+                            .foregroundColor(.white)
+                    }
+                }
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+    }
+
+    /// 商品名をURLクエリ用にエンコードする(全文。副題・シリーズ括弧も含む)。
+    private func encodedTitle() -> String? {
+        guard let title = result.title else { return nil }
+        return title.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)
+    }
+
+    private func openAmazon() {
+        guard let asin = result.asin,
+              let url = URL(string: "https://www.amazon.co.jp/dp/\(asin)") else { return }
+        UIApplication.shared.open(url)
+    }
+
+    private func openMercari() {
+        guard let encoded = encodedTitle(),
+              let url = URL(string: "https://jp.mercari.com/search?keyword=\(encoded)") else { return }
+        UIApplication.shared.open(url)
+    }
+
+    private func openKakaku() {
+        guard let encoded = encodedTitle(),
+              let url = URL(string: "https://kakaku.com/search_results/\(encoded)/") else { return }
+        UIApplication.shared.open(url)
     }
 }
 

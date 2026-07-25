@@ -31,13 +31,6 @@ const graphCache = new LruCache({ ttlMs: 60 * 60 * 1000, maxSize: 200 }); // グ
  */
 const KEEPA_CACHE_TTL_MS = 30 * 60 * 1000;
 
-/**
- * SP-API経路でPro時にKeepa第1段階を並行取得し、brand/dimensionsMm/weightGを補完する機能のフラグ。
- * Proスキャン1回につきKeepaトークン1を消費するため、ユーザー判断で無効化中(2026-07-22)。
- * trueに戻せば補完が復活する(実装・テストは残してある)。
- */
-const SPAPI_KEEPA_ENRICHMENT_ENABLED = false;
-
 const router = new MiniRouter();
 
 const SPAPI_CREDENTIALS_MISSING_MESSAGE = 'SP-API連携またはサーバーのKeepa設定が必要です';
@@ -327,9 +320,6 @@ async function handleSearchViaSpApi(req, res, code, credentials, cacheKey) {
         isbn13: null,
         imageUrl: null,
         salesRank: null,
-        brand: null,
-        dimensionsMm: null,
-        weightG: null,
         prices: null,
         profitInputs: null,
         reason: converted.reason || 'unresolved',
@@ -339,20 +329,6 @@ async function handleSearchViaSpApi(req, res, code, credentials, cacheKey) {
     }
 
     const { identifier, asin: knownAsin } = await resolveAsinFromCode(converted.codeType, converted);
-
-    // Pro限定でKeepa1トークンを消費してbrand/dimensionsMm/weightGを補完する。
-    // 無料はKeepa呼び出しなし(トークン消費ゼロを維持)。
-    // 既存のSP-API呼び出し(searchCatalogItems等)と並行して走らせるため、ここではawaitせずPromiseを起動するだけに留め、
-    // 実際の待ち合わせはオファー取得と合わせて後段のPromise.allで行う。
-    // Keepa未設定/呼び出し失敗/トークン枯渇時は握りつぶしてnullのまま返す(検索自体は失敗させない)。
-    const isPro = isProRequest(req.headers);
-    const keepaEnrichmentPromise =
-      SPAPI_KEEPA_ENRICHMENT_ENABLED && isPro && identifier && keepa.getApiKey()
-        ? keepa
-            .getProduct({ code: identifier })
-            .then(({ product }) => keepa.mapProductToSearchResult(product))
-            .catch(() => null)
-        : Promise.resolve(null);
 
     let asin = knownAsin;
     let title = null;
@@ -370,9 +346,6 @@ async function handleSearchViaSpApi(req, res, code, credentials, cacheKey) {
           isbn13: null,
           imageUrl: null,
           salesRank: null,
-          brand: null,
-          dimensionsMm: null,
-          weightG: null,
           prices: null,
           profitInputs: null,
           reason: 'no_identifier',
@@ -389,9 +362,6 @@ async function handleSearchViaSpApi(req, res, code, credentials, cacheKey) {
           isbn13,
           imageUrl: null,
           salesRank: null,
-          brand: null,
-          dimensionsMm: null,
-          weightG: null,
           prices: null,
           profitInputs: null,
           reason: 'catalog_not_found',
@@ -414,9 +384,6 @@ async function handleSearchViaSpApi(req, res, code, credentials, cacheKey) {
         isbn13,
         imageUrl,
         salesRank,
-        brand: null,
-        dimensionsMm: null,
-        weightG: null,
         prices: null,
         profitInputs: null,
         reason: 'asin_not_resolved',
@@ -424,10 +391,9 @@ async function handleSearchViaSpApi(req, res, code, credentials, cacheKey) {
       });
     }
 
-    const [newOffersResp, usedOffersResp, keepaEnrichment] = await Promise.all([
+    const [newOffersResp, usedOffersResp] = await Promise.all([
       pricing.getItemOffers(asin, 'New', credentials).catch(() => null),
       pricing.getItemOffers(asin, 'Used', credentials).catch(() => null),
-      keepaEnrichmentPromise,
     ]);
 
     const newSummary = pricing.extractOffersSummary(newOffersResp, 'New');
@@ -449,10 +415,6 @@ async function handleSearchViaSpApi(req, res, code, credentials, cacheKey) {
       isbn13,
       imageUrl,
       salesRank,
-      // Pro限定でKeepaから補完(無料は常にnull)。listPrice・prices等はSP-API側の値を維持し、Keepaと混ぜない。
-      brand: keepaEnrichment ? keepaEnrichment.brand : null,
-      dimensionsMm: keepaEnrichment ? keepaEnrichment.dimensionsMm : null,
-      weightG: keepaEnrichment ? keepaEnrichment.weightG : null,
       prices: {
         cart: cart != null ? cart : null,
         new: newPrice != null ? newPrice : null,
@@ -492,9 +454,6 @@ async function handleSearchViaKeepa(req, res, code, cacheKey) {
         isbn13: null,
         imageUrl: null,
         salesRank: null,
-        brand: null,
-        dimensionsMm: null,
-        weightG: null,
         prices: null,
         profitInputs: null,
         reason: converted.reason || 'unresolved',
@@ -513,9 +472,6 @@ async function handleSearchViaKeepa(req, res, code, cacheKey) {
         isbn13,
         imageUrl: null,
         salesRank: null,
-        brand: null,
-        dimensionsMm: null,
-        weightG: null,
         prices: null,
         profitInputs: null,
         reason: 'no_identifier',
@@ -534,9 +490,6 @@ async function handleSearchViaKeepa(req, res, code, cacheKey) {
         isbn13,
         imageUrl: null,
         salesRank: null,
-        brand: null,
-        dimensionsMm: null,
-        weightG: null,
         prices: null,
         profitInputs: null,
         reason: 'catalog_not_found',
@@ -561,9 +514,6 @@ async function handleSearchViaKeepa(req, res, code, cacheKey) {
       isbn13,
       imageUrl: mapped.imageUrl,
       salesRank: mapped.salesRank,
-      brand: mapped.brand,
-      dimensionsMm: mapped.dimensionsMm,
-      weightG: mapped.weightG,
       prices: mapped.prices,
       profitInputs,
       source: 'keepa',
@@ -607,7 +557,7 @@ router.get('/api/search', async (req, res) => {
 
   if (credentials) {
     // キャッシュキーにプランを含める(spapi:<hash>:<plan>:<code>)。
-    // プラン非依存だと無料での検索結果(brand等null)が、30分以内のPro再検索に誤って返ってしまうため。
+    // プラン非依存だと無料での検索結果が、30分以内のPro再検索に誤って返ってしまうため。
     const plan = isProRequest(req.headers) ? 'pro' : 'free';
     const cacheKey = `spapi:${credentialsHashPrefix(credentials)}:${plan}:${code}`;
     const cached = searchCache.get(cacheKey);
@@ -1015,8 +965,6 @@ router.offersCache = offersCache;
 router.graphCache = graphCache;
 // テスト用途にプラン判定関数を公開する。
 router.isProRequest = isProRequest;
-// テスト用途に補完フラグを公開する(フラグの値に応じてテスト側が期待値を切り替える)。
-router.SPAPI_KEEPA_ENRICHMENT_ENABLED = SPAPI_KEEPA_ENRICHMENT_ENABLED;
 // テスト用途に定価抽出ヘルパーを公開する。
 router.extractListPriceJpy = extractListPriceJpy;
 // テスト用途に出品系ヘルパーを公開する。

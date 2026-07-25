@@ -32,14 +32,6 @@ struct SearchPrices: Codable, Equatable {
     let points: SearchPoints?
 }
 
-/// 商品の梱包寸法(mm)。Keepaの packageLength/Width/Height から取得。
-/// 一部の値のみ取得できるケースがあるため各値はオプショナル。
-struct DimensionsMm: Codable, Equatable {
-    let length: Int?
-    let width: Int?
-    let height: Int?
-}
-
 /// GET /api/search の利益アラート用素材。旧サーバーではキーごと無いためnil。
 struct ProfitInputs: Codable, Equatable {
     let listPrice: Int?
@@ -65,12 +57,6 @@ struct SearchResult: Codable, Equatable {
     let isbn13: String?
     let imageUrl: String?
     let salesRank: Int?
-    /// ブランド名(Keepa経路のみ取得可)。SP-API経路や旧サーバーではnil。
-    let brand: String?
-    /// 梱包寸法(mm)。Keepa経路のみ取得可。SP-API経路や旧サーバーではnil。
-    let dimensionsMm: DimensionsMm?
-    /// 梱包重量(g)。Keepa経路のみ取得可。SP-API経路や旧サーバーではnil。
-    let weightG: Int?
     let prices: SearchPrices?
     /// オファー取得元("spapi"等)。CHANGES-v6.mdで追加。旧サーバー互換のためオプショナル。
     let source: String?
