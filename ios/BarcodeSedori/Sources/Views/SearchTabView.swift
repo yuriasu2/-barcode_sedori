@@ -189,16 +189,13 @@ struct SearchTabView: View {
             ScrollView {
                 VStack(spacing: 0) {
                     searchBar
-                        .padding(.horizontal)
 
                     topContent
 
                     if entitlements.isPro {
                         keepaGraph
-                            .padding(.horizontal)
                     } else {
                         freeAdArea
-                            .padding(.horizontal)
                     }
                 }
             }
@@ -264,14 +261,12 @@ struct SearchTabView: View {
         .frame(height: UIScreen.main.bounds.height * 0.35)
         .clipped()
 
+        // スキャン画面の左右余白は0(ユーザー指示 2026-07-25)。カメラと同じく全幅で使う。
         modeToggle
-            .padding(.horizontal)
 
         latestResultCard
-            .padding(.horizontal)
 
         offersPanels
-            .padding(.horizontal)
     }
 
     /// 無料プラン用: 鍵アイコン+Pro案内 と、余白を埋める広告。上詰めでオファー直下に配置する。
@@ -630,38 +625,32 @@ private struct LatestResultCardView: View {
                         .lineLimit(2)
                 }
 
-                // ISBN・ランキング列の右隣に2x2のアクションボタングリッドを置く。
-                // unresolvedカードはグリッド全体を非表示(見つからない商品にリンクを出す意味が無いため)。
-                HStack(alignment: .top, spacing: 14) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "barcode.viewfinder")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            Text(scannedCode)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
+                // ISBN・ランキングの下に、アクションボタンを1列の横並び(全幅)で置く。
+                // 余白0でも4つが必ず収まるよう、各ボタンは幅可変(右カラム幅を等分)にする。
+                // unresolvedカードはボタン全体を非表示(見つからない商品にリンクを出す意味が無いため)。
+                HStack(spacing: 6) {
+                    Image(systemName: "barcode.viewfinder")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text(scannedCode)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
 
-                        if let rank = result.salesRank {
-                            Text("ランク: \(rank)位")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                    .fixedSize(horizontal: true, vertical: false)
+                if let rank = result.salesRank {
+                    Text("ランク: \(rank)位")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
 
-                    Spacer(minLength: 0)
-
-                    if result.codeType != .unresolved {
-                        ResultCardActionButtons(
-                            result: result,
-                            isPro: isPro,
-                            isInPurchaseList: isInPurchaseList,
-                            onAddToPurchaseList: onAddToPurchaseList,
-                            onOpenLink: onOpenLink
-                        )
-                    }
+                if result.codeType != .unresolved {
+                    ResultCardActionButtons(
+                        result: result,
+                        isPro: isPro,
+                        isInPurchaseList: isInPurchaseList,
+                        onAddToPurchaseList: onAddToPurchaseList,
+                        onOpenLink: onOpenLink
+                    )
                 }
             }
         }
@@ -674,7 +663,7 @@ private struct LatestResultCardView: View {
 
 // MARK: - 結果カードのアクションボタングリッド(仕/a/m/価)
 
-/// カード右側に置く2x2アクションボタングリッド。
+/// カード右側に置くアクションボタン列(1列横並び)。
 /// 「仕」= 仕入れフォームを開く(Pro限定・ASINあり)。「a」= Amazon商品ページ、
 /// 「m」= メルカリ検索、「価」= 価格.com検索(いずれも無料でも使え、タイトルが必要)。
 /// unresolvedカードでは呼び出し元(LatestResultCardView)が非表示にする。
@@ -706,10 +695,9 @@ private struct ResultCardActionButtons: View {
     }
 
     var body: some View {
-        // 無料ユーザーは「仕」が非表示になるため、3つのリンクボタンを均等な2x2枠に自然に並べる。
-        // (LazyVGrid 2列で、要素数に応じて自動的に折り返される)
-        let columns = [GridItem(.fixed(buttonSize), spacing: 6), GridItem(.fixed(buttonSize), spacing: 6)]
-        LazyVGrid(columns: columns, spacing: 6) {
+        // 4つのボタンを1列に横並びにする(ユーザー指示 2026-07-25)。無料ユーザーは「仕」だけ抜けて3つ並ぶ。
+        // 各ボタンは幅可変(maxWidth: .infinity)で全幅を等分するため、余白0でも見切れない。
+        HStack(spacing: 6) {
             if showsPurchaseButton {
                 actionButton(
                     label: "仕",
@@ -729,7 +717,6 @@ private struct ResultCardActionButtons: View {
                 actionButton(label: "価", color: Color(red: 0.29, green: 0.29, blue: 0.72), action: openKakaku)
             }
         }
-        .frame(width: buttonSize * 2 + 6)
     }
 
     /// 1個のボタンを描画する。追加済み(isInPurchaseList)のときはチェックマークに差し替えて無効化する。
@@ -744,7 +731,9 @@ private struct ResultCardActionButtons: View {
         Button(action: action) {
             RoundedRectangle(cornerRadius: 10)
                 .fill(isDisabled ? Color.secondary : color)
-                .frame(width: buttonSize, height: buttonSize)
+                // 幅は全幅を等分(maxWidth: .infinity)、高さのみ固定して正方形風に見せる。
+                .frame(maxWidth: .infinity)
+                .frame(height: buttonSize)
                 .overlay {
                     if let systemOverlayImage {
                         Image(systemName: systemOverlayImage)
