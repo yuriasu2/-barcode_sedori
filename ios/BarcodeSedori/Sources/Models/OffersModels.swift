@@ -77,7 +77,7 @@ extension Offer {
         if shipping > 0 {
             return "¥\(landed)(送\(shipping))"
         }
-        return shippingKnown ? "¥\(landed)(送料無料)" : "¥\(landed)"
+        return shippingKnown ? "¥\(landed)(送無料)" : "¥\(landed)"
     }
 
     /// "new"→新品 / "like_new"→ほぼ新品 / "very_good"→非常に良い / "good"→良い / "acceptable"→可。
