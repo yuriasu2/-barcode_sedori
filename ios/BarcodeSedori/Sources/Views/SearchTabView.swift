@@ -653,9 +653,15 @@ private struct LatestResultCardView: View {
                         }
 
                         if let rank = result.salesRank {
-                            Text("ランク: \(rank)位")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
+                            // 「ランク」の文字は商品タブと同じ折れ線グラフアイコンで表す。
+                            HStack(spacing: 6) {
+                                Image(systemName: "chart.line.uptrend.xyaxis")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                Text("\(rank)位")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
                         }
                     }
                     .fixedSize(horizontal: true, vertical: false)
