@@ -977,22 +977,21 @@ private struct OffersPanelView: View {
                         VStack(alignment: .leading, spacing: 4) {
                             ForEach(sortedOffers) { offer in
                                 HStack(spacing: 4) {
-                                    Text(offer.conditionDisplayName)
+                                    // Amazon本体の在庫は「新品(Ama)」と表示して区別する。
+                                    Text(offer.panelConditionLabel)
                                         .font(.caption2)
                                         .foregroundColor(.white)
-                                    if let landed = offer.landed {
-                                        Text("¥\(landed)")
-                                            .font(.caption)
-                                            .fontWeight(.bold)
-                                            .foregroundColor(.white)
-                                            .monospacedDigit()
-                                            .frame(maxWidth: .infinity, alignment: .trailing)
-                                    } else {
-                                        Text("-")
-                                            .font(.caption)
-                                            .foregroundColor(.white)
-                                            .frame(maxWidth: .infinity, alignment: .trailing)
-                                    }
+                                        .lineLimit(1)
+                                        .fixedSize(horizontal: true, vertical: false)
+                                    // 価格は送料込み。送料があれば「¥1200(送257)」と内訳を添える。
+                                    Text(offer.panelPriceLabel)
+                                        .font(.caption)
+                                        .fontWeight(.bold)
+                                        .foregroundColor(.white)
+                                        .monospacedDigit()
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.7)
+                                        .frame(maxWidth: .infinity, alignment: .trailing)
                                 }
                             }
                         }

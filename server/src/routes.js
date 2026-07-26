@@ -33,6 +33,10 @@ const KEEPA_CACHE_TTL_MS = 30 * 60 * 1000;
 
 const router = new MiniRouter();
 
+// Amazon.co.jp本体のセラーID。出品者一覧でAmazon自身の在庫を判別するために使う
+// (実データで確認: 販売元がAmazon.co.jpの商品ページにこのmerchantIdが出現する)。
+const AMAZON_JP_SELLER_ID = 'AN1VRQENFRJN5';
+
 const SPAPI_CREDENTIALS_MISSING_MESSAGE = 'SP-API連携またはサーバーのKeepa設定が必要です';
 const PLAN_REQUIRED_MESSAGE = 'この機能はProプランでご利用いただけます。';
 const SPAPI_LINK_REQUIRED_MESSAGE = '出品にはSP-API連携が必要です。設定タブでAmazon連携を行ってください。';
@@ -637,6 +641,8 @@ async function buildSpApiOffersPayload(asin, newSummary, usedSummary, credential
       landed: o.landed,
       condition: o._bucket === 'new' ? 'new' : subConditionToString(o.condition),
       isBuyBox: o.isBuyBox,
+      // Amazon本体の在庫か(アプリで「新品(Ama)」と表示して区別する)。
+      isAmazon: o.sellerId === AMAZON_JP_SELLER_ID,
       breakEven,
     };
   }

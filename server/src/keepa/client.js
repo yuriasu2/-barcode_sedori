@@ -52,6 +52,10 @@ const { toTaxIncludedJpy } = require('../taxUtil');
 const KEEPA_BASE_URL = 'https://api.keepa.com';
 const JP_DOMAIN_ID = 5; // amazon.co.jp
 
+// Amazon.co.jp本体のセラーID。出品者一覧でAmazon自身の在庫を判別するために使う
+// (実データで確認: 販売元がAmazon.co.jpの商品ページにこのmerchantIdが出現する)。
+const AMAZON_JP_SELLER_ID = 'AN1VRQENFRJN5';
+
 // Product.CsvType インデックス(公式Java SDKソースより)
 const CSV_TYPE = {
   AMAZON: 0,
@@ -346,6 +350,8 @@ function extractOffersFromProduct(product) {
       landed,
       condition: conditionStr,
       isBuyBox: Boolean(buyBoxPrice != null && landed === buyBoxPrice),
+      // Amazon本体の在庫か(アプリで「新品(Ama)」と表示して区別する)。
+      isAmazon: offer.sellerId === AMAZON_JP_SELLER_ID,
     };
 
     if (isNewCondition(offer.condition)) {

@@ -8,6 +8,8 @@ struct Offer: Codable, Equatable, Identifiable {
     let shipping: Int?
     let landed: Int?
     let isBuyBox: Bool?
+    /// Amazon本体の在庫か(サーバーがセラーIDで判定)。旧サーバーではキーが無いためnil。
+    let isAmazon: Bool?
     let sameCount: Int?
     /// 損益分岐点。サーバー(Keepa経路)は小数(例: 5822.3)で返すためDoubleで受ける。
     /// Int?にすると小数のデコードに失敗し、オファー全体のデコードが落ちてstage-2が表示されなくなる。
@@ -21,6 +23,7 @@ struct Offer: Codable, Equatable, Identifiable {
             String(shipping ?? -1),
             String(landed ?? -1),
             String(isBuyBox ?? false),
+            String(isAmazon ?? false),
             String(sameCount ?? -1),
             String(breakEven ?? -1)  // Double。id用途のため書式は問わない
 
@@ -28,7 +31,7 @@ struct Offer: Codable, Equatable, Identifiable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case condition, price, shipping, landed, isBuyBox, sameCount, breakEven
+        case condition, price, shipping, landed, isBuyBox, isAmazon, sameCount, breakEven
     }
 }
 
@@ -54,6 +57,25 @@ struct OffersResult: Codable, Equatable {
 
 /// condition正規化コード → 表示名の変換。
 extension Offer {
+    /// オファーパネルの行に出すコンディション名。
+    /// Amazon本体の在庫は「新品(Ama)」と表記して他の出品者と区別する。
+    var panelConditionLabel: String {
+        if isAmazon == true {
+            return "\(conditionDisplayName)(Ama)"
+        }
+        return conditionDisplayName
+    }
+
+    /// パネルの価格表記。価格は送料込み(landed)で、送料があれば括弧で内訳を添える。
+    /// 例: 送料257円なら「¥1200(送257)」、送料無料なら「¥1200」。landedが無ければ"-"。
+    var panelPriceLabel: String {
+        guard let landed else { return "-" }
+        if let shipping, shipping > 0 {
+            return "¥\(landed)(送\(shipping))"
+        }
+        return "¥\(landed)"
+    }
+
     /// "new"→新品 / "like_new"→ほぼ新品 / "very_good"→非常に良い / "good"→良い / "acceptable"→可。
     /// 未知の値が来た場合は元の文字列をそのまま返す(クラッシュ厳禁のためフォールバック)。
     var conditionDisplayName: String {
@@ -62,9 +84,9 @@ extension Offer {
         case "new":
             return "新品"
         case "like_new":
-            return "ほぼ新品"
+            return "ほぼ新"
         case "very_good":
-            return "非常に良い"
+            return "非良い"
         case "good":
             return "良い"
         case "acceptable":
