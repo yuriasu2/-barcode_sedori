@@ -656,6 +656,9 @@ async function buildSpApiOffersPayload(asin, newSummary, usedSummary, credential
   });
 
   return {
+    // 取得元。/api/searchへ同梱される場合もアプリが経路を判別できるよう必ず付ける
+    // (送料0を「送無料」と表示してよいのはSP-API経路のみのため)。
+    source: 'spapi',
     referencePrice: newSummary.buyBoxLandedPrice || newSummary.lowestLandedPrice || null,
     newCount: newDtos.length,
     usedCount: usedDtos.length,
