@@ -157,7 +157,7 @@ private struct HistoryRow: View {
                     .lineLimit(2)
 
                 // 1行目: 検索日 / JAN / ランク。
-                // JANは検索タブの結果カードと同じbarcode.viewfinder、ランクはグラフ系アイコンで表す。
+                // JANは検索タブの結果カードと同じbarcode.viewfinder、ランクは折れ線グラフアイコンで表す。
                 HStack(spacing: 8) {
                     Text("検索日:\(Self.dateFormatter.string(from: item.scannedAt))")
 
@@ -168,7 +168,7 @@ private struct HistoryRow: View {
 
                     if let rank = item.salesRank {
                         HStack(spacing: 3) {
-                            Image(systemName: "chart.bar.xaxis")
+                            Image(systemName: "chart.line.uptrend.xyaxis")
                             Text("\(rank)位")
                         }
                     }
