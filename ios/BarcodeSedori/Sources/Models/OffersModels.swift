@@ -67,13 +67,17 @@ extension Offer {
     }
 
     /// パネルの価格表記。価格は送料込み(landed)で、送料があれば括弧で内訳を添える。
-    /// 例: 送料257円なら「¥1200(送257)」、送料無料なら「¥1200」。landedが無ければ"-"。
-    var panelPriceLabel: String {
+    /// 例: 「¥1200(送257)」。landedが無ければ"-"。
+    /// - Parameter shippingKnown: 送料0を「送料無料」と断定してよい経路か。
+    ///   SP-API経路は送料が実データで返るためtrue。Keepa経路は送料不明時に0へ丸めているため
+    ///   false(0を「無料」と誤って表示しないよう、括弧自体を出さない)。
+    func panelPriceLabel(shippingKnown: Bool) -> String {
         guard let landed else { return "-" }
-        if let shipping, shipping > 0 {
+        guard let shipping else { return "¥\(landed)" }
+        if shipping > 0 {
             return "¥\(landed)(送\(shipping))"
         }
-        return "¥\(landed)"
+        return shippingKnown ? "¥\(landed)(送料無料)" : "¥\(landed)"
     }
 
     /// "new"→新品 / "like_new"→ほぼ新品 / "very_good"→非常に良い / "good"→良い / "acceptable"→可。

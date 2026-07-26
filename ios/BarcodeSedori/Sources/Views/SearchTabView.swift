@@ -463,7 +463,8 @@ struct SearchTabView: View {
                     isLoading: viewModel.isLoadingOffers,
                     isLocked: viewModel.offersLocked,
                     simplePrice: viewModel.latestResult?.prices?.new,
-                    simpleLabel: "新品"
+                    simpleLabel: "新品",
+                    isShippingKnown: viewModel.offersResult?.source == "spapi"
                 )
                 .onTapGesture { handlePanelTap() }
 
@@ -474,7 +475,8 @@ struct SearchTabView: View {
                     isLoading: viewModel.isLoadingOffers,
                     isLocked: viewModel.offersLocked,
                     simplePrice: viewModel.latestResult?.prices?.used,
-                    simpleLabel: "中古"
+                    simpleLabel: "中古",
+                    isShippingKnown: viewModel.offersResult?.source == "spapi"
                 )
                 .onTapGesture { handlePanelTap() }
             }
@@ -883,6 +885,8 @@ private struct OffersPanelView: View {
     let simplePrice: Int?
     /// 簡易価格行のラベル("新品"/"中古")。
     let simpleLabel: String
+    /// 送料が実データで返る経路か(SP-API経路のみtrue)。送料0を「送料無料」と表示してよいかの判定に使う。
+    let isShippingKnown: Bool
 
     /// ロック時に表示するぼかしダミーのオファー行(コンディション, ダミー価格)。実データではない。
     private static let dummyOffers: [(String, String)] = [
@@ -984,7 +988,7 @@ private struct OffersPanelView: View {
                                         .lineLimit(1)
                                         .fixedSize(horizontal: true, vertical: false)
                                     // 価格は送料込み。送料があれば「¥1200(送257)」と内訳を添える。
-                                    Text(offer.panelPriceLabel)
+                                    Text(offer.panelPriceLabel(shippingKnown: isShippingKnown))
                                         .font(.caption)
                                         .fontWeight(.bold)
                                         .foregroundColor(.white)
