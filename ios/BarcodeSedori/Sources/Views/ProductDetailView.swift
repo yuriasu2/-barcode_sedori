@@ -3,44 +3,15 @@ import SwiftUI
 @MainActor
 final class ProductDetailViewModel: ObservableObject {
     @Published var offers: OffersResult?
-    @Published var isLoading = false
-    @Published var errorMessage: String?
 
-    private let apiClient: APIClient
     let asin: String
-    let source: String?
-    /// CHANGES-v6.1.md: 商品タブ(履歴)から開いた場合はtrue。
-    /// trueの場合、load()はAPI呼び出しを一切行わない(渡された保存済みデータのみで描画するモード)。
-    let isStaticMode: Bool
 
-    /// 通常モード(検索タブ経由): /api/offersを呼び出して表示する。
-    init(asin: String, source: String? = nil, apiClient: APIClient = .shared) {
+    /// 検索タブ・商品タブ(履歴)のどちらから開いても、取得済みのOffersResultのみで描画する。
+    /// 検索時に/api/searchへ同梱されたオファーが手元にあるため、/api/offersの再取得はしない
+    /// (2段階ロード時代の名残だった再取得を廃止。無駄なAmazonへのリクエストと待ち時間を無くす)。
+    init(asin: String, cachedOffers: OffersResult?) {
         self.asin = asin
-        self.source = source
-        self.apiClient = apiClient
-        self.isStaticMode = false
-    }
-
-    /// 静的モード(商品タブ/履歴経由): 渡されたOffersResultのみで描画し、API呼び出しは一切行わない。
-    init(asin: String, cachedOffers: OffersResult?, apiClient: APIClient = .shared) {
-        self.asin = asin
-        self.source = nil
-        self.apiClient = apiClient
-        self.isStaticMode = true
         self.offers = cachedOffers
-    }
-
-    func load() async {
-        // 静的モード(履歴からの表示)ではAPIを再度呼び出さない。
-        guard !isStaticMode else { return }
-        isLoading = true
-        errorMessage = nil
-        do {
-            offers = try await apiClient.offers(asin: asin, source: source)
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-        isLoading = false
     }
 }
 
@@ -55,14 +26,7 @@ struct ProductDetailView: View {
     /// 保存(緑チェック)されるまでPurchaseListStoreへは登録しない。
     @State private var purchaseFormDraft: PurchaseListItem?
 
-    /// 通常モード(検索タブ経由): /api/offersを呼び出して表示する。
-    init(asin: String, title: String?, source: String? = nil, janCode: String? = nil) {
-        _viewModel = StateObject(wrappedValue: ProductDetailViewModel(asin: asin, source: source))
-        self.title = title
-        self.janCode = janCode
-    }
-
-    /// 静的モード(商品タブ/履歴経由): 保存済みのOffersResultのみで描画し、APIは一切呼ばない。
+    /// 取得済みのOffersResultのみで描画する(APIは呼ばない)。
     init(asin: String, title: String?, cachedOffers: OffersResult?, janCode: String?) {
         _viewModel = StateObject(wrappedValue: ProductDetailViewModel(asin: asin, cachedOffers: cachedOffers))
         self.title = title
@@ -76,19 +40,9 @@ struct ProductDetailView: View {
             if let offers = viewModel.offers {
                 offersSection(title: "新品(\(offers.newCount ?? offers.new?.count ?? 0)件)", offers: offers.new ?? [])
                 offersSection(title: "中古(\(offers.usedCount ?? offers.used?.count ?? 0)件)", offers: offers.used ?? [])
-            } else if viewModel.isLoading {
-                HStack {
-                    Spacer()
-                    ProgressView()
-                    Spacer()
-                }
-            } else if let errorMessage = viewModel.errorMessage {
-                Text(errorMessage)
-                    .foregroundColor(.red)
-                    .font(.footnote)
-            } else if viewModel.isStaticMode {
-                // 静的モード(履歴)でoffersがnil = スキャン時点でoffersが未取得のまま履歴入りしたケース。
-                // API呼び出しはしない仕様のため、その旨のみ表示する。
+            } else {
+                // offersがnil = スキャン時点でオファーが未取得だったケース(Keepa経路など)。
+                // 再取得はしない仕様のため、その旨のみ表示する。
                 Text("価格一覧は未取得です")
                     .foregroundColor(.secondary)
                     .font(.footnote)
@@ -97,19 +51,9 @@ struct ProductDetailView: View {
         .listStyle(.insetGrouped)
         .navigationTitle(title ?? "商品詳細")
         .navigationBarTitleDisplayMode(.inline)
-        .modifier(RefreshableIfNeeded(isStaticMode: viewModel.isStaticMode) {
-            await viewModel.load()
-        })
         .sheet(item: $purchaseFormDraft) { draft in
             NavigationView {
                 PurchaseFormView(mode: .add(draft: draft))
-            }
-        }
-        .task {
-            // 静的モード(履歴経由)ではload()は即returnするだけの安全策として残すが、
-            // 実質的にAPI呼び出しコードパスには入らない(load()内のguardで早期return)。
-            if viewModel.offers == nil {
-                await viewModel.load()
             }
         }
     }
@@ -176,23 +120,6 @@ struct ProductDetailView: View {
                 ForEach(offers) { offer in
                     OfferRow(offer: offer)
                 }
-            }
-        }
-    }
-}
-
-/// 静的モード(履歴経由)では.refreshable自体を付けない(pull-to-refreshのグルグルだけ出て
-/// 何も起きない見た目を避けるため)。通常モードでは従来通り.refreshableを付与する。
-private struct RefreshableIfNeeded: ViewModifier {
-    let isStaticMode: Bool
-    let action: () async -> Void
-
-    func body(content: Content) -> some View {
-        if isStaticMode {
-            content
-        } else {
-            content.refreshable {
-                await action()
             }
         }
     }

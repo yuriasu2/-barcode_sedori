@@ -310,10 +310,11 @@ struct SearchTabView: View {
     @ViewBuilder
     private var destinationView: some View {
         if let selectedResult, let asin = selectedResult.asin {
+            // 検索時に取得済みのオファーをそのまま渡す(/api/offersの再取得はしない)。
             ProductDetailView(
                 asin: asin,
                 title: selectedResult.title,
-                source: selectedResult.source,
+                cachedOffers: viewModel.offersResult,
                 janCode: selectedResult.isbn13 ?? viewModel.latestScannedCode
             )
         } else {
