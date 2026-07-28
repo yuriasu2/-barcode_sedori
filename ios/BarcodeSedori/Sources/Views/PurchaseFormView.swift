@@ -139,6 +139,14 @@ final class PurchaseFormViewModel: ObservableObject {
         }
     }
 
+    /// 商品セクションに表示するJANコード(ISBN-13があればそれ、無ければスキャンしたコード)。
+    var janCode: String? {
+        switch mode {
+        case .add(let draft): return draft.isbn13 ?? draft.scannedCode
+        case .edit(let item): return item.isbn13 ?? item.scannedCode
+        }
+    }
+
     init(
         mode: PurchaseFormMode,
         settings: SettingsStore = .shared,
@@ -495,14 +503,13 @@ struct PurchaseFormView: View {
                 Text(viewModel.title ?? "(タイトル不明)")
                     .font(.subheadline)
                 HStack {
-                    Text("ASIN")
+                    Text("JANコード")
                     Spacer()
-                    Text(viewModel.asin)
+                    Text(viewModel.janCode ?? "-")
                         .foregroundColor(.secondary)
                 }
+                restrictionRow
             }
-
-            restrictionSection
 
             Section("出品内容") {
                 HStack {
@@ -575,57 +582,23 @@ struct PurchaseFormView: View {
         }
     }
 
-    /// 出品制限の状態表示。Pro+SP-API連携済みのときだけ表示し(unavailableはセクション自体を出さない)、
+    /// 出品制限の1行表示。制限ありのときだけ商品セクションに出す
+    /// (制限なし・確認中・確認失敗は何も表示しない)。
     /// 保存はブロックしない(制限があっても仕入れ登録は可能。出品時のブロックは一括出品側が担う)。
     @ViewBuilder
-    private var restrictionSection: some View {
-        switch viewModel.restrictionState {
-        case .unavailable:
-            EmptyView()
-        case .checking:
-            Section("出品制限") {
-                HStack(spacing: 8) {
-                    ProgressView()
-                    Text("確認中…")
-                        .foregroundColor(.secondary)
-                }
-            }
-        case .allowed:
-            Section("出品制限") {
-                HStack(spacing: 8) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(.green)
-                    Text("出品可能です")
-                }
-            }
-        case .restricted(let message, let approvalUrl):
-            Section("出品制限") {
-                HStack(spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(.orange)
-                    Text("出品制限があります")
-                }
-                if let message {
-                    Text(message)
-                        .font(.footnote)
-                        .foregroundColor(.secondary)
-                }
+    private var restrictionRow: some View {
+        if case .restricted(_, let approvalUrl) = viewModel.restrictionState {
+            HStack(spacing: 8) {
+                Text("⚠️出品制限により出品不可")
+                    .foregroundColor(.orange)
+                Spacer()
                 if let approvalUrl, let url = URL(string: approvalUrl) {
-                    Link("Seller Centralで解除申請", destination: url)
-                        .font(.footnote)
+                    Link("許可を申請", destination: url)
                 }
             }
-        case .failed(let message):
-            Section("出品制限") {
-                Text("確認できませんでした")
-                    .foregroundColor(.secondary)
-                Text(message)
-                    .font(.footnote)
-                    .foregroundColor(.secondary)
-                Button("再確認") {
-                    viewModel.retryRestrictionCheck()
-                }
-            }
+            .font(.footnote)
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
         }
     }
 
