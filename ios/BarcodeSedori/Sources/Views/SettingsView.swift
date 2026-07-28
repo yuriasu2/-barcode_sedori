@@ -285,6 +285,9 @@ struct SettingsView: View {
                 NavigationLink("SKUフォーマット") {
                     SkuFormatSettingsView()
                 }
+                NavigationLink("仕入れ設定") {
+                    PurchaseSettingsView()
+                }
             } else {
                 Button {
                     showPaywall = true

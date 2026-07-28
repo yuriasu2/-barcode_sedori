@@ -41,6 +41,20 @@ struct PurchaseListItem: Codable, Equatable, Identifiable {
     var conditionNote: String?
     /// 仕入れフォームで保存したSKU。未保存(旧データ含む)はnil(一括出品時は従来経路で生成する)。
     var sku: String?
+    /// FBA出品するか。nil=設定タブのデフォルト値(purchaseUseFbaDefault)を採用する扱い
+    /// (旧データもnilのため、設定変更時にまとめて追従する)。
+    var useFba: Bool?
+    /// 仕入れ価格(円)。未保存(旧データ含む)はnil。利益セクションの入力値で、priceとは別枠
+    /// (priceは出品価格)。
+    var purchasePrice: Int?
+    /// 配送料(円)。未保存(旧データ含む)はnil(利益セクション表示時は設定の配送料デフォルトを使う)。
+    var shippingCost: Int?
+    /// 仕入れ日。未保存(旧データ含む)はnil=addedAt(追加日)を仕入れ日として扱う。
+    var purchaseDate: Date?
+    /// 仕入先名(自由文字列。設定タブの仕入先リストから選ぶが、リストから削除されても保存値は残る)。
+    var supplier: String?
+    /// 自分用の内部メモ(出品には使わない)。
+    var memo: String?
 
     init(
         id: UUID = UUID(),
@@ -61,7 +75,13 @@ struct PurchaseListItem: Codable, Equatable, Identifiable {
         price: Int? = nil,
         quantity: Int? = nil,
         conditionNote: String? = nil,
-        sku: String? = nil
+        sku: String? = nil,
+        useFba: Bool? = nil,
+        purchasePrice: Int? = nil,
+        shippingCost: Int? = nil,
+        purchaseDate: Date? = nil,
+        supplier: String? = nil,
+        memo: String? = nil
     ) {
         self.id = id
         self.addedAt = addedAt
@@ -82,6 +102,12 @@ struct PurchaseListItem: Codable, Equatable, Identifiable {
         self.quantity = quantity
         self.conditionNote = conditionNote
         self.sku = sku
+        self.useFba = useFba
+        self.purchasePrice = purchasePrice
+        self.shippingCost = shippingCost
+        self.purchaseDate = purchaseDate
+        self.supplier = supplier
+        self.memo = memo
     }
 
     /// 検索タブの最新結果カードから追加する場合のコンビニエンスinit。

@@ -122,6 +122,12 @@ function summarizeRestrictions(response) {
 const SKU_PATTERN = /^[A-Za-z0-9._-]{1,40}$/;
 
 /**
+ * POST /api/listings が受理するfulfillmentChannel値。
+ * DEFAULT=自己発送(従来通り)、AMAZON_JP=FBA(納品プラン作成は別途セラーセントラルで行う)。
+ */
+const FULFILLMENT_CHANNELS = ['DEFAULT', 'AMAZON_JP'];
+
+/**
  * POST /api/listings の入力を検証する。
  * @param {object} body リクエストボディ
  * @returns {{ok:true, value:object}|{ok:false, message:string}}
@@ -133,6 +139,11 @@ function validateListingInput(body) {
   const price = body && body.price;
   const quantity = body && body.quantity;
   const conditionNote = String((body && body.conditionNote) || '');
+  const fulfillmentChannelRaw = body && body.fulfillmentChannel;
+  const fulfillmentChannel =
+    fulfillmentChannelRaw === undefined || fulfillmentChannelRaw === null || fulfillmentChannelRaw === ''
+      ? 'DEFAULT'
+      : String(fulfillmentChannelRaw).trim();
 
   if (!asin) return { ok: false, message: 'asinは必須です' };
   if (!SKU_PATTERN.test(sku)) return { ok: false, message: 'skuは英数字と-._の1〜40文字で指定してください' };
@@ -141,17 +152,26 @@ function validateListingInput(body) {
   }
   if (!Number.isInteger(price) || price <= 0) return { ok: false, message: 'priceは1以上の整数(円)で指定してください' };
   if (!Number.isInteger(quantity) || quantity <= 0) return { ok: false, message: 'quantityは1以上の整数で指定してください' };
+  if (!FULFILLMENT_CHANNELS.includes(fulfillmentChannel)) {
+    return { ok: false, message: `fulfillmentChannelは ${FULFILLMENT_CHANNELS.join(' / ')} のいずれかを指定してください` };
+  }
 
-  return { ok: true, value: { asin, sku, conditionType, price, quantity, conditionNote } };
+  return { ok: true, value: { asin, sku, conditionType, price, quantity, conditionNote, fulfillmentChannel } };
 }
 
 /**
  * putListingsItemのリクエストボディを組み立てる(spec準拠・PRODUCT/LISTING_OFFER_ONLY固定)。
  * conditionNoteが空のときはcondition_note属性自体を含めない。
- * @param {{asin:string, conditionType:string, price:number, quantity:number, conditionNote:string}} input
+ * fulfillmentChannelがAMAZON_JP(FBA)のときはquantityを送らない
+ * (FBA在庫は納品数で決まるため。DEFAULT(自己発送)は従来通りquantity付き)。
+ * @param {{asin:string, conditionType:string, price:number, quantity:number, conditionNote:string, fulfillmentChannel:string}} input
  * @param {string} marketplaceId
  */
 function buildListingItemBody(input, marketplaceId) {
+  const fulfillmentAvailability =
+    input.fulfillmentChannel === 'AMAZON_JP'
+      ? [{ fulfillment_channel_code: 'AMAZON_JP' }]
+      : [{ fulfillment_channel_code: 'DEFAULT', quantity: input.quantity }];
   const attributes = {
     merchant_suggested_asin: [{ value: input.asin, marketplace_id: marketplaceId }],
     condition_type: [{ value: input.conditionType, marketplace_id: marketplaceId }],
@@ -162,9 +182,7 @@ function buildListingItemBody(input, marketplaceId) {
         our_price: [{ schedule: [{ value_with_tax: input.price }] }],
       },
     ],
-    fulfillment_availability: [
-      { fulfillment_channel_code: 'DEFAULT', quantity: input.quantity },
-    ],
+    fulfillment_availability: fulfillmentAvailability,
   };
   if (input.conditionNote) {
     attributes.condition_note = [
@@ -879,6 +897,133 @@ router.get('/api/graph', async (req, res) => {
   }
 });
 
+/**
+ * FeeDetailListの1件(FeeType)を、アプリ向けのtype/labelに分類する。
+ * ReferralFee→販売手数料 / VariableClosingFee・FixedClosingFee→カテゴリ成約料 /
+ * FBAFees・FBAPerUnitFulfillmentFee等FBA系(FeeTypeが"FBA"始まり)→FBA手数料。
+ * 未知のFeeTypeは金額を落とさずother(labelはFeeType文字列そのまま)として扱う。
+ */
+function mapFeeDetailType(feeType) {
+  if (feeType === 'ReferralFee') return { type: 'referral', label: '販売手数料' };
+  if (feeType === 'VariableClosingFee' || feeType === 'FixedClosingFee') {
+    return { type: 'closing', label: 'カテゴリ成約料' };
+  }
+  if (typeof feeType === 'string' && feeType.startsWith('FBA')) {
+    return { type: 'fba', label: 'FBA手数料' };
+  }
+  return { type: 'other', label: feeType || '手数料' };
+}
+
+/**
+ * getMyFeesEstimatesBatch(1件)の応答からFeesEstimate本体を取り出す。
+ * SP-API応答の構造揺れに対して防御的に複数パターンを試す
+ * (実際に確認済みなのはpayloadが配列で各要素にFeesEstimateResult.FeesEstimateが乗る形。
+ * 他パターンはドキュメント上のバリエーションに備えたフォールバック)。
+ */
+function extractFeesEstimate(feesResp) {
+  const payload = feesResp && feesResp.payload;
+  const list = Array.isArray(payload)
+    ? payload
+    : payload && Array.isArray(payload.FeesEstimateResultList)
+    ? payload.FeesEstimateResultList
+    : null;
+  const entry = list ? list[0] : payload;
+  if (!entry) return null;
+  return (entry.FeesEstimateResult && entry.FeesEstimateResult.FeesEstimate) || entry.FeesEstimate || null;
+}
+
+/**
+ * FeeDetailListから /api/fees-estimate のレスポンス(total/breakdown)を組み立てる。
+ * 消費税: 各FeeDetailのTaxAmountの合計。全て0/欠落の場合は手数料小計の10%(Math.round)を
+ * 概算として計上する(実応答でのTaxAmountの返り方は本番デプロイ前に実データで要確認)。
+ * totalはbreakdown各行の合計値(SP-APIのTotalFeesEstimateはそのまま使わない。
+ * 消費税を概算計上した場合でも整合させるため)。
+ */
+function buildFeesBreakdown(feeDetailList) {
+  const rows = new Map();
+  let feeSubtotal = 0;
+  let taxSum = 0;
+  let hasNonZeroTax = false;
+
+  for (const detail of feeDetailList || []) {
+    if (!detail) continue;
+    const { type, label } = mapFeeDetailType(detail.FeeType);
+    const amount =
+      detail.FeeAmount && typeof detail.FeeAmount.Amount === 'number'
+        ? detail.FeeAmount.Amount
+        : detail.FinalFee && typeof detail.FinalFee.Amount === 'number'
+        ? detail.FinalFee.Amount
+        : 0;
+    feeSubtotal += amount;
+
+    const key = `${type}:${label}`;
+    if (rows.has(key)) {
+      rows.get(key).amount += amount;
+    } else {
+      rows.set(key, { type, label, amount });
+    }
+
+    const taxAmount =
+      detail.TaxAmount && typeof detail.TaxAmount.Amount === 'number' ? detail.TaxAmount.Amount : 0;
+    if (taxAmount !== 0) hasNonZeroTax = true;
+    taxSum += taxAmount;
+  }
+
+  const breakdown = Array.from(rows.values()).map((row) => ({ ...row, amount: Math.round(row.amount) }));
+  const taxAmount = hasNonZeroTax ? Math.round(taxSum) : Math.round(feeSubtotal * 0.1);
+  breakdown.push({ type: 'tax', label: '消費税', amount: taxAmount });
+
+  const total = breakdown.reduce((sum, row) => sum + row.amount, 0);
+  return { total, breakdown };
+}
+
+// price クエリ(円)を検証する。正の整数文字列のみ許可(小数・負数・非数値は不正)。
+function parsePositiveIntQuery(raw) {
+  if (raw === undefined || raw === null) return null;
+  const str = String(raw).trim();
+  if (!/^\d+$/.test(str)) return null;
+  const n = parseInt(str, 10);
+  return n > 0 ? n : null;
+}
+
+// GET /api/fees-estimate?asin=&price=&fba=1|0 — 手数料見積り(Pro+BYOトークン必須)
+//
+// 入力バリデーションを先に行い、その後にゲートを通す(/api/listings/restrictionsと同じ理由:
+// サーバー側のLWA_CLIENT_ID/LWA_CLIENT_SECRET未設定時に400を503化させないため)。
+// 手数料はSKU非依存・出品内容を含まないためDPP上の懸念はないが、方針としてasin等はログに出さない。
+router.get('/api/fees-estimate', async (req, res) => {
+  const asin = String(req.query.asin || '').trim();
+  if (!asin) {
+    return res.status(400).json({ error: 'invalid_request', message: 'asinは必須です' });
+  }
+  const price = parsePositiveIntQuery(req.query.price);
+  if (price == null) {
+    return res.status(400).json({ error: 'invalid_request', message: 'priceは1以上の整数(円)で指定してください' });
+  }
+  const fbaRaw = req.query.fba === undefined || req.query.fba === null || req.query.fba === '' ? '0' : String(req.query.fba);
+  if (fbaRaw !== '0' && fbaRaw !== '1') {
+    return res.status(400).json({ error: 'invalid_request', message: 'fbaは1または0で指定してください' });
+  }
+  const fba = fbaRaw === '1';
+
+  const credentials = requireProByoCredentials(req, res);
+  if (!credentials) return;
+
+  try {
+    const feesResp = await pricing.getMyFeesEstimatesBatch(
+      [{ asin, price, identifier: asin, isAmazonFulfilled: fba }],
+      credentials
+    );
+    const feesEstimate = extractFeesEstimate(feesResp);
+    const feeDetailList = (feesEstimate && feesEstimate.FeeDetailList) || [];
+    const { total, breakdown } = buildFeesBreakdown(feeDetailList);
+    res.json({ total, breakdown });
+  } catch (err) {
+    console.error('[fees-estimate] failed:', err.message);
+    res.status(502).json({ error: 'fees_estimate_failed', message: err.message });
+  }
+});
+
 // GET /api/listings/restrictions?asin=&condition= — 出品制限の事前チェック(Pro+BYOトークン必須)
 //
 // 入力バリデーション(asin/condition)を先に行い、その後にPro+BYOトークンのゲートを通す。
@@ -975,5 +1120,8 @@ router.summarizeRestrictions = summarizeRestrictions;
 router.LISTING_CONDITION_TYPES = LISTING_CONDITION_TYPES;
 router.validateListingInput = validateListingInput;
 router.buildListingItemBody = buildListingItemBody;
+router.FULFILLMENT_CHANNELS = FULFILLMENT_CHANNELS;
+router.mapFeeDetailType = mapFeeDetailType;
+router.buildFeesBreakdown = buildFeesBreakdown;
 
 module.exports = router;

@@ -46,6 +46,12 @@ final class SettingsStore: ObservableObject {
 
         // 仕入れフォーム(PurchaseFormView): 直近保存したコンディション(新規追加時の初期値に使う)。
         static let listingLastCondition = "settings.listing.lastCondition"
+
+        // 仕入れ設定(PurchaseSettingsView): フォームのFBA・配送料デフォルトと仕入先リスト。
+        static let purchaseUseFbaDefault = "purchase.useFbaDefault"
+        static let purchaseShippingDefault = "purchase.shippingDefault"
+        static let purchaseSuppliers = "purchase.suppliers"
+        static let purchaseLastSupplier = "purchase.lastSupplier"
     }
 
     /// Keychain上のアカウント名(リフレッシュトークン用)。
@@ -226,6 +232,41 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    // 仕入れ設定(PurchaseSettingsView)。
+
+    /// 仕入れフォームのFBA利用トグルの既定値。商品ごとに変更できる(PurchaseListItem.useFba)。既定OFF。
+    @Published var purchaseUseFbaDefault: Bool {
+        didSet {
+            defaults.set(purchaseUseFbaDefault, forKey: Keys.purchaseUseFbaDefault)
+        }
+    }
+
+    /// 仕入れフォームの配送料(円)の初期値。既定0円。
+    @Published var purchaseShippingDefault: Int {
+        didSet {
+            defaults.set(purchaseShippingDefault, forKey: Keys.purchaseShippingDefault)
+        }
+    }
+
+    /// 登録済み仕入先リスト(追加順)。仕入れフォームの仕入先Pickerの選択肢に使う。
+    @Published var purchaseSuppliers: [String] {
+        didSet {
+            defaults.set(purchaseSuppliers, forKey: Keys.purchaseSuppliers)
+        }
+    }
+
+    /// 仕入れフォームで最後に選んだ仕入先(新規追加時の初期値に使う。lastListingConditionと同方式)。
+    /// 一度も選んでいなければnil(この場合フォーム側は「未選択」を既定値として使う)。
+    @Published var purchaseLastSupplier: String? {
+        didSet {
+            if let purchaseLastSupplier {
+                defaults.set(purchaseLastSupplier, forKey: Keys.purchaseLastSupplier)
+            } else {
+                defaults.removeObject(forKey: Keys.purchaseLastSupplier)
+            }
+        }
+    }
+
     // 出品説明文テンプレートの既定値(設定画面・出品フォームで編集可)。
     static let defaultListingTemplateNew =
         "新品・未使用品です。丁寧に梱包して自己発送でお届けします。"
@@ -286,6 +327,12 @@ final class SettingsStore: ObservableObject {
         // 仕入れフォームの直近コンディション。未設定(一度も保存していない)ならnilのまま。
         self.lastListingCondition = defaults.string(forKey: Keys.listingLastCondition)
             .flatMap(ListingConditionType.init(rawValue:))
+
+        // 仕入れ設定(PurchaseSettingsView)。未設定時は既定値(FBA OFF・配送料0円・仕入先リスト空)で読み込む。
+        self.purchaseUseFbaDefault = defaults.bool(forKey: Keys.purchaseUseFbaDefault)
+        self.purchaseShippingDefault = (defaults.object(forKey: Keys.purchaseShippingDefault) as? Int) ?? 0
+        self.purchaseSuppliers = defaults.stringArray(forKey: Keys.purchaseSuppliers) ?? []
+        self.purchaseLastSupplier = defaults.string(forKey: Keys.purchaseLastSupplier)
 
         // リフレッシュトークンはKeychainから読む。
         // 旧バージョンでUserDefaultsに平文保存されていた場合は、ここでKeychainへ移行し平文を削除する。

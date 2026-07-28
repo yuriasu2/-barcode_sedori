@@ -50,7 +50,7 @@ const PRO_HEADERS = { 'x-app-plan': 'pro', 'x-spapi-refresh-token': 'rt', 'x-spa
 
 /**
  * LWAトークン + Listings系APIをまとめてモックするfetch。
- * handlers: { restrictions(url), putItem(url, init) } を上書き可能。
+ * handlers: { restrictions(url), putItem(url, init), feesEstimate(url, init) } を上書き可能。
  */
 function mockFetch(handlers = {}) {
   return async (url, init) => {
@@ -71,8 +71,31 @@ function mockFetch(handlers = {}) {
     if (u.includes('/listings/2021-08-01/items/')) {
       return handlers.putItem ? handlers.putItem(u, init, ok) : ok({ status: 'ACCEPTED', submissionId: 'sub-1', issues: [] });
     }
+    if (u.includes('/products/fees/v0/feesEstimate')) {
+      return handlers.feesEstimate ? handlers.feesEstimate(u, init, ok) : ok({ payload: [] });
+    }
     throw new Error(`unexpected fetch: ${u}`);
   };
+}
+
+/**
+ * getMyFeesEstimatesBatchが実際に確認済みの応答形(payloadが配列、各要素に
+ * FeesEstimateResult.FeesEstimate.FeeDetailList)でfeesEstimateのモック応答を作る。
+ */
+function feesEstimateOk(ok, feeDetailList) {
+  return ok({
+    payload: [
+      {
+        FeesEstimateResult: {
+          Status: 'Success',
+          FeesEstimate: {
+            TotalFeesEstimate: { CurrencyCode: 'JPY', Amount: 0 },
+            FeeDetailList: feeDetailList,
+          },
+        },
+      },
+    ],
+  });
 }
 
 // --- ゲート ---
@@ -439,4 +462,284 @@ test('listings POST: INVALID応答(issues付き)もそのまま透過する(日�
       global.fetch = originalFetch;
     }
   });
+
+// --- POST /api/listings: fulfillmentChannel(FBA) ---
+
+test('listings POST: fulfillmentChannel省略時はDEFAULT(従来通りquantity付き)', async () => {
+  await withEnv(ENV, async () => {
+    const routes = freshRoutes();
+    const originalFetch = global.fetch;
+    let putBody = null;
+    global.fetch = mockFetch({
+      putItem: (u, init, ok) => {
+        putBody = JSON.parse(init.body);
+        return ok({ status: 'ACCEPTED', submissionId: 'sub-default', issues: [] });
+      },
+    });
+    try {
+      const res = createMockRes();
+      const route = routes.match('POST', '/api/listings');
+      await route.handler(
+        {
+          body: {
+            asin: 'B000TEST',
+            sku: 'AMLZ-20260728-001',
+            conditionType: 'used_good',
+            price: 1500,
+            quantity: 2,
+            conditionNote: '',
+          },
+          headers: PRO_HEADERS,
+        },
+        res
+      );
+      assert.equal(res.statusCode, 200);
+      assert.deepEqual(putBody.attributes.fulfillment_availability, [
+        { fulfillment_channel_code: 'DEFAULT', quantity: 2 },
+      ]);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+});
+
+test('listings POST: fulfillmentChannel=AMAZON_JPはquantityなしのAMAZON_JPになる', async () => {
+  await withEnv(ENV, async () => {
+    const routes = freshRoutes();
+    const originalFetch = global.fetch;
+    let putBody = null;
+    global.fetch = mockFetch({
+      putItem: (u, init, ok) => {
+        putBody = JSON.parse(init.body);
+        return ok({ status: 'ACCEPTED', submissionId: 'sub-fba', issues: [] });
+      },
+    });
+    try {
+      const res = createMockRes();
+      const route = routes.match('POST', '/api/listings');
+      await route.handler(
+        {
+          body: {
+            asin: 'B000TEST',
+            sku: 'AMLZ-20260728-002',
+            conditionType: 'used_good',
+            price: 1500,
+            quantity: 2,
+            conditionNote: '',
+            fulfillmentChannel: 'AMAZON_JP',
+          },
+          headers: PRO_HEADERS,
+        },
+        res
+      );
+      assert.equal(res.statusCode, 200);
+      assert.deepEqual(putBody.attributes.fulfillment_availability, [
+        { fulfillment_channel_code: 'AMAZON_JP' },
+      ]);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+});
+
+test('listings POST: fulfillmentChannel不正値は400', async () => {
+  await withEnv(ENV, async () => {
+    const routes = freshRoutes();
+    const res = createMockRes();
+    const route = routes.match('POST', '/api/listings');
+    await route.handler(
+      {
+        body: {
+          asin: 'B000TEST',
+          sku: 'AMLZ-20260728-003',
+          conditionType: 'used_good',
+          price: 1500,
+          quantity: 1,
+          conditionNote: '',
+          fulfillmentChannel: 'FBA_JP',
+        },
+        headers: PRO_HEADERS,
+      },
+      res
+    );
+    assert.equal(res.statusCode, 400);
+  });
+});
+
+// --- GET /api/fees-estimate ---
+
+test('fees-estimate: 無料は403 plan_required、Proでもトークン無しは403 spapi_link_required、seller-id無しは403 seller_id_required', async () => {
+  await withEnv(ENV, async () => {
+    const routes = freshRoutes();
+    const route = routes.match('GET', '/api/fees-estimate');
+
+    const res1 = createMockRes();
+    await route.handler({ query: { asin: 'B000TEST', price: '1500' }, headers: {} }, res1);
+    assert.equal(res1.statusCode, 403);
+    assert.equal(res1.body.error, 'plan_required');
+
+    const res2 = createMockRes();
+    await route.handler({ query: { asin: 'B000TEST', price: '1500' }, headers: { 'x-app-plan': 'pro' } }, res2);
+    assert.equal(res2.statusCode, 403);
+    assert.equal(res2.body.error, 'spapi_link_required');
+
+    const res3 = createMockRes();
+    await route.handler(
+      { query: { asin: 'B000TEST', price: '1500' }, headers: { 'x-app-plan': 'pro', 'x-spapi-refresh-token': 'rt' } },
+      res3
+    );
+    assert.equal(res3.statusCode, 403);
+    assert.equal(res3.body.error, 'seller_id_required');
+  });
+});
+
+test('fees-estimate: asin/price不正は400(ゲートより先に検証する)', async () => {
+  const routes = freshRoutes();
+  const route = routes.match('GET', '/api/fees-estimate');
+
+  for (const query of [
+    {},
+    { asin: 'B000TEST' },
+    { asin: 'B000TEST', price: '0' },
+    { asin: 'B000TEST', price: '-100' },
+    { asin: 'B000TEST', price: '1500.5' },
+    { asin: 'B000TEST', price: 'abc' },
+    { asin: 'B000TEST', price: '1500', fba: '2' },
+  ]) {
+    const res = createMockRes();
+    // ヘッダー無し(未認証)でも、入力不正は403より先に400で返ることを確認する。
+    await route.handler({ query, headers: {} }, res);
+    assert.equal(res.statusCode, 400, JSON.stringify(query));
+  }
+});
+
+test('fees-estimate: fba=0(既定)はIsAmazonFulfilled:false、fba=1はtrueでリクエストする', async () => {
+  await withEnv(ENV, async () => {
+    const routes = freshRoutes();
+    const originalFetch = global.fetch;
+    let lastBody = null;
+    global.fetch = mockFetch({
+      feesEstimate: (u, init, ok) => {
+        lastBody = JSON.parse(init.body);
+        return feesEstimateOk(ok, []);
+      },
+    });
+    try {
+      const route = routes.match('GET', '/api/fees-estimate');
+
+      const res1 = createMockRes();
+      await route.handler({ query: { asin: 'B000TEST', price: '1500' }, headers: PRO_HEADERS }, res1);
+      assert.equal(res1.statusCode, 200);
+      assert.equal(lastBody.FeesEstimateRequestList[0].FeesEstimateRequest.IsAmazonFulfilled, false);
+
+      const res2 = createMockRes();
+      await route.handler({ query: { asin: 'B000TEST', price: '1500', fba: '1' }, headers: PRO_HEADERS }, res2);
+      assert.equal(res2.statusCode, 200);
+      assert.equal(lastBody.FeesEstimateRequestList[0].FeesEstimateRequest.IsAmazonFulfilled, true);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+});
+
+test('fees-estimate: FeeDetailListのFeeTypeをreferral/closing/fba/otherにマッピングし、金額を落とさない', async () => {
+  await withEnv(ENV, async () => {
+    const routes = freshRoutes();
+    const originalFetch = global.fetch;
+    global.fetch = mockFetch({
+      feesEstimate: (u, init, ok) =>
+        feesEstimateOk(ok, [
+          { FeeType: 'ReferralFee', FeeAmount: { CurrencyCode: 'JPY', Amount: 270 } },
+          { FeeType: 'VariableClosingFee', FeeAmount: { CurrencyCode: 'JPY', Amount: 80 } },
+          { FeeType: 'FBAPerUnitFulfillmentFee', FeeAmount: { CurrencyCode: 'JPY', Amount: 268 } },
+          { FeeType: 'SomeUnknownFee', FeeAmount: { CurrencyCode: 'JPY', Amount: 50 } },
+        ]),
+    });
+    try {
+      const res = createMockRes();
+      const route = routes.match('GET', '/api/fees-estimate');
+      await route.handler({ query: { asin: 'B000TEST', price: '1500', fba: '1' }, headers: PRO_HEADERS }, res);
+      assert.equal(res.statusCode, 200);
+      const byType = Object.fromEntries(res.body.breakdown.map((r) => [r.type, r]));
+      assert.equal(byType.referral.label, '販売手数料');
+      assert.equal(byType.referral.amount, 270);
+      assert.equal(byType.closing.label, 'カテゴリ成約料');
+      assert.equal(byType.closing.amount, 80);
+      assert.equal(byType.fba.label, 'FBA手数料');
+      assert.equal(byType.fba.amount, 268);
+      assert.equal(byType.other.label, 'SomeUnknownFee');
+      assert.equal(byType.other.amount, 50);
+      // 消費税欄が無い(TaxAmount欠落)ため、手数料小計(270+80+268+50=668)の10%=67(Math.round)を概算計上
+      assert.equal(byType.tax.label, '消費税');
+      assert.equal(byType.tax.amount, 67);
+      // totalはbreakdown各行の合計と一致する
+      const sum = res.body.breakdown.reduce((s, r) => s + r.amount, 0);
+      assert.equal(res.body.total, sum);
+      assert.equal(res.body.total, 270 + 80 + 268 + 50 + 67);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+});
+
+test('fees-estimate: TaxAmountがある場合はその合計を消費税として使う(小計10%概算にしない)', async () => {
+  await withEnv(ENV, async () => {
+    const routes = freshRoutes();
+    const originalFetch = global.fetch;
+    global.fetch = mockFetch({
+      feesEstimate: (u, init, ok) =>
+        feesEstimateOk(ok, [
+          {
+            FeeType: 'ReferralFee',
+            FeeAmount: { CurrencyCode: 'JPY', Amount: 270 },
+            TaxAmount: { CurrencyCode: 'JPY', Amount: 50 },
+          },
+          {
+            FeeType: 'VariableClosingFee',
+            FeeAmount: { CurrencyCode: 'JPY', Amount: 80 },
+            TaxAmount: { CurrencyCode: 'JPY', Amount: 20 },
+          },
+        ]),
+    });
+    try {
+      const res = createMockRes();
+      const route = routes.match('GET', '/api/fees-estimate');
+      await route.handler({ query: { asin: 'B000TEST', price: '1500' }, headers: PRO_HEADERS }, res);
+      assert.equal(res.statusCode, 200);
+      const byType = Object.fromEntries(res.body.breakdown.map((r) => [r.type, r]));
+      // TaxAmount実合計(50+20=70)を使う。10%概算フォールバック((270+80)*0.1=35)とは異なる値になることで
+      // 実合計経路が使われていることを確認する。
+      assert.equal(byType.tax.amount, 70);
+      const sum = res.body.breakdown.reduce((s, r) => s + r.amount, 0);
+      assert.equal(res.body.total, sum);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+});
+
+test('fees-estimate: SP-API呼び出し失敗は502 fees_estimate_failed', async () => {
+  await withEnv(ENV, async () => {
+    const routes = freshRoutes();
+    const originalFetch = global.fetch;
+    global.fetch = mockFetch({
+      // 4xxはリトライ対象外(client.jsは429/5xx・fetch自体の例外のみリトライする)なので即座に失敗させられる。
+      feesEstimate: () => ({
+        ok: false,
+        status: 400,
+        text: async () => 'bad request',
+        headers: { get: () => null },
+      }),
+    });
+    try {
+      const res = createMockRes();
+      const route = routes.match('GET', '/api/fees-estimate');
+      await route.handler({ query: { asin: 'B000TEST', price: '1500' }, headers: PRO_HEADERS }, res);
+      assert.equal(res.statusCode, 502);
+      assert.equal(res.body.error, 'fees_estimate_failed');
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+});
 });

@@ -54,7 +54,8 @@ async function searchCatalogItems(identifier, credentials) {
 
 /**
  * getMyFeesEstimates をバッチ呼び出しする。
- * @param {Array<{asin: string, price: number, identifier: string}>} items
+ * @param {Array<{asin: string, price: number, identifier: string, isAmazonFulfilled?: boolean}>} items
+ *   isAmazonFulfilled未指定の項目は従来通りtrue扱い(既存呼び出し元の挙動を変えないため)。
  * @param {{clientId?:string, clientSecret?:string, refreshToken?:string}} [credentials]
  *   未指定の場合は .env にフォールバックする。
  */
@@ -63,7 +64,7 @@ async function getMyFeesEstimatesBatch(items, credentials) {
   const feesEstimateRequests = items.map((item) => ({
     FeesEstimateRequest: {
       MarketplaceId: marketplaceId,
-      IsAmazonFulfilled: true,
+      IsAmazonFulfilled: item.isAmazonFulfilled != null ? item.isAmazonFulfilled : true,
       PriceToEstimateFees: {
         ListingPrice: { CurrencyCode: 'JPY', Amount: item.price },
       },

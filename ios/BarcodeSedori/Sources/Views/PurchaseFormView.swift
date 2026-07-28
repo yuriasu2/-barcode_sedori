@@ -38,7 +38,12 @@ final class PurchaseFormViewModel: ObservableObject {
         }
     }
     @Published private(set) var restrictionState: RestrictionState = .unavailable
-    @Published var price: Int?
+    @Published var price: Int? {
+        didSet {
+            // 出品価格が変わるたびに手数料を取り直す(0.5秒デバウンス。連打で無駄打ちしない)。
+            scheduleFeesFetch()
+        }
+    }
     @Published var quantity: Int {
         didSet {
             regenerateSkuIfNotEdited()
@@ -46,6 +51,46 @@ final class PurchaseFormViewModel: ObservableObject {
     }
     @Published var sku: String
     @Published var conditionNote: String
+
+    /// FBAを利用して出品するか。トグル切替のたびに手数料を取り直す(FBA手数料の有無が変わるため)。
+    @Published var useFba: Bool {
+        didSet {
+            startFeesFetch()
+        }
+    }
+    /// 仕入れ価格(円)。利益セクションの入力値。
+    @Published var purchasePrice: Int?
+    /// 配送料(円)。利益セクションの入力値。初期値は設定の配送料デフォルト(新規)/保存値(編集)。
+    @Published var shippingCost: Int?
+    /// 仕入れ日。既定は追加日。
+    @Published var purchaseDate: Date
+    /// 仕入先(自由文字列。未選択はnil)。
+    @Published var supplier: String?
+    /// 自分用の内部メモ。
+    @Published var memo: String
+
+    /// 手数料取得の状態。DisclosureGroupで内訳を展開する行の表示に使う。
+    enum FeesState: Equatable {
+        case idle
+        case loading
+        case loaded(FeesDisplay)
+    }
+    /// 手数料表示用にAPI実額/アプリ内概算を統一した形。
+    struct FeesDisplay: Equatable {
+        let total: Int
+        let breakdown: [FeesEstimateResult.FeeLine]
+        /// 概算フォールバックかどうか(合計行に「(概算)」を付記する)。
+        let isEstimate: Bool
+        /// 概算フォールバックでFBAトグルONのとき、FBA手数料が算出不可であることを示す注記。
+        /// それ以外(実額取得時・自己発送時)はnil。
+        let fbaRequiresLinkNote: String?
+    }
+    @Published private(set) var feesState: FeesState = .idle
+    /// 手数料取得のリクエスト連番。制限チェック(restrictionCheckSequence)と同じガード方式で、
+    /// 古い応答が新しい結果を後から上書きしないようにする。
+    private var feesCheckSequence = 0
+    /// 出品価格変更時のデバウンス用タスク。連打のたびにキャンセルし直す。
+    private var feesDebounceTask: Task<Void, Never>?
 
     let mode: PurchaseFormMode
 
@@ -113,6 +158,13 @@ final class PurchaseFormViewModel: ObservableObject {
             )
             self.sku = generatedSku
             self.lastAutoSku = generatedSku
+            self.useFba = settings.purchaseUseFbaDefault
+            self.purchasePrice = nil
+            self.shippingCost = settings.purchaseShippingDefault
+            self.purchaseDate = draft.addedAt
+            // 前回選んだ仕入先。登録済みリストから削除されていれば「未選択」扱いにする。
+            self.supplier = settings.purchaseLastSupplier.flatMap { settings.purchaseSuppliers.contains($0) ? $0 : nil }
+            self.memo = ""
         case .edit(let item):
             // 旧データ(SKU枝番の採番導入前に仕入れリストへ追加された項目)は、ここで遅延採番する
             // (採番済みならそのまま返る。冪等)。
@@ -127,6 +179,12 @@ final class PurchaseFormViewModel: ObservableObject {
             let generatedSku = numberedItem.sku ?? settings.listingSku(for: numberedItem)
             self.sku = generatedSku
             self.lastAutoSku = generatedSku
+            self.useFba = numberedItem.useFba ?? settings.purchaseUseFbaDefault
+            self.purchasePrice = numberedItem.purchasePrice
+            self.shippingCost = numberedItem.shippingCost ?? settings.purchaseShippingDefault
+            self.purchaseDate = numberedItem.purchaseDate ?? numberedItem.addedAt
+            self.supplier = numberedItem.supplier
+            self.memo = numberedItem.memo ?? ""
         }
     }
 
@@ -163,10 +221,22 @@ final class PurchaseFormViewModel: ObservableObject {
         !sku.trimmingCharacters(in: .whitespaces).isEmpty && quantity > 0
     }
 
+    /// 仕入先Pickerの選択肢。「未選択」(nil)+設定タブの登録済みリストに加え、
+    /// 編集時の保存値がリストから削除されていても選択肢として表示する(値を消さないため)。
+    var supplierOptions: [String?] {
+        var options: [String?] = [nil]
+        options.append(contentsOf: settings.purchaseSuppliers.map { $0 as String? })
+        if let supplier, !settings.purchaseSuppliers.contains(supplier) {
+            options.append(supplier)
+        }
+        return options
+    }
+
     /// フォーム表示時に呼ぶ。制限チェックの実行条件(Pro+SP-API連携済み)を満たさなければ
     /// `.unavailable`のままセクション自体を出さない(Keepa経路ユーザーのフォームを汚さない)。
     func onAppear() {
         startRestrictionCheck()
+        startFeesFetch()
     }
 
     /// 「再確認」ボタンからの再チェック(failed時)。挙動はstartRestrictionCheckと同じ。
@@ -207,11 +277,102 @@ final class PurchaseFormViewModel: ObservableObject {
         }
     }
 
+    /// 粗利益 = 出品価格 − 仕入れ価格 − 手数料合計 − 配送料。
+    /// 出品価格・仕入れ価格が未入力、または手数料が未取得(idle/loading)の間は計算せずnilを返す
+    /// (呼び出し側は「—」表示にする)。
+    var grossProfit: Int? {
+        guard let price, let purchasePrice, case .loaded(let display) = feesState else { return nil }
+        return price - purchasePrice - display.total - (shippingCost ?? 0)
+    }
+
+    /// フォーム表示時・FBAトグル切替時に呼ぶ即時実行版(デバウンスしない)。
+    private func startFeesFetch() {
+        feesDebounceTask?.cancel()
+        feesDebounceTask = nil
+        performFeesFetch()
+    }
+
+    /// 出品価格変更時に呼ぶ。0.5秒デバウンスしてから実行する(連打のたびに無駄打ちしないため。
+    /// 制限チェックの連番ガードとは別に、こちらはTask.sleep+キャンセルで間引く)。
+    private func scheduleFeesFetch() {
+        feesDebounceTask?.cancel()
+        feesDebounceTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard !Task.isCancelled else { return }
+            self?.performFeesFetch()
+        }
+    }
+
+    /// 手数料取得の本体。SP-API連携済みProはAPIで実額、それ以外(無料ユーザー・未連携Pro)は
+    /// 通信せずアプリ内概算にフォールバックする。制限チェックと同じ連番ガードで、
+    /// 古い応答(コンディション連打・価格連打)が新しい結果を後から上書きしないようにする。
+    private func performFeesFetch() {
+        guard let price else {
+            feesState = .idle
+            return
+        }
+        feesCheckSequence += 1
+        let sequence = feesCheckSequence
+        let checkAsin = asin
+        let checkPrice = price
+        let checkFba = useFba
+
+        guard entitlements.isPro && settings.isListingReady else {
+            feesState = .loaded(Self.estimateFeesDisplay(price: checkPrice, fba: checkFba))
+            return
+        }
+
+        feesState = .loading
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let result = try await self.apiClient.feesEstimate(asin: checkAsin, price: checkPrice, fba: checkFba)
+                guard sequence == self.feesCheckSequence else { return }
+                self.feesState = .loaded(FeesDisplay(
+                    total: result.total,
+                    breakdown: result.breakdown,
+                    isEstimate: false,
+                    fbaRequiresLinkNote: nil
+                ))
+            } catch {
+                // API失敗時も概算フォールバックに切り替える(「取得できません」で詰まらせない)。
+                guard sequence == self.feesCheckSequence else { return }
+                self.feesState = .loaded(Self.estimateFeesDisplay(price: checkPrice, fba: checkFba))
+            }
+        }
+    }
+
+    /// アプリ内概算: 販売手数料15% + カテゴリ成約料80円 + 消費税(小計の10%)。
+    /// FBA手数料は実額取得(SP-API連携)でしか算出できないため、FBAトグルONのときは
+    /// 内訳に「連携が必要」の注記だけ出し、合計には含めない。
+    private static func estimateFeesDisplay(price: Int, fba: Bool) -> FeesDisplay {
+        let referral = Int((Double(price) * 0.15).rounded())
+        let closing = 80
+        let tax = Int((Double(referral + closing) * 0.10).rounded())
+        let breakdown: [FeesEstimateResult.FeeLine] = [
+            .init(type: "referral", label: "販売手数料", amount: referral),
+            .init(type: "closing", label: "カテゴリ成約料", amount: closing),
+            .init(type: "tax", label: "消費税", amount: tax),
+        ]
+        return FeesDisplay(
+            total: referral + closing + tax,
+            breakdown: breakdown,
+            isEstimate: true,
+            fbaRequiresLinkNote: fba ? "連携が必要" : nil
+        )
+    }
+
     /// 保存(緑チェック)。新規追加時はPurchaseListStoreへ登録し、編集時は上書きする。
     /// 直近コンディションはSettingsStoreへ記憶し、次回の新規追加フォームの初期値にする。
+    /// 仕入先も選択していればlastSupplierへ記憶する(lastListingConditionと同じ作法)。
     func save() {
         let trimmedSku = sku.trimmingCharacters(in: .whitespaces)
+        let trimmedMemo = memo.trimmingCharacters(in: .whitespacesAndNewlines)
+        let memoToSave = trimmedMemo.isEmpty ? nil : trimmedMemo
         settings.lastListingCondition = condition
+        if let supplier {
+            settings.purchaseLastSupplier = supplier
+        }
 
         switch mode {
         case .add(let draft):
@@ -221,15 +382,29 @@ final class PurchaseFormViewModel: ObservableObject {
             itemToAdd.quantity = quantity
             itemToAdd.conditionNote = conditionNote
             itemToAdd.sku = trimmedSku
+            itemToAdd.useFba = useFba
+            itemToAdd.purchasePrice = purchasePrice
+            itemToAdd.shippingCost = shippingCost
+            itemToAdd.purchaseDate = purchaseDate
+            itemToAdd.supplier = supplier
+            itemToAdd.memo = memoToSave
             purchaseList.add(itemToAdd)
         case .edit(let item):
+            // update(...)は渡さなかった新フィールドをnilで上書きする仕様のため、
+            // 変更していないフィールドも含めて必ず全て明示的に渡す。
             purchaseList.update(
                 id: item.id,
                 condition: condition,
                 price: price,
                 quantity: quantity,
                 conditionNote: conditionNote,
-                sku: trimmedSku
+                sku: trimmedSku,
+                useFba: useFba,
+                purchasePrice: purchasePrice,
+                shippingCost: shippingCost,
+                purchaseDate: purchaseDate,
+                supplier: supplier,
+                memo: memoToSave
             )
         }
     }
@@ -239,12 +414,26 @@ struct PurchaseFormView: View {
     @StateObject private var viewModel: PurchaseFormViewModel
     @Environment(\.dismiss) private var dismiss
 
-    /// numberPadキーボードの価格TextFieldのフォーカス対象。キーボードツールバーの「完了」で
+    /// numberPadキーボードのTextFieldのフォーカス対象。キーボードツールバーの「完了」で
     /// nilにしてフォーカスを外す(numberPadにはReturnキーが無いため。ListingFormViewと同方式)。
     private enum Field: Hashable {
         case price
+        case purchasePrice
+        case shippingCost
     }
     @FocusState private var focusedField: Field?
+
+    /// 金額表示の共通フォーマット(「¥1,234」形式)。
+    private static let currencyFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.usesGroupingSeparator = true
+        return formatter
+    }()
+
+    private static func currencyText(_ amount: Int) -> String {
+        "¥" + (currencyFormatter.string(from: NSNumber(value: amount)) ?? String(amount))
+    }
 
     init(mode: PurchaseFormMode) {
         _viewModel = StateObject(wrappedValue: PurchaseFormViewModel(mode: mode))
@@ -273,9 +462,9 @@ struct PurchaseFormView: View {
                 }
 
                 HStack {
-                    Text("価格(円)")
+                    Text("出品価格(円)")
                     Spacer()
-                    TextField("価格", value: $viewModel.price, format: .number)
+                    TextField("出品価格", value: $viewModel.price, format: .number)
                         .keyboardType(.numberPad)
                         .multilineTextAlignment(.trailing)
                         .frame(width: 120)
@@ -293,7 +482,13 @@ struct PurchaseFormView: View {
                 }
 
                 Stepper("数量: \(viewModel.quantity)", value: $viewModel.quantity, in: 1...99)
+
+                Toggle("FBAを利用", isOn: $viewModel.useFba)
             }
+
+            profitSection
+
+            purchaseInfoSection
 
             Section("コンディション説明") {
                 TextEditor(text: $viewModel.conditionNote)
@@ -383,6 +578,118 @@ struct PurchaseFormView: View {
                     viewModel.retryRestrictionCheck()
                 }
             }
+        }
+    }
+
+    /// 利益セクション: 出品価格(表示のみ)/ 仕入れ価格・配送料(入力)/ 手数料(内訳展開)/ 粗利益。
+    /// 赤字=コスト、青字太字=粗利益(設計書の色分けに合わせる)。
+    private var profitSection: some View {
+        Section("利益") {
+            HStack {
+                Text("出品価格")
+                Spacer()
+                Text(viewModel.price.map(Self.currencyText) ?? "—")
+            }
+
+            HStack {
+                Text("仕入れ価格")
+                    .foregroundColor(.red)
+                Spacer()
+                TextField("仕入れ価格", value: $viewModel.purchasePrice, format: .number)
+                    .keyboardType(.numberPad)
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: 120)
+                    .foregroundColor(.red)
+                    .focused($focusedField, equals: .purchasePrice)
+            }
+
+            feesRow
+
+            HStack {
+                Text("配送料")
+                    .foregroundColor(.red)
+                Spacer()
+                TextField("配送料", value: $viewModel.shippingCost, format: .number)
+                    .keyboardType(.numberPad)
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: 120)
+                    .foregroundColor(.red)
+                    .focused($focusedField, equals: .shippingCost)
+            }
+
+            HStack {
+                Text("粗利益")
+                    .fontWeight(.bold)
+                    .foregroundColor(.blue)
+                Spacer()
+                Text(viewModel.grossProfit.map(Self.currencyText) ?? "—")
+                    .fontWeight(.bold)
+                    .foregroundColor(.blue)
+            }
+        }
+    }
+
+    /// 手数料行。取得中はProgressView、取得済みならDisclosureGroupで内訳を展開できる。
+    /// 概算フォールバック時は合計に「(概算)」を付記し、FBAトグルON時のみ「連携が必要」の注記を出す。
+    @ViewBuilder
+    private var feesRow: some View {
+        switch viewModel.feesState {
+        case .idle:
+            HStack {
+                Text("手数料")
+                    .foregroundColor(.red)
+                Spacer()
+                Text("—")
+                    .foregroundColor(.red)
+            }
+        case .loading:
+            HStack {
+                Text("手数料")
+                    .foregroundColor(.red)
+                Spacer()
+                ProgressView()
+                    .controlSize(.small)
+            }
+        case .loaded(let display):
+            DisclosureGroup {
+                ForEach(display.breakdown, id: \.type) { line in
+                    HStack {
+                        Text(line.label)
+                        Spacer()
+                        Text(Self.currencyText(line.amount))
+                    }
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+                }
+                if let note = display.fbaRequiresLinkNote {
+                    Text("FBA手数料: \(note)")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                }
+            } label: {
+                HStack {
+                    Text("手数料")
+                        .foregroundColor(.red)
+                    Spacer()
+                    Text(Self.currencyText(display.total) + (display.isEstimate ? "(概算)" : ""))
+                        .foregroundColor(.red)
+                }
+            }
+        }
+    }
+
+    /// 仕入れ情報セクション: 仕入れ日・仕入先・自分用メモ(出品には使わない)。
+    private var purchaseInfoSection: some View {
+        Section("仕入れ情報") {
+            DatePicker("仕入れ日", selection: $viewModel.purchaseDate, displayedComponents: .date)
+
+            Picker("仕入先", selection: $viewModel.supplier) {
+                ForEach(viewModel.supplierOptions, id: \.self) { option in
+                    Text(option ?? "未選択").tag(option)
+                }
+            }
+
+            TextField("メモ", text: $viewModel.memo)
         }
     }
 }

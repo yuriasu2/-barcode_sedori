@@ -64,6 +64,9 @@ struct ListingSubmissionRequest: Codable {
     let price: Int
     let quantity: Int
     let conditionNote: String
+    /// 'DEFAULT'(自己発送)| 'AMAZON_JP'(FBA)。省略時サーバー側はDEFAULT扱いだが、
+    /// 一括出品(BulkListingViewModel)は常に明示的に送る。
+    let fulfillmentChannel: String
 }
 
 /// POST /api/listings レスポンス(SP-API putListingsItem応答の透過)。
@@ -89,4 +92,21 @@ struct ListingSubmissionResult: Codable, Equatable {
         let messages = (issues ?? []).compactMap { $0.message }
         return messages.isEmpty ? "出品が受理されませんでした(status: \(status ?? "不明"))" : messages.joined(separator: "\n")
     }
+}
+
+/// GET /api/fees-estimate レスポンス。仕入れフォームの利益セクションが使う手数料内訳。
+/// 金額はすべて整数円(サーバー側で四捨五入済み)。
+struct FeesEstimateResult: Codable, Equatable {
+    /// 手数料の内訳1行(販売手数料・カテゴリ成約料・消費税・FBA手数料など)。
+    struct FeeLine: Codable, Equatable {
+        /// 種別コード(referral/closing/tax/fba/other)。表示の出し分け・アイコン選択に使う。
+        let type: String
+        /// 画面表示名(サーバー側で日本語化済み)。
+        let label: String
+        let amount: Int
+    }
+
+    /// 手数料合計額(円)。
+    let total: Int
+    let breakdown: [FeeLine]
 }

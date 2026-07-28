@@ -101,6 +101,8 @@ final class BulkListingViewModel: ObservableObject {
             let sku = numberedItem.sku ?? settings.listingSku(for: numberedItem)
             let conditionNote = numberedItem.conditionNote ?? settings.listingTemplate(for: condition)
             let quantity = numberedItem.quantity ?? 1
+            // FBA利用はアイテムの保存値優先、未保存(旧データ含む)は設定タブのデフォルトに従う。
+            let fulfillmentChannel = (item.useFba ?? settings.purchaseUseFbaDefault) ? "AMAZON_JP" : "DEFAULT"
 
             do {
                 let result = try await apiClient.submitListing(ListingSubmissionRequest(
@@ -109,7 +111,8 @@ final class BulkListingViewModel: ObservableObject {
                     conditionType: condition.rawValue,
                     price: price,
                     quantity: quantity,
-                    conditionNote: conditionNote
+                    conditionNote: conditionNote,
+                    fulfillmentChannel: fulfillmentChannel
                 ))
                 if result.isAccepted {
                     purchaseList.markListed(id: item.id, sku: sku)
