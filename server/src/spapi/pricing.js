@@ -74,10 +74,13 @@ async function getMyFeesEstimatesBatch(items, credentials) {
     IdValue: item.asin,
   }));
 
+  // getMyFeesEstimatesのリクエストボディはトップレベルが素の配列
+  // (FeesEstimateRequestListで包むとSP-APIが400 "Missing objects [PriceToEstimateFees]" を返す。
+  // 本番実機で確認済み)。
   return callSpApi({
     method: 'POST',
     path: '/products/fees/v0/feesEstimate',
-    body: { FeesEstimateRequestList: feesEstimateRequests },
+    body: feesEstimateRequests,
     credentials,
   });
 }

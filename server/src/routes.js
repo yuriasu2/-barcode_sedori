@@ -635,15 +635,18 @@ async function buildSpApiOffersPayload(asin, newSummary, usedSummary, credential
     }
   }
 
-  const feesList = (feesResp && feesResp.payload) || [];
+  // getMyFeesEstimatesの200応答はトップレベルが素の配列(各要素がFeesEstimateResult)。
+  // payloadで包まれる形は旧実装が想定していた誤りだが、防御的に両対応を残す。
+  const feesList = Array.isArray(feesResp) ? feesResp : (feesResp && feesResp.payload) || [];
 
   function feeForIndex(index, landed) {
     const entry = feesList[index];
     const feesEstimate =
-      entry &&
-      entry.FeesEstimateResult &&
-      entry.FeesEstimateResult.FeesEstimate &&
-      entry.FeesEstimateResult.FeesEstimate.TotalFeesEstimate;
+      (entry &&
+        entry.FeesEstimateResult &&
+        entry.FeesEstimateResult.FeesEstimate &&
+        entry.FeesEstimateResult.FeesEstimate.TotalFeesEstimate) ||
+      (entry && entry.FeesEstimate && entry.FeesEstimate.TotalFeesEstimate);
     if (feesEstimate && typeof feesEstimate.Amount === 'number') {
       return feesEstimate.Amount;
     }
@@ -916,13 +919,14 @@ function mapFeeDetailType(feeType) {
 
 /**
  * getMyFeesEstimatesBatch(1件)の応答からFeesEstimate本体を取り出す。
- * SP-API応答の構造揺れに対して防御的に複数パターンを試す
- * (実際に確認済みなのはpayloadが配列で各要素にFeesEstimateResult.FeesEstimateが乗る形。
- * 他パターンはドキュメント上のバリエーションに備えたフォールバック)。
+ * 本番実機で確認済みの応答形はトップレベルが素の配列(各要素がFeesEstimateResult)。
+ * payloadで包まれる形などは構造揺れに備えた防御的フォールバック。
  */
 function extractFeesEstimate(feesResp) {
   const payload = feesResp && feesResp.payload;
-  const list = Array.isArray(payload)
+  const list = Array.isArray(feesResp)
+    ? feesResp
+    : Array.isArray(payload)
     ? payload
     : payload && Array.isArray(payload.FeesEstimateResultList)
     ? payload.FeesEstimateResultList

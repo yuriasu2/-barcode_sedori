@@ -79,23 +79,19 @@ function mockFetch(handlers = {}) {
 }
 
 /**
- * getMyFeesEstimatesBatchが実際に確認済みの応答形(payloadが配列、各要素に
- * FeesEstimateResult.FeesEstimate.FeeDetailList)でfeesEstimateのモック応答を作る。
+ * getMyFeesEstimatesBatchが本番実機で確認済みの応答形(トップレベルが素の配列、
+ * 各要素がFeesEstimateResult)でfeesEstimateのモック応答を作る。
  */
 function feesEstimateOk(ok, feeDetailList) {
-  return ok({
-    payload: [
-      {
-        FeesEstimateResult: {
-          Status: 'Success',
-          FeesEstimate: {
-            TotalFeesEstimate: { CurrencyCode: 'JPY', Amount: 0 },
-            FeeDetailList: feeDetailList,
-          },
-        },
+  return ok([
+    {
+      Status: 'Success',
+      FeesEstimate: {
+        TotalFeesEstimate: { CurrencyCode: 'JPY', Amount: 0 },
+        FeeDetailList: feeDetailList,
       },
-    ],
-  });
+    },
+  ]);
 }
 
 // --- ゲート ---
@@ -630,12 +626,12 @@ test('fees-estimate: fba=0(既定)はIsAmazonFulfilled:false、fba=1はtrueで�
       const res1 = createMockRes();
       await route.handler({ query: { asin: 'B000TEST', price: '1500' }, headers: PRO_HEADERS }, res1);
       assert.equal(res1.statusCode, 200);
-      assert.equal(lastBody.FeesEstimateRequestList[0].FeesEstimateRequest.IsAmazonFulfilled, false);
+      assert.equal(lastBody[0].FeesEstimateRequest.IsAmazonFulfilled, false);
 
       const res2 = createMockRes();
       await route.handler({ query: { asin: 'B000TEST', price: '1500', fba: '1' }, headers: PRO_HEADERS }, res2);
       assert.equal(res2.statusCode, 200);
-      assert.equal(lastBody.FeesEstimateRequestList[0].FeesEstimateRequest.IsAmazonFulfilled, true);
+      assert.equal(lastBody[0].FeesEstimateRequest.IsAmazonFulfilled, true);
     } finally {
       global.fetch = originalFetch;
     }
