@@ -53,8 +53,12 @@ final class PurchaseFormViewModel: ObservableObject {
     @Published var conditionNote: String
 
     /// FBAを利用して出品するか。トグル切替のたびに手数料を取り直す(FBA手数料の有無が変わるため)。
+    /// FBA手数料(配送代行手数料)には購入者への配送料が含まれるため、ONで配送料を自動的に0にし、
+    /// OFFに戻したら設定の配送料デフォルトへ戻す(手入力での上書きは引き続き可能)。
     @Published var useFba: Bool {
         didSet {
+            guard useFba != oldValue else { return }
+            shippingCost = useFba ? 0 : settings.purchaseShippingDefault
             startFeesFetch()
         }
     }
@@ -160,7 +164,8 @@ final class PurchaseFormViewModel: ObservableObject {
             self.lastAutoSku = generatedSku
             self.useFba = settings.purchaseUseFbaDefault
             self.purchasePrice = nil
-            self.shippingCost = settings.purchaseShippingDefault
+            // FBA時は配送料がFBA手数料(配送代行手数料)に含まれるため0で始める。
+            self.shippingCost = settings.purchaseUseFbaDefault ? 0 : settings.purchaseShippingDefault
             self.purchaseDate = draft.addedAt
             // 前回選んだ仕入先。登録済みリストから削除されていれば「未選択」扱いにする。
             self.supplier = settings.purchaseLastSupplier.flatMap { settings.purchaseSuppliers.contains($0) ? $0 : nil }
