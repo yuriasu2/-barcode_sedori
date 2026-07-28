@@ -469,8 +469,182 @@ test('/api/search: spapi経路はprofitInputs.sellerCounts/breakEvenを組み立
       assert.equal(res.body.source, 'spapi');
       assert.equal(res.body.profitInputs.listPrice, null);
       assert.deepEqual(res.body.profitInputs.sellerCounts, { new: 4, used: 9 });
-      assert.equal(res.body.profitInputs.breakEven.new, res.body.offers.new[0].breakEven);
-      assert.equal(res.body.profitInputs.breakEven.used, res.body.offers.used[0].breakEven);
+      // オファーDTO(offers.new/used)にはbreakEvenを持たせず、profitInputs.breakEvenのみで算出する
+      // (手数料APIがnullを返したため書籍フォールバック15%+80円を使用: 1500-305=1195, 1200-260=940)。
+      assert.equal(res.body.offers.new[0].breakEven, undefined);
+      assert.equal(res.body.offers.used[0].breakEven, undefined);
+      assert.equal(res.body.profitInputs.breakEven.new, 1195);
+      assert.equal(res.body.profitInputs.breakEven.used, 940);
+    }
+  );
+});
+
+test('/api/search: spapi経路のprofitInputs.breakEvenはgetMyFeesEstimatesBatchの実額(new/usedのlanded最安のみ2件)から算出する', async (t) => {
+  await withEnv(
+    {
+      LWA_CLIENT_ID: 'client-id',
+      LWA_CLIENT_SECRET: 'client-secret',
+      LWA_REFRESH_TOKEN: 'refresh-token',
+    },
+    async () => {
+      const routes = freshRoutes();
+      const pricing = require('../src/spapi/pricing');
+
+      const originalSearchCatalogItems = pricing.searchCatalogItems;
+      const originalGetItemOffers = pricing.getItemOffers;
+      const originalGetFees = pricing.getMyFeesEstimatesBatch;
+
+      pricing.searchCatalogItems = async () => ({
+        items: [{ asin: 'B00SPAPITEST3', summaries: [{ itemName: 'SP-APIの本' }], images: [], salesRanks: [] }],
+      });
+
+      pricing.getItemOffers = async (asin, condition) => {
+        if (condition === 'New') {
+          return {
+            payload: {
+              Summary: { TotalOfferCount: 2, LowestPrices: [{ condition: 'new', LandedPrice: { Amount: 1500 } }], BuyBoxPrices: [] },
+              Offers: [
+                { ListingPrice: { Amount: 1500 }, Shipping: { Amount: 0 }, IsBuyBoxWinner: true, SubCondition: 'New' },
+                { ListingPrice: { Amount: 1800 }, Shipping: { Amount: 0 }, IsBuyBoxWinner: false, SubCondition: 'New' },
+              ],
+            },
+          };
+        }
+        return {
+          payload: {
+            Summary: { TotalOfferCount: 1, LowestPrices: [{ condition: 'used', LandedPrice: { Amount: 1000 } }], BuyBoxPrices: [] },
+            Offers: [{ ListingPrice: { Amount: 900 }, Shipping: { Amount: 100 }, IsBuyBoxWinner: false, SubCondition: 'VeryGood' }],
+          },
+        };
+      };
+
+      let receivedItems = null;
+      pricing.getMyFeesEstimatesBatch = async (items) => {
+        receivedItems = items;
+        // 実応答はトップレベルが素の配列(各要素がFeesEstimateResult)
+        return items.map((item) => ({
+          FeesEstimateResult: { FeesEstimate: { TotalFeesEstimate: { Amount: item.price === 1500 ? 305 : 260 } } },
+        }));
+      };
+
+      t.after(() => {
+        pricing.searchCatalogItems = originalSearchCatalogItems;
+        pricing.getItemOffers = originalGetItemOffers;
+        pricing.getMyFeesEstimatesBatch = originalGetFees;
+        routes.searchCache.clear();
+      });
+
+      const req = { query: { code: '9784471103644' }, headers: {} };
+      const res = createMockRes();
+      const route = routes.match('GET', '/api/search');
+      await route.handler(req, res);
+
+      assert.equal(res.body.source, 'spapi');
+      // new/usedのlanded最安1件ずつ、計2件のみを見積り対象にする
+      assert.equal(receivedItems.length, 2);
+      assert.equal(receivedItems[0].price, 1500); // new最安(1500 < 1800)
+      assert.equal(receivedItems[1].price, 1000); // used最安(900+100)
+      assert.equal(res.body.profitInputs.breakEven.new, 1195); // 1500-305
+      assert.equal(res.body.profitInputs.breakEven.used, 740); // 1000-260
+    }
+  );
+});
+
+test('/api/search: spapi経路でnew/usedともオファー0件ならprofitInputs.breakEvenはnullで、手数料APIを呼ばない', async (t) => {
+  await withEnv(
+    {
+      LWA_CLIENT_ID: 'client-id',
+      LWA_CLIENT_SECRET: 'client-secret',
+      LWA_REFRESH_TOKEN: 'refresh-token',
+    },
+    async () => {
+      const routes = freshRoutes();
+      const pricing = require('../src/spapi/pricing');
+
+      const originalSearchCatalogItems = pricing.searchCatalogItems;
+      const originalGetItemOffers = pricing.getItemOffers;
+      const originalGetFees = pricing.getMyFeesEstimatesBatch;
+
+      pricing.searchCatalogItems = async () => ({
+        items: [{ asin: 'B00SPAPITEST4', summaries: [{ itemName: 'SP-APIの本' }], images: [], salesRanks: [] }],
+      });
+      pricing.getItemOffers = async () => ({
+        payload: { Summary: { TotalOfferCount: 0, LowestPrices: [], BuyBoxPrices: [] }, Offers: [] },
+      });
+      let feesCalled = false;
+      pricing.getMyFeesEstimatesBatch = async () => {
+        feesCalled = true;
+        return [];
+      };
+
+      t.after(() => {
+        pricing.searchCatalogItems = originalSearchCatalogItems;
+        pricing.getItemOffers = originalGetItemOffers;
+        pricing.getMyFeesEstimatesBatch = originalGetFees;
+        routes.searchCache.clear();
+      });
+
+      const req = { query: { code: '9784471103644' }, headers: {} };
+      const res = createMockRes();
+      const route = routes.match('GET', '/api/search');
+      await route.handler(req, res);
+
+      assert.equal(res.body.source, 'spapi');
+      assert.equal(res.body.profitInputs.breakEven.new, null);
+      assert.equal(res.body.profitInputs.breakEven.used, null);
+      assert.equal(feesCalled, false);
+    }
+  );
+});
+
+test('/api/search: spapi経路でgetMyFeesEstimatesBatchが例外を投げてもprofitInputsは壊れず書籍フォールバック(15%+80円)で算出する', async (t) => {
+  await withEnv(
+    {
+      LWA_CLIENT_ID: 'client-id',
+      LWA_CLIENT_SECRET: 'client-secret',
+      LWA_REFRESH_TOKEN: 'refresh-token',
+    },
+    async () => {
+      const routes = freshRoutes();
+      const pricing = require('../src/spapi/pricing');
+
+      const originalSearchCatalogItems = pricing.searchCatalogItems;
+      const originalGetItemOffers = pricing.getItemOffers;
+      const originalGetFees = pricing.getMyFeesEstimatesBatch;
+
+      pricing.searchCatalogItems = async () => ({
+        items: [{ asin: 'B00SPAPITEST5', summaries: [{ itemName: 'SP-APIの本' }], images: [], salesRanks: [] }],
+      });
+      pricing.getItemOffers = async (asin, condition) => {
+        if (condition === 'New') {
+          return {
+            payload: {
+              Summary: { TotalOfferCount: 1, LowestPrices: [{ condition: 'new', LandedPrice: { Amount: 1500 } }], BuyBoxPrices: [] },
+              Offers: [{ ListingPrice: { Amount: 1500 }, Shipping: { Amount: 0 }, IsBuyBoxWinner: true, SubCondition: 'New' }],
+            },
+          };
+        }
+        return { payload: { Summary: { TotalOfferCount: 0, LowestPrices: [], BuyBoxPrices: [] }, Offers: [] } };
+      };
+      pricing.getMyFeesEstimatesBatch = async () => {
+        throw new Error('fees_estimate_boom');
+      };
+
+      t.after(() => {
+        pricing.searchCatalogItems = originalSearchCatalogItems;
+        pricing.getItemOffers = originalGetItemOffers;
+        pricing.getMyFeesEstimatesBatch = originalGetFees;
+        routes.searchCache.clear();
+      });
+
+      const req = { query: { code: '9784471103644' }, headers: {} };
+      const res = createMockRes();
+      const route = routes.match('GET', '/api/search');
+      await route.handler(req, res);
+
+      assert.equal(res.body.source, 'spapi');
+      assert.equal(res.body.profitInputs.breakEven.new, 1195); // 1500-(round(1500*0.15)+80)
+      assert.equal(res.body.profitInputs.breakEven.used, null);
     }
   );
 });
@@ -560,13 +734,10 @@ test('/api/offers: source=keepaで統一契約(source/referencePrice/newCount/us
     assert.equal(res.body.usedCount, 1);
     assert.equal(res.body.new[0].price, 1500);
     assert.equal(res.body.new[0].condition, 'new');
-    // computeKeepaBreakEven共通化前後で出力が変わらないことの回帰確認
-    // (referralFeePercent/fbaFees未設定のため書籍フォールバック15%+80円): 1500-(round(1500*0.15)+80)=1195
-    assert.equal(res.body.new[0].breakEven, 1195);
+    assert.equal(res.body.new[0].breakEven, undefined);
     assert.equal(res.body.used[0].condition, 'good');
     assert.equal(res.body.used[0].landed, 1550);
-    // 1550-(round(1550*0.15)+80)=1550-313=1237
-    assert.equal(res.body.used[0].breakEven, 1237);
+    assert.equal(res.body.used[0].breakEven, undefined);
 
     t.after(() => {
       routes.offersCache.clear();
@@ -611,11 +782,8 @@ test('/api/offers: source=keepaで個別オファーが空でもstats.currentの
     assert.equal(res.body.new[0].condition, 'new');
     assert.equal(res.body.used[0].price, 2898);
     assert.equal(res.body.used[0].condition, 'used');
-    // computeKeepaBreakEven共通化前後で出力が変わらないことの回帰確認(書籍フォールバック15%+80円)
-    // 7318-(round(7318*0.15)+80)=7318-1178=6140
-    assert.equal(res.body.new[0].breakEven, 6140);
-    // 2898-(round(2898*0.15)+80)=2898-515=2383
-    assert.equal(res.body.used[0].breakEven, 2383);
+    assert.equal(res.body.new[0].breakEven, undefined);
+    assert.equal(res.body.used[0].breakEven, undefined);
 
     t.after(() => {
       routes.offersCache.clear();
@@ -623,7 +791,7 @@ test('/api/offers: source=keepaで個別オファーが空でもstats.currentの
   });
 });
 
-test('/api/offers: source省略時(spapi既定)は既存のbreakEvenロジックを維持しつつcondition文字列に変換する', async (t) => {
+test('/api/offers: source省略時(spapi既定)はcondition文字列に変換し、オファーDTOにbreakEvenを含まない', async (t) => {
   await withEnv(
     {
       LWA_CLIENT_ID: 'client-id',
@@ -635,7 +803,6 @@ test('/api/offers: source省略時(spapi既定)は既存のbreakEvenロジック
       const pricing = require('../src/spapi/pricing');
 
       const originalGetItemOffers = pricing.getItemOffers;
-      const originalGetFees = pricing.getMyFeesEstimatesBatch;
 
       pricing.getItemOffers = async (asin, condition) => {
         if (condition === 'New') {
@@ -655,11 +822,9 @@ test('/api/offers: source省略時(spapi既定)は既存のbreakEvenロジック
           },
         };
       };
-      pricing.getMyFeesEstimatesBatch = async () => null; // フォールバック手数料を使わせる
 
       t.after(() => {
         pricing.getItemOffers = originalGetItemOffers;
-        pricing.getMyFeesEstimatesBatch = originalGetFees;
         routes.offersCache.clear();
       });
 
@@ -673,10 +838,8 @@ test('/api/offers: source省略時(spapi既定)は既存のbreakEvenロジック
       assert.equal(res.body.usedCount, 1);
       assert.equal(res.body.new[0].condition, 'new');
       assert.equal(res.body.used[0].condition, 'very_good');
-      // フォールバック手数料(15%+80円)でbreakEvenが計算されていること
-      const expectedFallbackFee = Math.round(1200 * 0.15) + 80;
-      const expectedBreakEven = Math.round((1200 - expectedFallbackFee) * 100) / 100;
-      assert.equal(res.body.used[0].breakEven, expectedBreakEven);
+      assert.equal(res.body.new[0].breakEven, undefined);
+      assert.equal(res.body.used[0].breakEven, undefined);
     }
   );
 });

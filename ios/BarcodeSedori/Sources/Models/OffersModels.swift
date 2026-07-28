@@ -11,9 +11,6 @@ struct Offer: Codable, Equatable, Identifiable {
     /// Amazon本体の在庫か(サーバーがセラーIDで判定)。旧サーバーではキーが無いためnil。
     let isAmazon: Bool?
     let sameCount: Int?
-    /// 損益分岐点。サーバー(Keepa経路)は小数(例: 5822.3)で返すためDoubleで受ける。
-    /// Int?にすると小数のデコードに失敗し、オファー全体のデコードが落ちてstage-2が表示されなくなる。
-    let breakEven: Double?
 
     // レスポンスにIDは無いため、内容から安定した合成IDを作る
     var id: String {
@@ -25,13 +22,11 @@ struct Offer: Codable, Equatable, Identifiable {
             String(isBuyBox ?? false),
             String(isAmazon ?? false),
             String(sameCount ?? -1),
-            String(breakEven ?? -1)  // Double。id用途のため書式は問わない
-
         ].joined(separator: "|")
     }
 
     enum CodingKeys: String, CodingKey {
-        case condition, price, shipping, landed, isBuyBox, isAmazon, sameCount, breakEven
+        case condition, price, shipping, landed, isBuyBox, isAmazon, sameCount
     }
 }
 
@@ -41,7 +36,7 @@ struct Offer: Codable, Equatable, Identifiable {
 ///   "source": "keepa",
 ///   "referencePrice": 1700,
 ///   "newCount": 6, "usedCount": 6,
-///   "new":  [ {"price":1500,"shipping":0,"landed":1500,"condition":"new","isBuyBox":false,"breakEven":1230} ],
+///   "new":  [ {"price":1500,"shipping":0,"landed":1500,"condition":"new","isBuyBox":false} ],
 ///   "used": [ {"price":1200,"shipping":350,"landed":1550,"condition":"good"} ]
 /// }
 struct OffersResult: Codable, Equatable {

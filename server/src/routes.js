@@ -421,8 +421,8 @@ async function handleSearchViaSpApi(req, res, code, credentials, cacheKey) {
 
     // SP-APIは第1段階でオファーを取得済みのため、第2段階を待たずにオファー一覧も同梱する
     // (アプリはsource=spapi時は/api/offersを呼ばない=2段階ロード廃止)。
-    const offers = await buildSpApiOffersPayload(asin, newSummary, usedSummary, credentials);
-    const profitInputs = buildProfitInputs(newSummary, usedSummary, offers, listPrice);
+    const offers = buildSpApiOffersPayload(newSummary, usedSummary);
+    const profitInputs = await buildProfitInputs(asin, newSummary, usedSummary, offers, listPrice, credentials);
 
     const responseBody = {
       codeType: converted.codeType,
@@ -612,50 +612,17 @@ function subConditionToString(subCondition) {
 
 /**
  * spapi: 取得済みのnew/used summaryから /api/offers 契約のオファー本体を組み立てる。
- * (手数料バッチ見積り + breakEven算出)。第1段階完結(handleSearchViaSpApi)と
- * /api/offersエンドポイント(buildOffersResponseViaSpApi)の両方から使う共通ヘルパー。
+ * 第1段階完結(handleSearchViaSpApi)と/api/offersエンドポイント
+ * (buildOffersResponseViaSpApi)の両方から使う共通ヘルパー。
  * @returns {{referencePrice: number|null, newCount: number, usedCount: number, new: object[], used: object[]}}
  */
-async function buildSpApiOffersPayload(asin, newSummary, usedSummary, credentials) {
+function buildSpApiOffersPayload(newSummary, usedSummary) {
   const allOffers = [
     ...newSummary.offers.map((o) => ({ ...o, _bucket: 'new' })),
     ...usedSummary.offers.map((o) => ({ ...o, _bucket: 'used' })),
   ];
 
-  // 手数料バッチ見積り(各オファー価格ごと)
-  let feesResp = null;
-  if (allOffers.length) {
-    try {
-      feesResp = await pricing.getMyFeesEstimatesBatch(
-        allOffers.map((o) => ({ asin, price: o.landed, identifier: asin })),
-        credentials
-      );
-    } catch (err) {
-      feesResp = null; // フォールバック計算へ
-    }
-  }
-
-  // getMyFeesEstimatesの200応答はトップレベルが素の配列(各要素がFeesEstimateResult)。
-  // payloadで包まれる形は旧実装が想定していた誤りだが、防御的に両対応を残す。
-  const feesList = Array.isArray(feesResp) ? feesResp : (feesResp && feesResp.payload) || [];
-
-  function feeForIndex(index, landed) {
-    const entry = feesList[index];
-    const feesEstimate =
-      (entry &&
-        entry.FeesEstimateResult &&
-        entry.FeesEstimateResult.FeesEstimate &&
-        entry.FeesEstimateResult.FeesEstimate.TotalFeesEstimate) ||
-      (entry && entry.FeesEstimate && entry.FeesEstimate.TotalFeesEstimate);
-    if (feesEstimate && typeof feesEstimate.Amount === 'number') {
-      return feesEstimate.Amount;
-    }
-    return pricing.fallbackFees(landed);
-  }
-
-  function toOfferDto(o, index) {
-    const totalFees = feeForIndex(index, o.landed);
-    const breakEven = Math.round((o.landed - totalFees) * 100) / 100;
+  function toOfferDto(o) {
     return {
       price: o.price,
       shipping: o.shipping,
@@ -664,14 +631,13 @@ async function buildSpApiOffersPayload(asin, newSummary, usedSummary, credential
       isBuyBox: o.isBuyBox,
       // Amazon本体の在庫か(アプリで「新品(Ama)」と表示して区別する)。
       isAmazon: o.sellerId === AMAZON_JP_SELLER_ID,
-      breakEven,
     };
   }
 
   const newDtos = [];
   const usedDtos = [];
-  allOffers.forEach((o, index) => {
-    const dto = toOfferDto(o, index);
+  allOffers.forEach((o) => {
+    const dto = toOfferDto(o);
     if (o._bucket === 'new') newDtos.push(dto);
     else usedDtos.push(dto);
   });
@@ -689,34 +655,71 @@ async function buildSpApiOffersPayload(asin, newSummary, usedSummary, credential
 }
 
 /**
- * offersPayload(new/used各配列、要素にlanded/breakEven)からlanded最安のオファーのbreakEvenを取り出す。
+ * offersPayload(new/used各配列、要素にlanded)からlanded最安のオファーを取り出す。
  * オファー0件はnull。
  */
-function pickCheapestBreakEven(dtos) {
+function pickCheapestOffer(dtos) {
   if (!dtos || !dtos.length) return null;
-  const cheapest = dtos.reduce((min, o) => (o.landed < min.landed ? o : min), dtos[0]);
-  return cheapest.breakEven;
+  return dtos.reduce((min, o) => (o.landed < min.landed ? o : min), dtos[0]);
 }
 
 /**
  * spapi経路: /api/search の profitInputs を組み立てる。
  * listPriceはCatalog Items APIのattributes.list_price(税抜)を税込換算した値
- * (extractListPriceJpy)。取得できない商品はnull。sellerCountsはSummary.TotalOfferCount、
- * breakEvenは既に組み立て済みのoffersPayload(buildSpApiOffersPayload)を再利用し、
- * 手数料計算を二重実装しない(landed最安のオファーのbreakEvenを採用)。
+ * (extractListPriceJpy)。取得できない商品はnull。sellerCountsはSummary.TotalOfferCount。
+ * breakEvenは利益アラート(ProfitAlertEvaluator)の粗利判定にのみ使う値のため、
+ * new/usedそれぞれのlanded最安オファー(offersPayload)を対象にここで手数料見積りを取り算出する。
+ * 手数料見積りAPIが失敗してもprofitInputs全体が壊れないよう、失敗時は書籍フォールバック料率
+ * (pricing.fallbackFees)で近似する。
  */
-function buildProfitInputs(newSummary, usedSummary, offersPayload, listPrice) {
-  return {
-    listPrice: listPrice != null ? listPrice : null,
-    sellerCounts: {
-      new: newSummary.totalOfferCount,
-      used: usedSummary.totalOfferCount,
-    },
-    breakEven: {
-      new: pickCheapestBreakEven(offersPayload.new),
-      used: pickCheapestBreakEven(offersPayload.used),
-    },
+async function buildProfitInputs(asin, newSummary, usedSummary, offersPayload, listPrice, credentials) {
+  const cheapestNew = pickCheapestOffer(offersPayload.new);
+  const cheapestUsed = pickCheapestOffer(offersPayload.used);
+
+  const sellerCounts = {
+    new: newSummary.totalOfferCount,
+    used: usedSummary.totalOfferCount,
   };
+  const resolvedListPrice = listPrice != null ? listPrice : null;
+
+  const targets = [];
+  if (cheapestNew) targets.push({ key: 'new', landed: cheapestNew.landed });
+  if (cheapestUsed) targets.push({ key: 'used', landed: cheapestUsed.landed });
+
+  const breakEven = { new: null, used: null };
+  if (!targets.length) {
+    return { listPrice: resolvedListPrice, sellerCounts, breakEven };
+  }
+
+  let feesList = null;
+  try {
+    const feesResp = await pricing.getMyFeesEstimatesBatch(
+      targets.map((t) => ({ asin, price: t.landed, identifier: t.key })),
+      credentials
+    );
+    // getMyFeesEstimatesの200応答はトップレベルが素の配列(各要素がFeesEstimateResult)。
+    // payloadで包まれる形は旧実装が想定していた誤りだが、防御的に両対応を残す。
+    feesList = Array.isArray(feesResp) ? feesResp : (feesResp && feesResp.payload) || [];
+  } catch (err) {
+    feesList = null; // 全ターゲットともフォールバック計算へ
+  }
+
+  targets.forEach((t, index) => {
+    const entry = feesList ? feesList[index] : null;
+    const feesEstimate =
+      (entry &&
+        entry.FeesEstimateResult &&
+        entry.FeesEstimateResult.FeesEstimate &&
+        entry.FeesEstimateResult.FeesEstimate.TotalFeesEstimate) ||
+      (entry && entry.FeesEstimate && entry.FeesEstimate.TotalFeesEstimate);
+    const totalFees =
+      feesEstimate && typeof feesEstimate.Amount === 'number'
+        ? feesEstimate.Amount
+        : pricing.fallbackFees(t.landed);
+    breakEven[t.key] = Math.round((t.landed - totalFees) * 100) / 100;
+  });
+
+  return { listPrice: resolvedListPrice, sellerCounts, breakEven };
 }
 
 /**
@@ -729,14 +732,12 @@ async function buildOffersResponseViaSpApi(asin, credentials) {
   ]);
   const newSummary = pricing.extractOffersSummary(newOffersResp, 'New');
   const usedSummary = pricing.extractOffersSummary(usedOffersResp, 'Used');
-  const payload = await buildSpApiOffersPayload(asin, newSummary, usedSummary, credentials);
+  const payload = buildSpApiOffersPayload(newSummary, usedSummary);
   return { source: 'spapi', ...payload };
 }
 
 /**
  * keepa経路: getProduct(offers=20)結果を /api/offers 統一契約にマッピングする。
- * breakEvenはKeepaの手数料情報(referralFeePercent/fbaFees.pickAndPackFee)が取得できればそれを使い、
- * 取得できなければ書籍フォールバック(15%+80円、pricing.fallbackFeesと同じ料率)で近似する。
  */
 async function buildOffersResponseViaKeepa(asin) {
   const { product } = await keepa.getProduct({ asin, offers: 20 });
@@ -749,7 +750,6 @@ async function buildOffersResponseViaKeepa(asin) {
       landed: o.landed,
       condition: o.condition,
       isBuyBox: o.isBuyBox,
-      breakEven: computeKeepaBreakEven(product, o.landed),
     };
   }
 
@@ -770,7 +770,6 @@ async function buildOffersResponseViaKeepa(asin) {
       landed: price,
       condition,
       isBuyBox: false,
-      breakEven: computeKeepaBreakEven(product, price),
     };
   }
   const finalNew = newDtos.length ? newDtos : statsNew != null ? [statsOffer(statsNew, 'new')] : [];

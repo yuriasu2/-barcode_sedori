@@ -129,57 +129,38 @@ private struct OfferRow: View {
     let offer: Offer
 
     var body: some View {
-        HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    if offer.condition != nil {
-                        Text(offer.conditionDisplayName)
-                            .font(.caption2)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color(.secondarySystemBackground))
-                            .cornerRadius(4)
-                    }
-                    if offer.isBuyBox == true {
-                        Text("カート")
-                            .font(.caption2)
-                            .fontWeight(.bold)
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.orange)
-                            .cornerRadius(4)
-                    }
-                    if let sameCount = offer.sameCount, sameCount > 0 {
-                        Text("同(\(sameCount)件)")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color(.tertiarySystemFill))
-                            .cornerRadius(4)
-                    }
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                if offer.condition != nil {
+                    Text(offer.conditionDisplayName)
+                        .font(.caption2)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color(.secondarySystemBackground))
+                        .cornerRadius(4)
                 }
-
-                priceDetail
-            }
-
-            Spacer()
-
-            VStack(alignment: .trailing, spacing: 2) {
-                Text("損益分岐点")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                if let breakEven = offer.breakEven {
-                    Text("¥\(Int(breakEven.rounded()))")
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                        .foregroundColor(.blue)
-                } else {
-                    Text("-")
+                if offer.isBuyBox == true {
+                    Text("カート")
+                        .font(.caption2)
+                        .fontWeight(.bold)
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.orange)
+                        .cornerRadius(4)
+                }
+                if let sameCount = offer.sameCount, sameCount > 0 {
+                    Text("同(\(sameCount)件)")
+                        .font(.caption2)
                         .foregroundColor(.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color(.tertiarySystemFill))
+                        .cornerRadius(4)
                 }
             }
+
+            priceDetail
         }
         .padding(.vertical, 4)
     }
