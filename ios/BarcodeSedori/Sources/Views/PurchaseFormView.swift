@@ -582,13 +582,26 @@ struct PurchaseFormView: View {
         }
     }
 
-    /// 出品制限の1行表示。制限ありのときだけ商品セクションに出す
-    /// (制限なし・確認中・確認失敗は何も表示しない)。
+    /// 出品制限の1行表示。商品セクションに出す(Pro+SP-API未連携のunavailableのみ非表示)。
     /// 保存はブロックしない(制限があっても仕入れ登録は可能。出品時のブロックは一括出品側が担う)。
     @ViewBuilder
     private var restrictionRow: some View {
-        if case .restricted(_, let approvalUrl) = viewModel.restrictionState {
-            HStack(spacing: 8) {
+        switch viewModel.restrictionState {
+        case .unavailable:
+            EmptyView()
+        case .checking:
+            restrictionLine {
+                ProgressView()
+                    .scaleEffect(0.8)
+                Text("出品制限を確認中…")
+                    .foregroundColor(.secondary)
+            }
+        case .allowed:
+            restrictionLine {
+                Text("✅出品可能です")
+            }
+        case .restricted(_, let approvalUrl):
+            restrictionLine {
                 Text("⚠️出品制限により出品不可")
                     .foregroundColor(.orange)
                 Spacer()
@@ -596,10 +609,26 @@ struct PurchaseFormView: View {
                     Link("許可を申請", destination: url)
                 }
             }
-            .font(.footnote)
-            .lineLimit(1)
-            .minimumScaleFactor(0.8)
+        case .failed:
+            restrictionLine {
+                Text("⚠️出品制限を確認できませんでした")
+                    .foregroundColor(.secondary)
+                Spacer()
+                Button("再確認") {
+                    viewModel.retryRestrictionCheck()
+                }
+            }
         }
+    }
+
+    /// 出品制限の1行に共通の体裁(1行に収める・小さめの文字)。
+    private func restrictionLine<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        HStack(spacing: 8) {
+            content()
+        }
+        .font(.footnote)
+        .lineLimit(1)
+        .minimumScaleFactor(0.8)
     }
 
     /// 利益セクション: 出品価格・配送料(黒=入る)/ 仕入れ価格・手数料・発送費用(赤=出る)/
