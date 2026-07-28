@@ -246,6 +246,17 @@ struct SearchTabView: View {
 
     /// Pro/無料で共通の中身(カメラ・モード切替・結果カード・オファーパネル)。
     /// 検索バーは固定ヘッダーとして body 側に置くためここには含めない。
+    /// カメラセッションを動かすか。検索タブ表示中でも、前面にシートが出ている間や
+    /// 商品詳細へ遷移している間は止める
+    /// (カメラが見えていない時にバッテリーと発熱を消費しないため)。
+    private var isScannerActive: Bool {
+        isActive
+            && purchaseFormDraft == nil
+            && browserTarget == nil
+            && selectedResult == nil
+            && !showPaywall
+    }
+
     @ViewBuilder
     private var topContent: some View {
         ScannerView(
@@ -264,7 +275,7 @@ struct SearchTabView: View {
                 }
             },
             isOCRMode: viewModel.scanMode.isOCRMode,
-            isActive: isActive,
+            isActive: isScannerActive,
             emitCooldown: entitlements.isPro ? 1.0 : 5.0
         )
         .frame(maxWidth: .infinity)
