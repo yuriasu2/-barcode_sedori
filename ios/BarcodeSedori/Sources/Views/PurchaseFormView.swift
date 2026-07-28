@@ -505,12 +505,6 @@ struct PurchaseFormView: View {
             restrictionSection
 
             Section("出品内容") {
-                Picker("コンディション", selection: $viewModel.condition) {
-                    ForEach(ListingConditionType.allCases) { condition in
-                        Text(condition.displayName).tag(condition)
-                    }
-                }
-
                 HStack {
                     Text("出品価格(円)")
                     Spacer()
@@ -520,6 +514,17 @@ struct PurchaseFormView: View {
                         .frame(width: 120)
                         .focused($focusedField, equals: .price)
                 }
+
+                Picker("コンディション", selection: $viewModel.condition) {
+                    ForEach(ListingConditionType.allCases) { condition in
+                        Text(condition.displayName).tag(condition)
+                    }
+                }
+
+                // コンディション説明。設定タブのテンプレートを自動適用し、この商品だけ個別に編集できる。
+                TextField("コンディション説明", text: $viewModel.conditionNote, axis: .vertical)
+                    .lineLimit(1...6)
+                    .focused($focusedField, equals: .conditionNote)
 
                 HStack {
                     Text("SKU")
@@ -540,15 +545,6 @@ struct PurchaseFormView: View {
             profitSection
 
             purchaseInfoSection
-
-            Section("コンディション説明") {
-                TextEditor(text: $viewModel.conditionNote)
-                    .frame(minHeight: 100)
-                    .focused($focusedField, equals: .conditionNote)
-                Text("設定タブの「出品説明文テンプレート」を自動適用しています。この商品だけ個別に編集できます。")
-                    .font(.footnote)
-                    .foregroundColor(.secondary)
-            }
         }
         .navigationTitle("仕入れ内容")
         .navigationBarTitleDisplayMode(.inline)
