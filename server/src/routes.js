@@ -990,7 +990,15 @@ function parsePositiveIntQuery(raw) {
   return n > 0 ? n : null;
 }
 
-// GET /api/fees-estimate?asin=&price=&fba=1|0 — 手数料見積り(Pro+BYOトークン必須)
+// shipping クエリ(円)を検証する。0以上の整数文字列のみ許可(小数・負数・非数値は不正)。
+function parseNonNegativeIntQuery(raw) {
+  if (raw === undefined || raw === null) return null;
+  const str = String(raw).trim();
+  if (!/^\d+$/.test(str)) return null;
+  return parseInt(str, 10);
+}
+
+// GET /api/fees-estimate?asin=&price=&shipping=&fba=1|0 — 手数料見積り(Pro+BYOトークン必須)
 //
 // 入力バリデーションを先に行い、その後にゲートを通す(/api/listings/restrictionsと同じ理由:
 // サーバー側のLWA_CLIENT_ID/LWA_CLIENT_SECRET未設定時に400を503化させないため)。
@@ -1004,6 +1012,12 @@ router.get('/api/fees-estimate', async (req, res) => {
   if (price == null) {
     return res.status(400).json({ error: 'invalid_request', message: 'priceは1以上の整数(円)で指定してください' });
   }
+  const shippingRaw = req.query.shipping;
+  const shipping =
+    shippingRaw === undefined || shippingRaw === null || shippingRaw === '' ? 0 : parseNonNegativeIntQuery(shippingRaw);
+  if (shipping == null) {
+    return res.status(400).json({ error: 'invalid_request', message: 'shippingは0以上の整数(円)で指定してください' });
+  }
   const fbaRaw = req.query.fba === undefined || req.query.fba === null || req.query.fba === '' ? '0' : String(req.query.fba);
   if (fbaRaw !== '0' && fbaRaw !== '1') {
     return res.status(400).json({ error: 'invalid_request', message: 'fbaは1または0で指定してください' });
@@ -1015,7 +1029,7 @@ router.get('/api/fees-estimate', async (req, res) => {
 
   try {
     const feesResp = await pricing.getMyFeesEstimatesBatch(
-      [{ asin, price, identifier: asin, isAmazonFulfilled: fba }],
+      [{ asin, price, identifier: asin, isAmazonFulfilled: fba, shipping }],
       credentials
     );
     const feesEstimate = extractFeesEstimate(feesResp);

@@ -198,14 +198,17 @@ final class APIClient {
         return try await perform(request, as: ListingRestrictionsResult.self)
     }
 
-    /// GET /api/fees-estimate?asin=&price=&fba=(1|0)
+    /// GET /api/fees-estimate?asin=&price=&fba=(1|0)&shipping=
     /// 仕入れフォームの利益セクションが使う手数料見積り(Pro+SP-API連携必須。サーバー側403ゲートあり)。
     /// fbaはIsAmazonFulfilledに連動する(true=FBA手数料込み、false=自己発送)。
-    func feesEstimate(asin: String, price: Int, fba: Bool) async throws -> FeesEstimateResult {
+    /// shippingは購入者が支払う配送料(円。0以上の整数)。Amazonの販売手数料は
+    /// 「出品価格+配送料」に対して課されるため、手数料計算の基礎として渡す。
+    func feesEstimate(asin: String, price: Int, fba: Bool, shipping: Int) async throws -> FeesEstimateResult {
         let request = try makeRequest(path: "/api/fees-estimate", queryItems: [
             URLQueryItem(name: "asin", value: asin),
             URLQueryItem(name: "price", value: String(price)),
             URLQueryItem(name: "fba", value: fba ? "1" : "0"),
+            URLQueryItem(name: "shipping", value: String(shipping)),
         ])
         return try await perform(request, as: FeesEstimateResult.self)
     }

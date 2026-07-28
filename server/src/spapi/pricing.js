@@ -54,25 +54,32 @@ async function searchCatalogItems(identifier, credentials) {
 
 /**
  * getMyFeesEstimates をバッチ呼び出しする。
- * @param {Array<{asin: string, price: number, identifier: string, isAmazonFulfilled?: boolean}>} items
+ * @param {Array<{asin: string, price: number, identifier: string, isAmazonFulfilled?: boolean, shipping?: number}>} items
  *   isAmazonFulfilled未指定の項目は従来通りtrue扱い(既存呼び出し元の挙動を変えないため)。
+ *   shipping未指定(undefined/null)の項目はPriceToEstimateFeesにShippingキー自体を含めない(既存呼び出し元の挙動を変えないため)。
  * @param {{clientId?:string, clientSecret?:string, refreshToken?:string}} [credentials]
  *   未指定の場合は .env にフォールバックする。
  */
 async function getMyFeesEstimatesBatch(items, credentials) {
   const marketplaceId = getMarketplaceId();
-  const feesEstimateRequests = items.map((item) => ({
-    FeesEstimateRequest: {
-      MarketplaceId: marketplaceId,
-      IsAmazonFulfilled: item.isAmazonFulfilled != null ? item.isAmazonFulfilled : true,
-      PriceToEstimateFees: {
-        ListingPrice: { CurrencyCode: 'JPY', Amount: item.price },
+  const feesEstimateRequests = items.map((item) => {
+    const priceToEstimateFees = {
+      ListingPrice: { CurrencyCode: 'JPY', Amount: item.price },
+    };
+    if (item.shipping != null) {
+      priceToEstimateFees.Shipping = { CurrencyCode: 'JPY', Amount: item.shipping };
+    }
+    return {
+      FeesEstimateRequest: {
+        MarketplaceId: marketplaceId,
+        IsAmazonFulfilled: item.isAmazonFulfilled != null ? item.isAmazonFulfilled : true,
+        PriceToEstimateFees: priceToEstimateFees,
+        Identifier: item.identifier,
       },
-      Identifier: item.identifier,
-    },
-    IdType: 'ASIN',
-    IdValue: item.asin,
-  }));
+      IdType: 'ASIN',
+      IdValue: item.asin,
+    };
+  });
 
   // getMyFeesEstimatesのリクエストボディはトップレベルが素の配列
   // (FeesEstimateRequestListで包むとSP-APIが400 "Missing objects [PriceToEstimateFees]" を返す。

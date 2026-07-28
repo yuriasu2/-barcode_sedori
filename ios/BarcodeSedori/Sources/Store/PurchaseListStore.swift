@@ -116,7 +116,7 @@ final class PurchaseListStore: ObservableObject {
     }
 
     /// 仕入れフォーム(PurchaseFormView)での編集保存用。コンディション・価格・数量・
-    /// コンディション説明文・SKUに加え、FBA利用・仕入れ価格・配送料・仕入れ日・仕入先・メモを
+    /// コンディション説明文・SKUに加え、FBA利用・仕入れ価格・発送費用・配送料・仕入れ日・仕入先・メモを
     /// まとめて上書きする(新規追加時はadd(_:)を使う)。
     /// 追加分の引数は既定nilのため、旧来どおり出品内容のみ渡す呼び出しでも動作する。
     func update(
@@ -129,6 +129,7 @@ final class PurchaseListStore: ObservableObject {
         useFba: Bool? = nil,
         purchasePrice: Int? = nil,
         shippingCost: Int? = nil,
+        shippingIncome: Int? = nil,
         purchaseDate: Date? = nil,
         supplier: String? = nil,
         memo: String? = nil
@@ -142,6 +143,7 @@ final class PurchaseListStore: ObservableObject {
         items[index].useFba = useFba
         items[index].purchasePrice = purchasePrice
         items[index].shippingCost = shippingCost
+        items[index].shippingIncome = shippingIncome
         items[index].purchaseDate = purchaseDate
         items[index].supplier = supplier
         items[index].memo = memo

@@ -47,8 +47,12 @@ struct PurchaseListItem: Codable, Equatable, Identifiable {
     /// 仕入れ価格(円)。未保存(旧データ含む)はnil。利益セクションの入力値で、priceとは別枠
     /// (priceは出品価格)。
     var purchasePrice: Int?
-    /// 配送料(円)。未保存(旧データ含む)はnil(利益セクション表示時は設定の配送料デフォルトを使う)。
+    /// 発送費用(円)。自分が実際に払う発送コスト。未保存(旧データ含む)はnil
+    /// (利益セクション表示時は設定の発送費用デフォルトを使う)。
     var shippingCost: Int?
+    /// 配送料(円)。購入者が支払い自分に入金される額。未保存(旧データ含む)はnil
+    /// (利益セクション表示時は設定の配送料デフォルトを使う)。
+    var shippingIncome: Int?
     /// 仕入れ日。未保存(旧データ含む)はnil=addedAt(追加日)を仕入れ日として扱う。
     var purchaseDate: Date?
     /// 仕入先名(自由文字列。設定タブの仕入先リストから選ぶが、リストから削除されても保存値は残る)。
@@ -79,6 +83,7 @@ struct PurchaseListItem: Codable, Equatable, Identifiable {
         useFba: Bool? = nil,
         purchasePrice: Int? = nil,
         shippingCost: Int? = nil,
+        shippingIncome: Int? = nil,
         purchaseDate: Date? = nil,
         supplier: String? = nil,
         memo: String? = nil
@@ -105,6 +110,7 @@ struct PurchaseListItem: Codable, Equatable, Identifiable {
         self.useFba = useFba
         self.purchasePrice = purchasePrice
         self.shippingCost = shippingCost
+        self.shippingIncome = shippingIncome
         self.purchaseDate = purchaseDate
         self.supplier = supplier
         self.memo = memo

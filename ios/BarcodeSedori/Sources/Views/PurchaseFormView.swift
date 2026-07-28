@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// 仕入れフォーム(仕入れフロー再設計)。出品フォーム(旧ListingFormView)と同じ項目構成
 /// (コンディション/価格/数量/SKU/説明文)を持つが、「出品する」ボタンは無く、保存(緑チェック)で
@@ -44,6 +45,14 @@ final class PurchaseFormViewModel: ObservableObject {
             scheduleFeesFetch()
         }
     }
+    /// 配送料(円)。購入者が支払い自分に入金される額。販売手数料の計算基礎(出品価格+配送料)に
+    /// 使うため、変更のたびに出品価格と同じデバウンスで手数料を取り直す。初期値は設定の
+    /// 配送料デフォルト(新規)/保存値(編集)。
+    @Published var shippingIncome: Int? {
+        didSet {
+            scheduleFeesFetch()
+        }
+    }
     @Published var quantity: Int {
         didSet {
             regenerateSkuIfNotEdited()
@@ -53,18 +62,21 @@ final class PurchaseFormViewModel: ObservableObject {
     @Published var conditionNote: String
 
     /// FBAを利用して出品するか。トグル切替のたびに手数料を取り直す(FBA手数料の有無が変わるため)。
-    /// FBA手数料(配送代行手数料)には購入者への配送料が含まれるため、ONで配送料を自動的に0にし、
-    /// OFFに戻したら設定の配送料デフォルトへ戻す(手入力での上書きは引き続き可能)。
+    /// FBAはAmazonが配送するため出品者に配送料収入が無く、購入者への発送費用も発生しない
+    /// (FBA倉庫への納品送料がある場合は発送費用に手入力してもらう)。そのためONで配送料・発送費用を
+    /// 自動的に0にし、OFFに戻したら設定の各デフォルトへ戻す(手入力での上書きは引き続き可能)。
     @Published var useFba: Bool {
         didSet {
             guard useFba != oldValue else { return }
-            shippingCost = useFba ? 0 : settings.purchaseShippingDefault
+            shippingIncome = useFba ? 0 : settings.purchaseShippingIncomeDefault
+            shippingCost = useFba ? 0 : settings.purchaseShippingCostDefault
             startFeesFetch()
         }
     }
     /// 仕入れ価格(円)。利益セクションの入力値。
     @Published var purchasePrice: Int?
-    /// 配送料(円)。利益セクションの入力値。初期値は設定の配送料デフォルト(新規)/保存値(編集)。
+    /// 発送費用(円)。自分が実際に払う発送コスト。利益セクションの入力値。
+    /// 初期値は設定の発送費用デフォルト(新規)/保存値(編集)。手数料の計算には影響しない。
     @Published var shippingCost: Int?
     /// 仕入れ日。既定は追加日。
     @Published var purchaseDate: Date
@@ -164,8 +176,9 @@ final class PurchaseFormViewModel: ObservableObject {
             self.lastAutoSku = generatedSku
             self.useFba = settings.purchaseUseFbaDefault
             self.purchasePrice = nil
-            // FBA時は配送料がFBA手数料(配送代行手数料)に含まれるため0で始める。
-            self.shippingCost = settings.purchaseUseFbaDefault ? 0 : settings.purchaseShippingDefault
+            // FBA時は配送料収入も発送費用も発生しないため0で始める。
+            self.shippingIncome = settings.purchaseUseFbaDefault ? 0 : settings.purchaseShippingIncomeDefault
+            self.shippingCost = settings.purchaseUseFbaDefault ? 0 : settings.purchaseShippingCostDefault
             self.purchaseDate = draft.addedAt
             // 前回選んだ仕入先。登録済みリストから削除されていれば「未選択」扱いにする。
             self.supplier = settings.purchaseLastSupplier.flatMap { settings.purchaseSuppliers.contains($0) ? $0 : nil }
@@ -184,9 +197,14 @@ final class PurchaseFormViewModel: ObservableObject {
             let generatedSku = numberedItem.sku ?? settings.listingSku(for: numberedItem)
             self.sku = generatedSku
             self.lastAutoSku = generatedSku
-            self.useFba = numberedItem.useFba ?? settings.purchaseUseFbaDefault
+            let initialUseFba = numberedItem.useFba ?? settings.purchaseUseFbaDefault
+            self.useFba = initialUseFba
             self.purchasePrice = numberedItem.purchasePrice
-            self.shippingCost = numberedItem.shippingCost ?? settings.purchaseShippingDefault
+            // 未保存(旧データ)は設定のデフォルトで補うが、FBAなら配送料・発送費用とも0とする。
+            self.shippingCost =
+                numberedItem.shippingCost ?? (initialUseFba ? 0 : settings.purchaseShippingCostDefault)
+            self.shippingIncome =
+                numberedItem.shippingIncome ?? (initialUseFba ? 0 : settings.purchaseShippingIncomeDefault)
             self.purchaseDate = numberedItem.purchaseDate ?? numberedItem.addedAt
             self.supplier = numberedItem.supplier
             self.memo = numberedItem.memo ?? ""
@@ -282,12 +300,12 @@ final class PurchaseFormViewModel: ObservableObject {
         }
     }
 
-    /// 粗利益 = 出品価格 − 仕入れ価格 − 手数料合計 − 配送料。
+    /// 粗利益 = 出品価格 + 配送料 − 仕入れ価格 − 手数料 − 発送費用。
     /// 出品価格・仕入れ価格が未入力、または手数料が未取得(idle/loading)の間は計算せずnilを返す
     /// (呼び出し側は「—」表示にする)。
     var grossProfit: Int? {
         guard let price, let purchasePrice, case .loaded(let display) = feesState else { return nil }
-        return price - purchasePrice - display.total - (shippingCost ?? 0)
+        return price + (shippingIncome ?? 0) - purchasePrice - display.total - (shippingCost ?? 0)
     }
 
     /// フォーム表示時・FBAトグル切替時に呼ぶ即時実行版(デバウンスしない)。
@@ -321,9 +339,11 @@ final class PurchaseFormViewModel: ObservableObject {
         let checkAsin = asin
         let checkPrice = price
         let checkFba = useFba
+        // 販売手数料の計算基礎は「出品価格+配送料」であって発送費用ではない。
+        let checkShipping = shippingIncome ?? 0
 
         guard entitlements.isPro && settings.isListingReady else {
-            feesState = .loaded(Self.estimateFeesDisplay(price: checkPrice, fba: checkFba))
+            feesState = .loaded(Self.estimateFeesDisplay(price: checkPrice, shipping: checkShipping, fba: checkFba))
             return
         }
 
@@ -331,7 +351,12 @@ final class PurchaseFormViewModel: ObservableObject {
         Task { [weak self] in
             guard let self else { return }
             do {
-                let result = try await self.apiClient.feesEstimate(asin: checkAsin, price: checkPrice, fba: checkFba)
+                let result = try await self.apiClient.feesEstimate(
+                    asin: checkAsin,
+                    price: checkPrice,
+                    fba: checkFba,
+                    shipping: checkShipping
+                )
                 guard sequence == self.feesCheckSequence else { return }
                 self.feesState = .loaded(FeesDisplay(
                     total: result.total,
@@ -342,16 +367,16 @@ final class PurchaseFormViewModel: ObservableObject {
             } catch {
                 // API失敗時も概算フォールバックに切り替える(「取得できません」で詰まらせない)。
                 guard sequence == self.feesCheckSequence else { return }
-                self.feesState = .loaded(Self.estimateFeesDisplay(price: checkPrice, fba: checkFba))
+                self.feesState = .loaded(Self.estimateFeesDisplay(price: checkPrice, shipping: checkShipping, fba: checkFba))
             }
         }
     }
 
-    /// アプリ内概算: 販売手数料15% + カテゴリ成約料80円 + 消費税(小計の10%)。
-    /// FBA手数料は実額取得(SP-API連携)でしか算出できないため、FBAトグルONのときは
-    /// 内訳に「連携が必要」の注記だけ出し、合計には含めない。
-    private static func estimateFeesDisplay(price: Int, fba: Bool) -> FeesDisplay {
-        let referral = Int((Double(price) * 0.15).rounded())
+    /// アプリ内概算: 販売手数料15%(出品価格+配送料が基礎) + カテゴリ成約料80円 +
+    /// 消費税(小計の10%)。FBA手数料は実額取得(SP-API連携)でしか算出できないため、
+    /// FBAトグルONのときは内訳に「連携が必要」の注記だけ出し、合計には含めない。
+    private static func estimateFeesDisplay(price: Int, shipping: Int, fba: Bool) -> FeesDisplay {
+        let referral = Int((Double(price + shipping) * 0.15).rounded())
         let closing = 80
         let tax = Int((Double(referral + closing) * 0.10).rounded())
         let breakdown: [FeesEstimateResult.FeeLine] = [
@@ -390,6 +415,7 @@ final class PurchaseFormViewModel: ObservableObject {
             itemToAdd.useFba = useFba
             itemToAdd.purchasePrice = purchasePrice
             itemToAdd.shippingCost = shippingCost
+            itemToAdd.shippingIncome = shippingIncome
             itemToAdd.purchaseDate = purchaseDate
             itemToAdd.supplier = supplier
             itemToAdd.memo = memoToSave
@@ -407,6 +433,7 @@ final class PurchaseFormViewModel: ObservableObject {
                 useFba: useFba,
                 purchasePrice: purchasePrice,
                 shippingCost: shippingCost,
+                shippingIncome: shippingIncome,
                 purchaseDate: purchaseDate,
                 supplier: supplier,
                 memo: memoToSave
@@ -419,14 +446,32 @@ struct PurchaseFormView: View {
     @StateObject private var viewModel: PurchaseFormViewModel
     @Environment(\.dismiss) private var dismiss
 
-    /// numberPadキーボードのTextFieldのフォーカス対象。キーボードツールバーの「完了」で
-    /// nilにしてフォーカスを外す(numberPadにはReturnキーが無いため。ListingFormViewと同方式)。
+    /// キーボードを表示するTextField/TextEditorのフォーカス対象。キーボードツールバーの「完了」で
+    /// nilにしてフォーカスを外す(numberPadにはReturnキーが無いため。ListingFormViewと同方式。
+    /// sku/memo/conditionNoteは通常キーボードだが、同じ「完了」ボタンで統一して閉じられるようにする)。
     private enum Field: Hashable {
         case price
+        case sku
         case purchasePrice
+        case shippingIncome
         case shippingCost
+        case memo
+        case conditionNote
     }
     @FocusState private var focusedField: Field?
+
+    /// キーボードを閉じる。複数行TextField(axis: .vertical)やTextEditorでは@FocusStateを
+    /// nilにするだけでは閉じない(日本語入力の変換中は特に残る)ため、
+    /// first responderの解除も併せて行う。
+    private func dismissKeyboard() {
+        focusedField = nil
+        UIApplication.shared.sendAction(
+            #selector(UIResponder.resignFirstResponder),
+            to: nil,
+            from: nil,
+            for: nil
+        )
+    }
 
     /// 金額表示の共通フォーマット(「¥1,234」形式)。
     private static let currencyFormatter: NumberFormatter = {
@@ -459,7 +504,7 @@ struct PurchaseFormView: View {
 
             restrictionSection
 
-            Section("仕入れ内容") {
+            Section("出品内容") {
                 Picker("コンディション", selection: $viewModel.condition) {
                     ForEach(ListingConditionType.allCases) { condition in
                         Text(condition.displayName).tag(condition)
@@ -484,6 +529,7 @@ struct PurchaseFormView: View {
                         .disableAutocorrection(true)
                         .multilineTextAlignment(.trailing)
                         .font(.caption)
+                        .focused($focusedField, equals: .sku)
                 }
 
                 Stepper("数量: \(viewModel.quantity)", value: $viewModel.quantity, in: 1...99)
@@ -498,6 +544,7 @@ struct PurchaseFormView: View {
             Section("コンディション説明") {
                 TextEditor(text: $viewModel.conditionNote)
                     .frame(minHeight: 100)
+                    .focused($focusedField, equals: .conditionNote)
                 Text("設定タブの「出品説明文テンプレート」を自動適用しています。この商品だけ個別に編集できます。")
                     .font(.footnote)
                     .foregroundColor(.secondary)
@@ -509,7 +556,7 @@ struct PurchaseFormView: View {
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()
-                Button("完了") { focusedField = nil }
+                Button("完了") { dismissKeyboard() }
             }
             ToolbarItem(placement: .cancellationAction) {
                 // キャンセル・スワイプ閉じは登録しない(saveを呼ばずに閉じるだけ)。
@@ -586,14 +633,29 @@ struct PurchaseFormView: View {
         }
     }
 
-    /// 利益セクション: 出品価格(表示のみ)/ 仕入れ価格・配送料(入力)/ 手数料(内訳展開)/ 粗利益。
-    /// 赤字=コスト、青字太字=粗利益(設計書の色分けに合わせる)。
+    /// 利益セクション: 出品価格・配送料(黒=入る)/ 仕入れ価格・手数料・発送費用(赤=出る)/
+    /// 粗利益(青太字=結果)。出品価格は表示のみ、配送料・仕入れ価格・発送費用は入力可。
+    /// 粗利益 = 出品価格 + 配送料 − 仕入れ価格 − 手数料 − 発送費用。
     private var profitSection: some View {
         Section("利益") {
             HStack {
                 Text("出品価格")
                 Spacer()
                 Text(viewModel.price.map(Self.currencyText) ?? "—")
+            }
+
+            // FBAでは購入者の配送料をAmazonが受け取るため、出品者の収入にならない。
+            // 常に0とし入力も受け付けない(値を入れると手数料の計算基礎が実際と合わなくなる)。
+            HStack {
+                Text("配送料")
+                Spacer()
+                TextField("配送料", value: $viewModel.shippingIncome, format: .number)
+                    .keyboardType(.numberPad)
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: 120)
+                    .focused($focusedField, equals: .shippingIncome)
+                    .disabled(viewModel.useFba)
+                    .foregroundColor(viewModel.useFba ? .secondary : .primary)
             }
 
             HStack {
@@ -611,10 +673,10 @@ struct PurchaseFormView: View {
             feesRow
 
             HStack {
-                Text("配送料")
+                Text("発送費用")
                     .foregroundColor(.red)
                 Spacer()
-                TextField("配送料", value: $viewModel.shippingCost, format: .number)
+                TextField("発送費用", value: $viewModel.shippingCost, format: .number)
                     .keyboardType(.numberPad)
                     .multilineTextAlignment(.trailing)
                     .frame(width: 120)
@@ -694,7 +756,9 @@ struct PurchaseFormView: View {
                 }
             }
 
-            TextField("メモ", text: $viewModel.memo)
+            TextField("メモ", text: $viewModel.memo, axis: .vertical)
+                .lineLimit(1...6)
+                .focused($focusedField, equals: .memo)
         }
     }
 }

@@ -738,4 +738,63 @@ test('fees-estimate: SP-API呼び出し失敗は502 fees_estimate_failed', async
     }
   });
 });
+
+test('fees-estimate: shippingを渡すとPriceToEstimateFees.Shipping.Amountに反映される', async () => {
+  await withEnv(ENV, async () => {
+    const routes = freshRoutes();
+    const originalFetch = global.fetch;
+    let lastBody = null;
+    global.fetch = mockFetch({
+      feesEstimate: (u, init, ok) => {
+        lastBody = JSON.parse(init.body);
+        return feesEstimateOk(ok, []);
+      },
+    });
+    try {
+      const route = routes.match('GET', '/api/fees-estimate');
+      const res = createMockRes();
+      await route.handler({ query: { asin: 'B000TEST', price: '1500', shipping: '350' }, headers: PRO_HEADERS }, res);
+      assert.equal(res.statusCode, 200);
+      assert.equal(lastBody[0].FeesEstimateRequest.PriceToEstimateFees.Shipping.Amount, 350);
+      assert.equal(lastBody[0].FeesEstimateRequest.PriceToEstimateFees.Shipping.CurrencyCode, 'JPY');
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+});
+
+test('fees-estimate: shipping省略時は0としてPriceToEstimateFees.Shipping.Amountに反映される', async () => {
+  await withEnv(ENV, async () => {
+    const routes = freshRoutes();
+    const originalFetch = global.fetch;
+    let lastBody = null;
+    global.fetch = mockFetch({
+      feesEstimate: (u, init, ok) => {
+        lastBody = JSON.parse(init.body);
+        return feesEstimateOk(ok, []);
+      },
+    });
+    try {
+      const route = routes.match('GET', '/api/fees-estimate');
+      const res = createMockRes();
+      await route.handler({ query: { asin: 'B000TEST', price: '1500' }, headers: PRO_HEADERS }, res);
+      assert.equal(res.statusCode, 200);
+      assert.equal(lastBody[0].FeesEstimateRequest.PriceToEstimateFees.Shipping.Amount, 0);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+});
+
+test('fees-estimate: shipping不正値(負数・小数・非数値)は400', async () => {
+  const routes = freshRoutes();
+  const route = routes.match('GET', '/api/fees-estimate');
+
+  for (const shipping of ['-1', '10.5', 'abc']) {
+    const res = createMockRes();
+    // ヘッダー無し(未認証)でも、入力不正は403より先に400で返ることを確認する。
+    await route.handler({ query: { asin: 'B000TEST', price: '1500', shipping }, headers: {} }, res);
+    assert.equal(res.statusCode, 400, shipping);
+  }
+});
 });

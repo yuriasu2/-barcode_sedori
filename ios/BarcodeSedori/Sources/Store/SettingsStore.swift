@@ -49,7 +49,11 @@ final class SettingsStore: ObservableObject {
 
         // 仕入れ設定(PurchaseSettingsView): フォームのFBA・配送料デフォルトと仕入先リスト。
         static let purchaseUseFbaDefault = "purchase.useFbaDefault"
-        static let purchaseShippingDefault = "purchase.shippingDefault"
+        /// 発送費用(自分が払う発送コスト)のデフォルト。キー名は導入時の「配送料」のまま流用する
+        /// (意味は元々こちら)。
+        static let purchaseShippingCostDefault = "purchase.shippingDefault"
+        /// 配送料(購入者が支払い自分に入金される額)のデフォルト。
+        static let purchaseShippingIncomeDefault = "purchase.shippingIncomeDefault"
         static let purchaseSuppliers = "purchase.suppliers"
         static let purchaseLastSupplier = "purchase.lastSupplier"
     }
@@ -241,10 +245,17 @@ final class SettingsStore: ObservableObject {
         }
     }
 
-    /// 仕入れフォームの配送料(円)の初期値。既定0円。
-    @Published var purchaseShippingDefault: Int {
+    /// 仕入れフォームの発送費用(円。自分が払う発送コスト)の初期値。既定0円。
+    @Published var purchaseShippingCostDefault: Int {
         didSet {
-            defaults.set(purchaseShippingDefault, forKey: Keys.purchaseShippingDefault)
+            defaults.set(purchaseShippingCostDefault, forKey: Keys.purchaseShippingCostDefault)
+        }
+    }
+
+    /// 仕入れフォームの配送料(円。購入者が支払い自分に入金される額)の初期値。既定0円。
+    @Published var purchaseShippingIncomeDefault: Int {
+        didSet {
+            defaults.set(purchaseShippingIncomeDefault, forKey: Keys.purchaseShippingIncomeDefault)
         }
     }
 
@@ -328,9 +339,10 @@ final class SettingsStore: ObservableObject {
         self.lastListingCondition = defaults.string(forKey: Keys.listingLastCondition)
             .flatMap(ListingConditionType.init(rawValue:))
 
-        // 仕入れ設定(PurchaseSettingsView)。未設定時は既定値(FBA OFF・配送料0円・仕入先リスト空)で読み込む。
+        // 仕入れ設定(PurchaseSettingsView)。未設定時は既定値(FBA OFF・配送料/発送費用0円・仕入先リスト空)で読み込む。
         self.purchaseUseFbaDefault = defaults.bool(forKey: Keys.purchaseUseFbaDefault)
-        self.purchaseShippingDefault = (defaults.object(forKey: Keys.purchaseShippingDefault) as? Int) ?? 0
+        self.purchaseShippingCostDefault = (defaults.object(forKey: Keys.purchaseShippingCostDefault) as? Int) ?? 0
+        self.purchaseShippingIncomeDefault = (defaults.object(forKey: Keys.purchaseShippingIncomeDefault) as? Int) ?? 0
         self.purchaseSuppliers = defaults.stringArray(forKey: Keys.purchaseSuppliers) ?? []
         self.purchaseLastSupplier = defaults.string(forKey: Keys.purchaseLastSupplier)
 
