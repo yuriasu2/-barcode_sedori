@@ -193,22 +193,17 @@ struct PurchaseTabView: View {
                 }
             }
 
-            Section {
-                ForEach(store.items) { item in
-                    // 行タップでの編集は誰でも可(Pro/SP-API連携の状態やisListedに関わらず開ける)。
-                    // 選択モード中はタップが選択操作に使われるため遷移させない。
-                    if !isSelecting {
-                        NavigationLink {
-                            PurchaseFormView(mode: .edit(item: item))
-                        } label: {
-                            PurchaseListRow(item: item)
-                        }
-                    } else {
-                        PurchaseListRow(item: item)
-                    }
+            let unlisted = store.items.filter { !$0.isListed }
+            let listed = store.items.filter { $0.isListed }
+
+            if !unlisted.isEmpty {
+                Section("未出品") {
+                    purchaseRows(for: unlisted)
                 }
-                .onDelete { offsets in
-                    store.remove(atOffsets: offsets)
+            }
+            if !listed.isEmpty {
+                Section("出品済み") {
+                    purchaseRows(for: listed)
                 }
             }
         }
@@ -216,6 +211,31 @@ struct PurchaseTabView: View {
         // isSelecting@Stateをこの階層のeditMode環境値へ明示的に反映する(自前トグルのため)。
         // Listの複数選択チェックマークUIはこの環境値がactiveのときのみ表示される。
         .environment(\.editMode, .constant(isSelecting ? .active : .inactive))
+    }
+
+    /// 未出品/出品済みの各セクションで共通の行組み立て。
+    /// 注意: セクション分割によりForEachのoffsetsは渡された配列(フィルタ後)基準になり、
+    /// store.items全体の添字とはずれる。そのためonDeleteはoffsetsをそのまま
+    /// store.remove(atOffsets:)へは渡さず、フィルタ後配列からidを引いてstore.remove(ids:)で消す。
+    @ViewBuilder
+    private func purchaseRows(for items: [PurchaseListItem]) -> some View {
+        ForEach(items) { item in
+            // 行タップでの編集は誰でも可(Pro/SP-API連携の状態やisListedに関わらず開ける)。
+            // 選択モード中はタップが選択操作に使われるため遷移させない。
+            if !isSelecting {
+                NavigationLink {
+                    PurchaseFormView(mode: .edit(item: item))
+                } label: {
+                    PurchaseListRow(item: item)
+                }
+            } else {
+                PurchaseListRow(item: item)
+            }
+        }
+        .onDelete { offsets in
+            let ids = Set(offsets.map { items[$0].id })
+            store.remove(ids: ids)
+        }
     }
 }
 

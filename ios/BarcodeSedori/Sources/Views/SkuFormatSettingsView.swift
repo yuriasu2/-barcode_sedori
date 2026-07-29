@@ -48,8 +48,9 @@ struct SkuFormatSettingsView: View {
                 }
             }
 
-            Section {
-                Text("枝番は日付でリセットされます。")
+            Section("SKU重複防止") {
+                Toggle("SKU重複時の出品を防ぐ", isOn: $settings.preventDuplicateSku)
+                Text("オフの場合、重複していたら上書きされます。")
                     .font(.footnote)
                     .foregroundColor(.secondary)
             }
@@ -116,6 +117,18 @@ struct SkuFormatSettingsView: View {
                 }
             }
             .buttonStyle(.plain)
+        case .sequence:
+            // 枝番は日付とセットで使う前提の部品のため、注記を行の右側に添えて誘導する
+            // (末尾に独立Sectionで出していたものを部品行へ統合)。1行に収まらなければ
+            // 折り返して2行になってよい(部品行のため無理に1行へ詰めない)。
+            HStack(alignment: .firstTextBaseline) {
+                Text(component.displayName)
+                    .fixedSize()
+                Text("(枝番は日付でリセットされます。重複防止のため日付とセット推薦)")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         default:
             Text(component.displayName)
         }

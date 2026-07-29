@@ -44,6 +44,9 @@ final class SettingsStore: ObservableObject {
         // 出品SKUフォーマット(部品列。JSONエンコードして保存)。
         static let listingSkuFormat = "settings.listing.skuFormat"
 
+        /// SKU重複時の出品を防ぐか(一括出品時にSKU重複を検知して弾く)。既定true。
+        static let preventDuplicateSku = "settings.preventDuplicateSku"
+
         // 仕入れフォーム(PurchaseFormView): 直近保存したコンディション(新規追加時の初期値に使う)。
         static let listingLastCondition = "settings.listing.lastCondition"
 
@@ -224,6 +227,13 @@ final class SettingsStore: ObservableObject {
     /// (枝番は自動付与ではなく部品として含めている)。
     static let defaultListingSkuFormat: [SkuComponent] = [.text("AMLZ-"), .year4, .month, .day, .sequence]
 
+    /// SKU重複時の出品を防ぐか。既定true(オフにすると重複時に既存出品が上書きされる)。
+    @Published var preventDuplicateSku: Bool {
+        didSet {
+            defaults.set(preventDuplicateSku, forKey: Keys.preventDuplicateSku)
+        }
+    }
+
     /// 仕入れフォームで直近保存したコンディション(新規追加時の初期値に使う)。
     /// 一度も保存していなければnil(この場合フォーム側が`.usedVeryGood`を既定値として使う)。
     @Published var lastListingCondition: ListingConditionType? {
@@ -334,6 +344,9 @@ final class SettingsStore: ObservableObject {
         } else {
             self.listingSkuFormat = Self.defaultListingSkuFormat
         }
+
+        // SKU重複時の出品を防ぐか。未設定時は既定true(重複防止を有効にしておく)。
+        self.preventDuplicateSku = (defaults.object(forKey: Keys.preventDuplicateSku) as? Bool) ?? true
 
         // 仕入れフォームの直近コンディション。未設定(一度も保存していない)ならnilのまま。
         self.lastListingCondition = defaults.string(forKey: Keys.listingLastCondition)

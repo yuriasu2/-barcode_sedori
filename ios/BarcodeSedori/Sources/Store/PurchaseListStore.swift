@@ -60,14 +60,33 @@ final class PurchaseListStore: ObservableObject {
         return items[index]
     }
 
+    /// 対象日(yyyyMMdd)の仕入れリスト実データにおけるSKU枝番の最大値(無ければ0)。
+    /// UserDefaultsのカウンタとは独立に、実際にitemsへ焼き込まれた枝番から求める。
+    private func dataMaxSequence(for today: String) -> Int {
+        items
+            .filter { $0.skuSequenceDate == today }
+            .compactMap { $0.skuSequence }
+            .max() ?? 0
+    }
+
+    /// UserDefaultsの「最終日付・最終連番」と実データの最大値のうち大きい方を、
+    /// 対象日における「現在までに使われた枝番」として返す。
+    /// アプリ再インストール等でUserDefaultsのカウンタが消えても、仕入れリストの実データが
+    /// 残っている限りは実データ側の最大値が基準になるため、既発行の枝番と衝突する番号が
+    /// 再発行されることはない。
+    private func effectiveLastSequence(for today: String) -> Int {
+        let lastDate = defaults.string(forKey: SequenceKeys.lastDate)
+        let storedForToday = (lastDate == today) ? defaults.integer(forKey: SequenceKeys.lastSequence) : 0
+        return max(storedForToday, dataMaxSequence(for: today))
+    }
+
     /// SKU枝番の日次連番を進めて返す(追加順=単調増加。削除しても詰めない)。
     private func nextSequence(for date: Date) -> Int {
         let today = SkuGenerator.dateString(from: date)
-        let lastDate = defaults.string(forKey: SequenceKeys.lastDate)
-        let lastSequence = defaults.integer(forKey: SequenceKeys.lastSequence)
+        let effectiveLast = effectiveLastSequence(for: today)
         let sequence = SkuGenerator.nextSequence(
-            lastDateString: lastDate,
-            lastSequence: lastSequence,
+            lastDateString: today,
+            lastSequence: effectiveLast,
             todayString: today
         )
         defaults.set(today, forKey: SequenceKeys.lastDate)
@@ -77,14 +96,13 @@ final class PurchaseListStore: ObservableObject {
 
     /// 実際には連番を進めず「次に採番される番号」だけを返す(仕入れフォームの新規追加時、
     /// まだ仕入れリストへ登録していない段階でSKUプレビューを表示するために使う)。
-    /// キャンセルされた場合でも連番を消費しない。
+    /// キャンセルされた場合でも連番を消費しない(defaultsは書き換えない)。
     func peekNextSequence(for date: Date = Date()) -> Int {
         let today = SkuGenerator.dateString(from: date)
-        let lastDate = defaults.string(forKey: SequenceKeys.lastDate)
-        let lastSequence = defaults.integer(forKey: SequenceKeys.lastSequence)
+        let effectiveLast = effectiveLastSequence(for: today)
         return SkuGenerator.nextSequence(
-            lastDateString: lastDate,
-            lastSequence: lastSequence,
+            lastDateString: today,
+            lastSequence: effectiveLast,
             todayString: today
         )
     }

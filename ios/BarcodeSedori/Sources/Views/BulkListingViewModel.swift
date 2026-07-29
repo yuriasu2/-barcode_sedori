@@ -59,6 +59,8 @@ final class BulkListingViewModel: ObservableObject {
 
         var successCount = 0
         var failures: [FailureEntry] = []
+        // この実行内で実際に出品を試みたSKUの集合(同時出品どうしの重複検知用)。
+        var usedSkus: Set<String> = []
 
         for id in itemIds {
             progressCurrent += 1
@@ -99,10 +101,34 @@ final class BulkListingViewModel: ObservableObject {
             // SKUのみ、旧データ(採番導入前)への遅延採番を先に済ませてからフォールバックする。
             let numberedItem = purchaseList.assignSkuSequenceIfNeeded(id: item.id) ?? item
             let sku = numberedItem.sku ?? settings.listingSku(for: numberedItem)
+
+            // SKU重複チェック。出品APIはSKUが既存と重複していても新規出品にならず既存の出品を
+            // 上書きしてしまう(エラーにならない)ため、settings.preventDuplicateSkuが有効な間は
+            // 出品を試みる前に検知し、該当商品は出品せず次の商品へ続行する。
+            if settings.preventDuplicateSku {
+                if usedSkus.contains(sku) {
+                    failures.append(FailureEntry(
+                        title: title,
+                        reason: "SKUが重複しています(同時に出品する他の商品と同じSKU)"
+                    ))
+                    continue
+                }
+                if purchaseList.items.contains(where: { $0.id != item.id && $0.isListed && $0.listedSku == sku }) {
+                    failures.append(FailureEntry(
+                        title: title,
+                        reason: "SKUが重複しています(出品済みの商品と同じSKU)"
+                    ))
+                    continue
+                }
+            }
+
             let conditionNote = numberedItem.conditionNote ?? settings.listingTemplate(for: condition)
             let quantity = numberedItem.quantity ?? 1
             // FBA利用はアイテムの保存値優先、未保存(旧データ含む)は設定タブのデフォルトに従う。
             let fulfillmentChannel = (item.useFba ?? settings.purchaseUseFbaDefault) ? "AMAZON_JP" : "DEFAULT"
+
+            // 実際に出品を試みる分だけ「使用済みSKU」として記録する。
+            usedSkus.insert(sku)
 
             do {
                 let result = try await apiClient.submitListing(ListingSubmissionRequest(
