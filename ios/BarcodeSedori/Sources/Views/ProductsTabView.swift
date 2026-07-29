@@ -5,7 +5,45 @@ import SwiftUI
 /// 詳細画面を描画し、APIを再度呼び出さない。そのため選択状態はASIN文字列ではなくScanHistoryItem全体を保持する。
 struct ProductsTabView: View {
     @ObservedObject private var historyStore = ScanHistoryStore.shared
+    @ObservedObject private var purchaseListStore = PurchaseListStore.shared
     @State private var selectedItem: ScanHistoryItem?
+
+    // 注意: @Environment(\.editMode)はList(selection:)の実際の編集状態と同期しない事象を確認したため
+    // (EditButtonの見た目・Listの選択UIは変化するのに環境値の読み取りがfalseのままになる)、
+    // 選択モードは自前の@Stateで管理し、Listへは.environment(\.editMode:)で明示的に反映する。
+    @State private var isSelecting = false
+    @State private var selectedIds = Set<UUID>()
+    /// ヘッダーの検索BOXに入力中のクエリ(タイトル・JAN・日付「M/d」に部分一致)。
+    @State private var searchQuery = ""
+    @State private var showDeleteConfirm = false
+    @State private var addResult: AddToPurchaseResult?
+
+    /// 検索フィルタでの日付一致判定用(M/d形式)。行表示のdateFormatter(M/d HH:mm)とは別に用意する。
+    private static let searchDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "ja_JP")
+        formatter.dateFormat = "M/d"
+        return formatter
+    }()
+
+    /// 検索クエリに一致する履歴だけを残す(タイトル・JAN・日付「M/d」の部分一致・大文字小文字無視)。
+    /// クエリが空なら全件。選択・全選択・削除・仕入れへの追加もこの表示中の集合だけを対象にする。
+    private var filteredItems: [ScanHistoryItem] {
+        let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return historyStore.items }
+        let lowerQuery = query.lowercased()
+        return historyStore.items.filter { item in
+            if let title = item.title, title.lowercased().contains(lowerQuery) {
+                return true
+            }
+            let jan = item.isbn13 ?? item.scannedCode
+            if jan.lowercased().contains(lowerQuery) {
+                return true
+            }
+            let dateText = Self.searchDateFormatter.string(from: item.scannedAt)
+            return dateText.contains(query)
+        }
+    }
 
     var body: some View {
         NavigationView {
@@ -13,30 +51,36 @@ struct ProductsTabView: View {
                 if historyStore.items.isEmpty {
                     emptyState
                 } else {
-                    List {
-                        ForEach(historyStore.items) { item in
-                            HistoryRow(item: item)
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    if item.asin != nil {
-                                        selectedItem = item
-                                    }
+                    VStack(spacing: 0) {
+                        header
+
+                        List(selection: $selectedIds) {
+                            ForEach(filteredItems) { item in
+                                if isSelecting {
+                                    HistoryRow(item: item)
+                                } else {
+                                    HistoryRow(item: item)
+                                        .contentShape(Rectangle())
+                                        .onTapGesture {
+                                            if item.asin != nil {
+                                                selectedItem = item
+                                            }
+                                        }
                                 }
+                            }
                         }
-                    }
-                    .listStyle(.plain)
-                }
-            }
-            .navigationTitle("商品")
-            .toolbar {
-                if !historyStore.items.isEmpty {
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        Button("クリア") {
-                            historyStore.clear()
-                        }
+                        .listStyle(.plain)
+                        // isSelecting@Stateをこの階層のeditMode環境値へ明示的に反映する(自前トグルのため)。
+                        // Listの複数選択チェックマークUIはこの環境値がactiveのときのみ表示される。
+                        .environment(\.editMode, .constant(isSelecting ? .active : .inactive))
                     }
                 }
             }
+            .toolbar(.hidden, for: .navigationBar)
+            // 選択モード中はTabViewのタブバーを隠す。隠さないと(このiOSのタブバー統合デザインでは)
+            // オプション行の両端ボタンがタブ項目のヒットテスト領域と重なり、タップがタブ切替に
+            // 奪われて押せなくなる事象を確認したための対策(仕入れタブと同じ対策)。
+            .toolbar(isSelecting ? .hidden : .visible, for: .tabBar)
             .background {
                 NavigationLink(
                     destination: destinationView,
@@ -50,6 +94,137 @@ struct ProductsTabView: View {
             }
         }
         .navigationViewStyle(.stack)
+        .confirmationDialog(
+            "選択した\(selectedIds.count)件を削除しますか?",
+            isPresented: $showDeleteConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("削除", role: .destructive) {
+                historyStore.remove(ids: selectedIds)
+                selectedIds.removeAll()
+            }
+            Button("キャンセル", role: .cancel) {}
+        }
+        .alert(item: $addResult) { result in
+            Alert(
+                title: Text("追加が完了しました"),
+                message: Text(result.message),
+                dismissButton: .default(Text("OK"))
+            )
+        }
+    }
+
+    /// 通常モードは検索BOX+選択ボタン、選択モードはオプション行に切り替わる。
+    @ViewBuilder
+    private var header: some View {
+        if isSelecting {
+            selectionOptionsRow
+        } else {
+            searchRow
+        }
+    }
+
+    private var searchRow: some View {
+        HStack(spacing: 8) {
+            searchField
+            if !filteredItems.isEmpty {
+                Button("選択") {
+                    isSelecting = true
+                }
+                .foregroundColor(.blue)
+            }
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .foregroundColor(.secondary)
+            TextField("タイトル、月/日、JANで検索", text: $searchQuery)
+            if !searchQuery.isEmpty {
+                Button {
+                    searchQuery = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(Color(.secondarySystemBackground))
+        .cornerRadius(10)
+    }
+
+    /// 選択モードのオプション行。戻る+すべて選択を左、アクション(削除・仕入れに追加)を右に置く。
+    private var selectionOptionsRow: some View {
+        HStack(spacing: 16) {
+            Button {
+                isSelecting = false
+                selectedIds.removeAll()
+            } label: {
+                Image(systemName: "chevron.backward")
+            }
+            .foregroundColor(.blue)
+
+            Button(selectedIds.count == filteredItems.count ? "全解除" : "すべて選択") {
+                if selectedIds.count == filteredItems.count {
+                    selectedIds.removeAll()
+                } else {
+                    selectedIds = Set(filteredItems.map(\.id))
+                }
+            }
+            .foregroundColor(.blue)
+
+            Spacer()
+
+            Button(role: .destructive) {
+                showDeleteConfirm = true
+            } label: {
+                Image(systemName: "trash")
+            }
+            .foregroundColor(selectedIds.isEmpty ? .gray : .red)
+            .disabled(selectedIds.isEmpty)
+
+            Button {
+                addSelectedToPurchaseList()
+            } label: {
+                Image(systemName: "cart.badge.plus")
+            }
+            .foregroundColor(selectedIds.isEmpty ? .gray : .blue)
+            .disabled(selectedIds.isEmpty)
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+    }
+
+    /// 選択中の履歴を仕入れリストへ追加する。ASINが無い項目・既に同じASINが仕入れリストに
+    /// 登録済みの項目はスキップする。終了後はアラートで件数を知らせ、選択モードを終了する。
+    private func addSelectedToPurchaseList() {
+        let targets = filteredItems.filter { selectedIds.contains($0.id) }
+        var addedCount = 0
+        var skippedCount = 0
+        for item in targets {
+            guard let asin = item.asin, !purchaseListStore.contains(asin: asin) else {
+                skippedCount += 1
+                continue
+            }
+            purchaseListStore.add(PurchaseListItem(
+                asin: asin,
+                title: item.title,
+                imageUrl: item.imageUrl,
+                scannedCode: item.scannedCode,
+                isbn13: item.isbn13,
+                salesRank: item.salesRank,
+                offersResult: item.offersResult
+            ))
+            addedCount += 1
+        }
+        addResult = AddToPurchaseResult(addedCount: addedCount, skippedCount: skippedCount)
+        isSelecting = false
+        selectedIds.removeAll()
     }
 
     @ViewBuilder
@@ -78,6 +253,22 @@ struct ProductsTabView: View {
             Text("スキャン履歴はまだありません")
                 .foregroundColor(.secondary)
         }
+    }
+}
+
+/// 仕入れリストへの一括追加結果アラート用。
+private struct AddToPurchaseResult: Identifiable {
+    let id = UUID()
+    let addedCount: Int
+    let skippedCount: Int
+
+    /// アラート本文: 「N件を仕入れリストへ追加しました」+スキップがあれば理由を添える。
+    var message: String {
+        var text = "\(addedCount)件を仕入れリストへ追加しました"
+        if skippedCount > 0 {
+            text += "\n(\(skippedCount)件は追加済み/ASINなしのためスキップ)"
+        }
+        return text
     }
 }
 

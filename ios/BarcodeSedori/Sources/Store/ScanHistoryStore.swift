@@ -47,6 +47,13 @@ final class ScanHistoryStore: ObservableObject {
         save()
     }
 
+    /// 商品タブの選択モードでの一括削除用。
+    func remove(ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        items.removeAll { ids.contains($0.id) }
+        save()
+    }
+
     private func load() {
         guard let data = try? Data(contentsOf: fileURL) else { return }
         if let decoded = try? decoder.decode([ScanHistoryItem].self, from: data) {

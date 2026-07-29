@@ -3,7 +3,7 @@ import SwiftUI
 /// 「仕入れ」タブ: 仕入れリストの一覧・スワイプ削除・出品済みマーク。
 /// 行タップ(非選択モード時)で仕入れフォーム(PurchaseFormView・編集モード)を開く
 /// (誰でも編集可。単品の「出品する」導線は無い)。
-/// 選択モード(EditButton)での一括削除・一括コンディション変更・一括出品を持つ。
+/// 選択モード(選択ボタン)での一括削除・一括コンディション変更・一括出品を持つ。
 /// 仕入れタブ上部の表示切替。出品済みは作業対象から外れるため既定は「未出品」。
 enum ListTab: String, CaseIterable, Identifiable {
     case unlisted = "未出品"
@@ -25,14 +25,42 @@ struct PurchaseTabView: View {
     @State private var selectedIds = Set<UUID>()
     /// 一覧の表示切替(未出品 / 出品済み)。
     @State private var selectedTab: ListTab = .unlisted
+    /// ヘッダーの検索BOXに入力中のクエリ(タイトル・JAN・日付「M/d」に部分一致)。
+    @State private var searchQuery = ""
     @State private var showDeleteConfirm = false
     @State private var showListingConfirm = false
 
-    /// 現在のタブに表示する商品。選択・全選択・削除もこの範囲だけを対象にする。
+    /// 検索フィルタでの日付一致判定用(M/d形式)。行表示のdateFormatter(M/d HH:mm)とは別に用意する。
+    private static let searchDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "ja_JP")
+        formatter.dateFormat = "M/d"
+        return formatter
+    }()
+
+    /// 現在のタブに表示する商品。
     private var visibleItems: [PurchaseListItem] {
         switch selectedTab {
         case .unlisted: return store.items.filter { !$0.isListed }
         case .listed: return store.items.filter { $0.isListed }
+        }
+    }
+
+    /// タブ切替後、さらに検索クエリで絞った表示中の商品(タイトル・JAN・日付「M/d」の部分一致・
+    /// 大文字小文字無視)。選択・全選択・削除などもこの範囲だけを対象にする。
+    private var filteredVisibleItems: [PurchaseListItem] {
+        let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return visibleItems }
+        let lowerQuery = query.lowercased()
+        return visibleItems.filter { item in
+            if let title = item.title, title.lowercased().contains(lowerQuery) {
+                return true
+            }
+            if let jan = item.isbn13 ?? item.scannedCode, jan.lowercased().contains(lowerQuery) {
+                return true
+            }
+            let dateText = Self.searchDateFormatter.string(from: item.purchaseDate ?? item.addedAt)
+            return dateText.contains(query)
         }
     }
 
@@ -48,6 +76,8 @@ struct PurchaseTabView: View {
                     emptyState
                 } else {
                     VStack(spacing: 0) {
+                        header
+
                         // タブ切替。切り替えると選択内容は対象外になるため解除する。
                         Picker("表示", selection: $selectedTab) {
                             ForEach(ListTab.allCases) { tab in
@@ -65,11 +95,10 @@ struct PurchaseTabView: View {
                     }
                 }
             }
-            .navigationTitle("仕入れ")
-            .toolbar { toolbarContent }
+            .toolbar(.hidden, for: .navigationBar)
             .overlay { progressOverlay }
             // 選択モード中はTabViewのタブバーを隠す。隠さないと(このiOSのタブバー統合デザインでは)
-            // .bottomBarツールバーの両端ボタンがタブ項目のヒットテスト領域と重なり、
+            // オプション行の両端ボタンがタブ項目のヒットテスト領域と重なり、
             // タップがタブ切替に奪われて押せなくなる事象を確認したための対策。
             .toolbar(isSelecting ? .hidden : .visible, for: .tabBar)
         }
@@ -109,67 +138,105 @@ struct PurchaseTabView: View {
         }
     }
 
-    // 注意: ToolbarItem/ToolbarItemGroupをトップレベルの`if`で条件分岐すると、
-    // 一部のplacement(.navigationBarLeadingで確認済み)でSwiftUIが描画しない事象を確認したため、
-    // ToolbarItem自体は常に存在させ、中身(ラベル・ボタン)側を`if`で出し分ける形に統一する。
-    @ToolbarContentBuilder
-    private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .navigationBarTrailing) {
-            if !store.items.isEmpty {
-                // 注意: @Environment(\.editMode)がList(selection:)の実編集状態と同期しない事象を
-                // 確認したため、標準EditButton()は使わず自前のisSelecting@Stateで切り替える。
-                Button(isSelecting ? "完了" : "選択") {
-                    isSelecting.toggle()
-                    if !isSelecting {
-                        selectedIds.removeAll()
-                    }
+    /// 通常モードは検索BOX+選択ボタン、選択モードはオプション行に切り替わる。
+    @ViewBuilder
+    private var header: some View {
+        if isSelecting {
+            selectionOptionsRow
+        } else {
+            searchRow
+        }
+    }
+
+    private var searchRow: some View {
+        HStack(spacing: 8) {
+            searchField
+            if !filteredVisibleItems.isEmpty {
+                Button("選択") {
+                    isSelecting = true
                 }
+                .foregroundColor(.blue)
             }
         }
-        ToolbarItem(placement: .navigationBarLeading) {
-            if isSelecting {
-                Button(selectedIds.count == visibleItems.count ? "全解除" : "全選択") {
-                    if selectedIds.count == visibleItems.count {
-                        selectedIds.removeAll()
-                    } else {
-                        selectedIds = Set(visibleItems.map(\.id))
-                    }
-                }
-            }
-        }
-        ToolbarItemGroup(placement: .bottomBar) {
-            if isSelecting && !selectedIds.isEmpty {
-                Button(role: .destructive) {
-                    showDeleteConfirm = true
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .foregroundColor(.secondary)
+            TextField("タイトル、月/日、JANで検索", text: $searchQuery)
+            if !searchQuery.isEmpty {
+                Button {
+                    searchQuery = ""
                 } label: {
-                    Label("削除", systemImage: "trash")
-                }
-                .disabled(bulkListingViewModel.isRunning)
-
-                Spacer()
-
-                Menu {
-                    ForEach(ListingConditionType.allCases) { condition in
-                        Button(condition.displayName) {
-                            store.updateCondition(ids: selectedIds, condition: condition)
-                        }
-                    }
-                } label: {
-                    Label("コンディション", systemImage: "tag")
-                }
-                .disabled(bulkListingViewModel.isRunning)
-
-                if canBulkList {
-                    Spacer()
-                    Button {
-                        showListingConfirm = true
-                    } label: {
-                        Label("出品", systemImage: "shippingbox")
-                    }
-                    .disabled(bulkListingViewModel.isRunning)
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(.secondary)
                 }
             }
         }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(Color(.secondarySystemBackground))
+        .cornerRadius(10)
+    }
+
+    /// 選択モードのオプション行。戻る+すべて選択を左、アクション(削除・コンディション・出品)を右に置く。
+    private var selectionOptionsRow: some View {
+        HStack(spacing: 16) {
+            Button {
+                isSelecting = false
+                selectedIds.removeAll()
+            } label: {
+                Image(systemName: "chevron.backward")
+            }
+            .foregroundColor(.blue)
+
+            Button(selectedIds.count == filteredVisibleItems.count ? "全解除" : "すべて選択") {
+                if selectedIds.count == filteredVisibleItems.count {
+                    selectedIds.removeAll()
+                } else {
+                    selectedIds = Set(filteredVisibleItems.map(\.id))
+                }
+            }
+            .foregroundColor(.blue)
+
+            Spacer()
+
+            Button(role: .destructive) {
+                showDeleteConfirm = true
+            } label: {
+                Image(systemName: "trash")
+            }
+            .foregroundColor(selectedIds.isEmpty ? .gray : .red)
+            .disabled(selectedIds.isEmpty || bulkListingViewModel.isRunning)
+
+            Menu {
+                ForEach(ListingConditionType.allCases) { condition in
+                    Button(condition.displayName) {
+                        store.updateCondition(ids: selectedIds, condition: condition)
+                    }
+                }
+            } label: {
+                Image("ti-certificate")
+                    .renderingMode(.template)
+            }
+            .foregroundColor(selectedIds.isEmpty ? .gray : .blue)
+            .disabled(selectedIds.isEmpty || bulkListingViewModel.isRunning)
+
+            if canBulkList {
+                Button {
+                    showListingConfirm = true
+                } label: {
+                    Image(systemName: "shippingbox")
+                }
+                .foregroundColor(selectedIds.isEmpty ? .gray : .blue)
+                .disabled(selectedIds.isEmpty || bulkListingViewModel.isRunning)
+            }
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 8)
     }
 
     /// 一括出品処理中のオーバーレイ(「出品中 i/N」)。二重実行防止のためタップも吸収する。
@@ -227,12 +294,12 @@ struct PurchaseTabView: View {
             }
 
             Section {
-                if visibleItems.isEmpty {
+                if filteredVisibleItems.isEmpty {
                     Text(selectedTab == .unlisted ? "未出品の商品はありません" : "出品済みの商品はありません")
                         .font(.footnote)
                         .foregroundColor(.secondary)
                 } else {
-                    purchaseRows(for: visibleItems)
+                    purchaseRows(for: filteredVisibleItems)
                 }
             }
         }
