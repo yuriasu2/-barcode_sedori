@@ -326,7 +326,9 @@ struct SearchTabView: View {
                 asin: asin,
                 title: selectedResult.title,
                 cachedOffers: viewModel.offersResult,
-                janCode: selectedResult.isbn13 ?? viewModel.latestScannedCode
+                janCode: selectedResult.isbn13 ?? viewModel.latestScannedCode,
+                listPrice: selectedResult.profitInputs?.listPrice,
+                releaseDate: selectedResult.releaseDate
             )
         } else {
             EmptyView()

@@ -97,7 +97,7 @@ test('/api/search spapi経路: profitInputsのlistPriceにCatalogのattributes.l
         items: [
           {
             asin: 'B000TEST1',
-            summaries: [{ itemName: 'テスト書籍' }],
+            summaries: [{ itemName: 'テスト書籍', releaseDate: '2019-05-30' }],
             images: [],
             salesRanks: [],
             attributes: { list_price: [{ currency: 'JPY', value: 1300 }] },
@@ -120,6 +120,7 @@ test('/api/search spapi経路: profitInputsのlistPriceにCatalogのattributes.l
       );
 
       assert.equal(res.body.profitInputs.listPrice, 1430);
+      assert.equal(res.body.releaseDate, '2019-05-30');
       assert.equal(res.body.source, 'spapi');
     }
   );
@@ -162,8 +163,23 @@ test('/api/search spapi経路: attributes.list_priceが無い商品はlistPrice�
       );
 
       assert.equal(res.body.profitInputs.listPrice, null);
+      assert.equal(res.body.releaseDate, null);
     }
   );
+});
+
+// --- extractCatalogFields: releaseDate(summaries[0].releaseDate)の抽出 ---
+
+test('extractCatalogFields: summaries[0].releaseDateをそのままreleaseDateとして返す', () => {
+  const routes = freshRoutes();
+  const item = { asin: 'B000TEST9', summaries: [{ itemName: 'x', releaseDate: '2019-05-30' }] };
+  assert.equal(routes.extractCatalogFields(item).releaseDate, '2019-05-30');
+});
+
+test('extractCatalogFields: releaseDate欠落/itemがnullはnullを返す', () => {
+  const routes = freshRoutes();
+  assert.equal(routes.extractCatalogFields({ asin: 'B000TEST10', summaries: [{}] }).releaseDate, null);
+  assert.equal(routes.extractCatalogFields(null).releaseDate, null);
 });
 
 // --- pricing.searchCatalogItems: includedDataにattributesが含まれること ---

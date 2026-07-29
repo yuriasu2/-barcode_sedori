@@ -57,6 +57,8 @@ struct SearchResult: Codable, Equatable {
     let isbn13: String?
     let imageUrl: String?
     let salesRank: Int?
+    /// 発売日(ISO日付文字列、例:"2019-05-30")。整形はアプリ側で行う。旧サーバー互換のためオプショナル。
+    let releaseDate: String?
     let prices: SearchPrices?
     /// オファー取得元("spapi"等)。CHANGES-v6.mdで追加。旧サーバー互換のためオプショナル。
     let source: String?

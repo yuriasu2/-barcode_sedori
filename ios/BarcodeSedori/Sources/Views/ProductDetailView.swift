@@ -20,17 +20,47 @@ struct ProductDetailView: View {
     let title: String?
     /// 商品情報セクションの「JANコード」行に表示する値(isbn13 ?? スキャンコード)。
     let janCode: String?
+    /// 定価(税込・円)。「参考価格」欄に表示する(値の意味は定価=メーカー希望小売価格)。
+    let listPrice: Int?
+    /// 発売日(ISO日付文字列、例:"2019-05-30")。表示時に「2019/5/30」形式へ整形する。
+    let releaseDate: String?
     @ObservedObject private var entitlements = EntitlementStore.shared
     @ObservedObject private var purchaseList = PurchaseListStore.shared
     /// 「仕入れリストへ追加」タップで開く仕入れフォーム(新規追加モード)の下書き。
     /// 保存(緑チェック)されるまでPurchaseListStoreへは登録しない。
     @State private var purchaseFormDraft: PurchaseListItem?
 
+    /// 発売日のパース用(サーバーはSP-APIの"2019-05-30"等のISO日付文字列をそのまま返す)。
+    private static let releaseDateInputFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
+
+    /// 発売日の表示用(例: "2019/5/30")。
+    private static let releaseDateOutputFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "ja_JP")
+        formatter.dateFormat = "yyyy/M/d"
+        return formatter
+    }()
+
+    /// 発売日の表示文字列。パースできない/nilなら"-"。
+    private var releaseDateText: String {
+        guard let releaseDate, let date = Self.releaseDateInputFormatter.date(from: releaseDate) else {
+            return "-"
+        }
+        return Self.releaseDateOutputFormatter.string(from: date)
+    }
+
     /// 取得済みのOffersResultのみで描画する(APIは呼ばない)。
-    init(asin: String, title: String?, cachedOffers: OffersResult?, janCode: String?) {
+    init(asin: String, title: String?, cachedOffers: OffersResult?, janCode: String?, listPrice: Int?, releaseDate: String?) {
         _viewModel = StateObject(wrappedValue: ProductDetailViewModel(asin: asin, cachedOffers: cachedOffers))
         self.title = title
         self.janCode = janCode
+        self.listPrice = listPrice
+        self.releaseDate = releaseDate
     }
 
     var body: some View {
@@ -69,8 +99,8 @@ struct ProductDetailView: View {
             HStack {
                 Text("参考価格")
                 Spacer()
-                if let reference = viewModel.offers?.referencePrice {
-                    Text("¥\(reference)")
+                if let listPrice {
+                    Text("¥\(listPrice)")
                         .fontWeight(.semibold)
                 } else {
                     Text("-")
@@ -80,7 +110,7 @@ struct ProductDetailView: View {
             HStack {
                 Text("発売日")
                 Spacer()
-                Text(viewModel.offers?.releaseDate ?? "-")
+                Text(releaseDateText)
                     .foregroundColor(.secondary)
             }
 

@@ -241,7 +241,7 @@ function pickCatalogItem(catalogResponse) {
 }
 
 function extractCatalogFields(item) {
-  if (!item) return { asin: null, title: null, imageUrl: null, salesRank: null, listPrice: null };
+  if (!item) return { asin: null, title: null, imageUrl: null, salesRank: null, listPrice: null, releaseDate: null };
   const asin = item.asin || null;
   const summary = (item.summaries && item.summaries[0]) || {};
   const title = summary.itemName || null;
@@ -254,7 +254,9 @@ function extractCatalogFields(item) {
     if (displayRanks.length) salesRank = displayRanks[0].rank;
   }
   const listPrice = extractListPriceJpy(item);
-  return { asin, title, imageUrl, salesRank, listPrice };
+  // summaries[0].releaseDateはISO日付文字列("2019-05-30"等)。整形はアプリ側で行うためそのまま渡す。
+  const releaseDate = summary.releaseDate || null;
+  return { asin, title, imageUrl, salesRank, listPrice, releaseDate };
 }
 
 // SP-APIのCatalog Items API(2022-04-01)がattributes.list_priceで返す定価は税抜。
@@ -336,6 +338,7 @@ async function handleSearchViaSpApi(req, res, code, credentials, cacheKey) {
         isbn13: null,
         imageUrl: null,
         salesRank: null,
+        releaseDate: null,
         prices: null,
         profitInputs: null,
         reason: converted.reason || 'unresolved',
@@ -352,6 +355,7 @@ async function handleSearchViaSpApi(req, res, code, credentials, cacheKey) {
     let salesRank = null;
     let isbn13 = converted.isbn13 || null;
     let listPrice = null;
+    let releaseDate = null;
 
     if (!asin) {
       if (!identifier) {
@@ -362,6 +366,7 @@ async function handleSearchViaSpApi(req, res, code, credentials, cacheKey) {
           isbn13: null,
           imageUrl: null,
           salesRank: null,
+          releaseDate: null,
           prices: null,
           profitInputs: null,
           reason: 'no_identifier',
@@ -378,6 +383,7 @@ async function handleSearchViaSpApi(req, res, code, credentials, cacheKey) {
           isbn13,
           imageUrl: null,
           salesRank: null,
+          releaseDate: null,
           prices: null,
           profitInputs: null,
           reason: 'catalog_not_found',
@@ -390,6 +396,7 @@ async function handleSearchViaSpApi(req, res, code, credentials, cacheKey) {
       imageUrl = fields.imageUrl;
       salesRank = fields.salesRank;
       listPrice = fields.listPrice;
+      releaseDate = fields.releaseDate;
     }
 
     if (!asin) {
@@ -400,6 +407,7 @@ async function handleSearchViaSpApi(req, res, code, credentials, cacheKey) {
         isbn13,
         imageUrl,
         salesRank,
+        releaseDate,
         prices: null,
         profitInputs: null,
         reason: 'asin_not_resolved',
@@ -431,6 +439,7 @@ async function handleSearchViaSpApi(req, res, code, credentials, cacheKey) {
       isbn13,
       imageUrl,
       salesRank,
+      releaseDate,
       prices: {
         cart: cart != null ? cart : null,
         new: newPrice != null ? newPrice : null,
@@ -470,6 +479,7 @@ async function handleSearchViaKeepa(req, res, code, cacheKey) {
         isbn13: null,
         imageUrl: null,
         salesRank: null,
+        releaseDate: null,
         prices: null,
         profitInputs: null,
         reason: converted.reason || 'unresolved',
@@ -488,6 +498,7 @@ async function handleSearchViaKeepa(req, res, code, cacheKey) {
         isbn13,
         imageUrl: null,
         salesRank: null,
+        releaseDate: null,
         prices: null,
         profitInputs: null,
         reason: 'no_identifier',
@@ -506,6 +517,7 @@ async function handleSearchViaKeepa(req, res, code, cacheKey) {
         isbn13,
         imageUrl: null,
         salesRank: null,
+        releaseDate: null,
         prices: null,
         profitInputs: null,
         reason: 'catalog_not_found',
@@ -530,6 +542,7 @@ async function handleSearchViaKeepa(req, res, code, cacheKey) {
       isbn13,
       imageUrl: mapped.imageUrl,
       salesRank: mapped.salesRank,
+      releaseDate: mapped.releaseDate,
       prices: mapped.prices,
       profitInputs,
       source: 'keepa',
@@ -1132,6 +1145,8 @@ router.graphCache = graphCache;
 router.isProRequest = isProRequest;
 // テスト用途に定価抽出ヘルパーを公開する。
 router.extractListPriceJpy = extractListPriceJpy;
+// テスト用途にカタログ抽出ヘルパー(releaseDate等)を公開する。
+router.extractCatalogFields = extractCatalogFields;
 // テスト用途に出品系ヘルパーを公開する。
 router.summarizeRestrictions = summarizeRestrictions;
 router.LISTING_CONDITION_TYPES = LISTING_CONDITION_TYPES;

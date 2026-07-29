@@ -61,7 +61,9 @@ struct ProductsTabView: View {
                 asin: asin,
                 title: selectedItem.title,
                 cachedOffers: selectedItem.offersResult,
-                janCode: selectedItem.isbn13 ?? selectedItem.scannedCode
+                janCode: selectedItem.isbn13 ?? selectedItem.scannedCode,
+                listPrice: selectedItem.listPrice,
+                releaseDate: selectedItem.releaseDate
             )
         } else {
             EmptyView()

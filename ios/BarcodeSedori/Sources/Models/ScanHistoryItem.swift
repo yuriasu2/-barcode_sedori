@@ -13,6 +13,10 @@ struct ScanHistoryItem: Codable, Equatable, Identifiable {
     let imageUrl: String?
     let salesRank: Int?
     let prices: SearchPrices?
+    /// 定価(税込・円)。旧形式で保存された履歴データにはこのキーが存在しないため、Optionalで後方互換を保つ。
+    var listPrice: Int?
+    /// 発売日(ISO日付文字列)。旧形式で保存された履歴データにはこのキーが存在しないため、Optionalで後方互換を保つ。
+    var releaseDate: String?
     /// CHANGES-v6.1.md: 検索タブで第2段階(/api/offers)取得が完了した時点で保存されるオファー一覧。
     /// 商品タブ(履歴)からの詳細表示はAPIを再度呼ばず、この保存済みデータのみで描画する。
     /// 旧形式で保存された履歴データにはこのキーが存在しないため、Optionalにして後方互換を保つ
@@ -36,6 +40,8 @@ struct ScanHistoryItem: Codable, Equatable, Identifiable {
         self.imageUrl = result.imageUrl
         self.salesRank = result.salesRank
         self.prices = result.prices
+        self.listPrice = result.profitInputs?.listPrice
+        self.releaseDate = result.releaseDate
         self.offersResult = offersResult
     }
 }

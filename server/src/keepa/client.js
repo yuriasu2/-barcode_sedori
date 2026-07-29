@@ -269,6 +269,24 @@ async function getProduct({ code, asin, offers } = {}) {
 }
 
 /**
+ * Keepa Product.releaseDate(int)をアプリ契約のISO日付文字列("YYYY-MM-DD")に変換する。
+ * Keepaのreleasedateは YYYY / YYYYMM / YYYYMMDD のいずれかの桁数(公式Java SDK Product.java記載)で、
+ * -1は取得不可を表す。日単位まで判明している(8桁)場合のみSP-APIと同形式のISO文字列に整形して返す。
+ * 年のみ・年月のみ(4桁/6桁)は日が確定しないためアプリの表示契約(ISO日付文字列パース)に乗せられず、nullにする。
+ * @param {number|null|undefined} releaseDateInt
+ * @returns {string|null}
+ */
+function mapKeepaReleaseDate(releaseDateInt) {
+  if (typeof releaseDateInt !== 'number' || releaseDateInt < 0) return null;
+  const str = String(releaseDateInt);
+  if (str.length !== 8) return null;
+  const year = str.slice(0, 4);
+  const month = str.slice(4, 6);
+  const day = str.slice(6, 8);
+  return `${year}-${month}-${day}`;
+}
+
+/**
  * getProductの結果を /api/search 契約(第1段階、offersなし)にマッピングする。
  * @param {object} product Keepa Product Object
  */
@@ -288,6 +306,7 @@ function mapProductToSearchResult(product) {
     new: normalizePrice(current[CSV_TYPE.COUNT_NEW]),
     used: normalizePrice(current[CSV_TYPE.COUNT_USED]),
   };
+  const releaseDate = mapKeepaReleaseDate(product.releaseDate);
 
   return {
     asin: product.asin || null,
@@ -295,6 +314,7 @@ function mapProductToSearchResult(product) {
     imageUrl: resolveImageUrl(product),
     salesRank,
     listPrice,
+    releaseDate,
     sellerCounts,
     prices: {
       cart: null, // BuyBox取得には追加トークンが必要なため第1段階ではnull
@@ -437,6 +457,7 @@ module.exports = {
   conditionToString,
   isNewCondition,
   getProduct,
+  mapKeepaReleaseDate,
   mapProductToSearchResult,
   extractOffersFromProduct,
   getGraphImage,

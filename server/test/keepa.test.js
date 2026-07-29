@@ -144,6 +144,38 @@ test('keepa client: mapProductToSearchResult はstats.current配列が欠落(空
   assert.deepEqual(mapped.sellerCounts, { new: null, used: null });
 });
 
+test('keepa client: mapKeepaReleaseDate はYYYYMMDD(8桁)をISO日付文字列に変換する', () => {
+  const keepa = require('../src/keepa/client');
+  assert.equal(keepa.mapKeepaReleaseDate(20150409), '2015-04-09');
+});
+
+test('keepa client: mapKeepaReleaseDate はYYYY(4桁)/YYYYMM(6桁)は日が確定しないためnullを返す', () => {
+  const keepa = require('../src/keepa/client');
+  assert.equal(keepa.mapKeepaReleaseDate(1978), null);
+  assert.equal(keepa.mapKeepaReleaseDate(200301), null);
+});
+
+test('keepa client: mapKeepaReleaseDate は-1(取得不可)/未指定はnullを返す', () => {
+  const keepa = require('../src/keepa/client');
+  assert.equal(keepa.mapKeepaReleaseDate(-1), null);
+  assert.equal(keepa.mapKeepaReleaseDate(undefined), null);
+  assert.equal(keepa.mapKeepaReleaseDate(null), null);
+});
+
+test('keepa client: mapProductToSearchResult はproduct.releaseDateをreleaseDate(ISO文字列)にマッピングする', () => {
+  const keepa = require('../src/keepa/client');
+  const product = { asin: 'B000TEST08', stats: { current: [] }, releaseDate: 20190530 };
+  const mapped = keepa.mapProductToSearchResult(product);
+  assert.equal(mapped.releaseDate, '2019-05-30');
+});
+
+test('keepa client: mapProductToSearchResult はproduct.releaseDate未取得(-1)ならreleaseDateはnull', () => {
+  const keepa = require('../src/keepa/client');
+  const product = { asin: 'B000TEST09', stats: { current: [] }, releaseDate: -1 };
+  const mapped = keepa.mapProductToSearchResult(product);
+  assert.equal(mapped.releaseDate, null);
+});
+
 test('keepa client: resolveImageUrl は新形式images配列(images[0].l)を優先する', () => {
   const keepa = require('../src/keepa/client');
   const product = {
@@ -314,6 +346,7 @@ test('/api/search: SP-API未設定・KEEPA_API_KEYありならKeepa経路にフ�
             title: 'Keepa経由の本',
             imagesCSV: 'sample.jpg',
             stats: { current: [2000, 1000, 800, 5000, 2200] },
+            releaseDate: 20150409,
           },
         };
       };
@@ -329,6 +362,7 @@ test('/api/search: SP-API未設定・KEEPA_API_KEYありならKeepa経路にフ�
       assert.equal(res.body.prices.used, 800);
       assert.equal(res.body.prices.cart, null);
       assert.equal(res.body.profitInputs.listPrice, 2420); // current[4]=2200(税抜) * 1.10 = 2420
+      assert.equal(res.body.releaseDate, '2015-04-09'); // product.releaseDate(20150409)をISO文字列化
       assert.ok(typeof res.body.profitInputs.breakEven.new === 'number');
       assert.ok(typeof res.body.profitInputs.breakEven.used === 'number');
 
@@ -357,6 +391,8 @@ test('/api/search: keepa経路のprofitInputsはunresolved等の早期returnで�
 
       assert.ok('profitInputs' in res.body);
       assert.equal(res.body.profitInputs, null);
+      assert.ok('releaseDate' in res.body);
+      assert.equal(res.body.releaseDate, null);
 
       t.after(() => {
         routes.searchCache.clear();
