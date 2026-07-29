@@ -4,6 +4,14 @@ import SwiftUI
 /// 行タップ(非選択モード時)で仕入れフォーム(PurchaseFormView・編集モード)を開く
 /// (誰でも編集可。単品の「出品する」導線は無い)。
 /// 選択モード(EditButton)での一括削除・一括コンディション変更・一括出品を持つ。
+/// 仕入れタブ上部の表示切替。出品済みは作業対象から外れるため既定は「未出品」。
+enum ListTab: String, CaseIterable, Identifiable {
+    case unlisted = "未出品"
+    case listed = "出品済み"
+
+    var id: String { rawValue }
+}
+
 struct PurchaseTabView: View {
     @ObservedObject private var store = PurchaseListStore.shared
     @ObservedObject private var entitlements = EntitlementStore.shared
@@ -15,8 +23,18 @@ struct PurchaseTabView: View {
     // 選択モードは自前の@Stateで管理し、Listへは.environment(\.editMode:)で明示的に反映する。
     @State private var isSelecting = false
     @State private var selectedIds = Set<UUID>()
+    /// 一覧の表示切替(未出品 / 出品済み)。
+    @State private var selectedTab: ListTab = .unlisted
     @State private var showDeleteConfirm = false
     @State private var showListingConfirm = false
+
+    /// 現在のタブに表示する商品。選択・全選択・削除もこの範囲だけを対象にする。
+    private var visibleItems: [PurchaseListItem] {
+        switch selectedTab {
+        case .unlisted: return store.items.filter { !$0.isListed }
+        case .listed: return store.items.filter { $0.isListed }
+        }
+    }
 
     /// 一括出品の導線を出してよいか(単品出品フォームと同じゲート)。
     private var canBulkList: Bool {
@@ -29,7 +47,22 @@ struct PurchaseTabView: View {
                 if store.items.isEmpty {
                     emptyState
                 } else {
-                    listContent
+                    VStack(spacing: 0) {
+                        // タブ切替。切り替えると選択内容は対象外になるため解除する。
+                        Picker("表示", selection: $selectedTab) {
+                            ForEach(ListTab.allCases) { tab in
+                                Text(tab.rawValue).tag(tab)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .padding(.horizontal)
+                        .padding(.bottom, 8)
+                        .onChange(of: selectedTab) { _ in
+                            selectedIds.removeAll()
+                        }
+
+                        listContent
+                    }
                 }
             }
             .navigationTitle("仕入れ")
@@ -95,11 +128,11 @@ struct PurchaseTabView: View {
         }
         ToolbarItem(placement: .navigationBarLeading) {
             if isSelecting {
-                Button(selectedIds.count == store.items.count ? "全解除" : "全選択") {
-                    if selectedIds.count == store.items.count {
+                Button(selectedIds.count == visibleItems.count ? "全解除" : "全選択") {
+                    if selectedIds.count == visibleItems.count {
                         selectedIds.removeAll()
                     } else {
-                        selectedIds = Set(store.items.map(\.id))
+                        selectedIds = Set(visibleItems.map(\.id))
                     }
                 }
             }
@@ -193,17 +226,13 @@ struct PurchaseTabView: View {
                 }
             }
 
-            let unlisted = store.items.filter { !$0.isListed }
-            let listed = store.items.filter { $0.isListed }
-
-            if !unlisted.isEmpty {
-                Section("未出品") {
-                    purchaseRows(for: unlisted)
-                }
-            }
-            if !listed.isEmpty {
-                Section("出品済み") {
-                    purchaseRows(for: listed)
+            Section {
+                if visibleItems.isEmpty {
+                    Text(selectedTab == .unlisted ? "未出品の商品はありません" : "出品済みの商品はありません")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                } else {
+                    purchaseRows(for: visibleItems)
                 }
             }
         }
@@ -304,27 +333,32 @@ struct PurchaseListRow: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
 
+                // コンディション / 出品価格 / 数量。価格は仕入れ価格と区別できるよう「出品価格:」を添える。
                 HStack(spacing: 8) {
                     // コンディション(未設定時は既定の「良い」を表示。保存値そのものは変えない)。
                     Text((item.condition ?? .usedGood).displayName)
-                        .font(.caption)
                         .foregroundColor(.secondary)
 
                     // 仕入れフォームで保存済みの価格(あれば表示)。
                     if let price = item.price {
-                        Text("¥\(price)")
-                            .font(.caption)
+                        Text("出品価格:¥\(price)")
                             .fontWeight(.semibold)
                             .foregroundColor(.secondary)
                     }
 
-                    if item.isListed {
-                        // 出品受理済みマーク(Phase 2: markListedで付与される)。
-                        Label("出品済み", systemImage: "checkmark.circle.fill")
-                            .font(.caption)
-                            .fontWeight(.bold)
-                            .foregroundColor(.green)
-                    }
+                    Text("数量:\(item.quantity ?? 1)")
+                        .foregroundColor(.secondary)
+                }
+                .font(.caption)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+
+                if let sku = item.sku ?? item.listedSku {
+                    Text("SKU:\(sku)")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
                 }
             }
         }
