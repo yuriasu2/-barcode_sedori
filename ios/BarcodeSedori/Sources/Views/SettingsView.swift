@@ -285,7 +285,12 @@ struct SettingsView: View {
                 NavigationLink("SKUフォーマット") {
                     SkuFormatSettingsView()
                 }
-                NavigationLink("仕入れ設定") {
+                // 仕入れフォームのデフォルト値。商品ごとにフォーム側で変更できる。
+                Toggle("FBAを利用", isOn: $settings.purchaseUseFbaDefault)
+                NavigationLink("利益計算用送料") {
+                    ShippingSettingsView()
+                }
+                NavigationLink("仕入先") {
                     PurchaseSettingsView()
                 }
             } else {

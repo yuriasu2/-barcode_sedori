@@ -1,61 +1,16 @@
 import SwiftUI
 
-/// 「仕入れ設定」画面(Pro限定)。設定タブの「出品」セクションから遷移する。
-/// 仕入れフォーム(PurchaseFormView)のFBA・配送料・発送費用デフォルト値と、仕入先リストの管理を行う。
+/// 「仕入先」画面(Pro限定)。設定タブの「出品」セクションから遷移する。
+/// ここで登録した仕入先が、仕入れフォーム(PurchaseFormView)の仕入先ピッカーの選択肢になる。
 struct PurchaseSettingsView: View {
     @ObservedObject private var settings = SettingsStore.shared
 
-    /// numberPadキーボードの配送料・発送費用TextFieldのフォーカス対象。キーボードツールバーの
-    /// 「完了」でnilにしてフォーカスを外す(numberPadにはReturnキーが無いため。
-    /// PurchaseFormViewと同方式)。
-    private enum Field: Hashable {
-        case shippingIncome
-        case shippingCost
-        case newSupplier
-    }
-    @FocusState private var focusedField: Field?
-
     /// 仕入先追加用の入力中テキスト。追加確定するとクリアする。
     @State private var newSupplier: String = ""
+    @FocusState private var isNewSupplierFocused: Bool
 
     var body: some View {
         Form {
-            Section {
-                Toggle("FBAを利用", isOn: $settings.purchaseUseFbaDefault)
-            } header: {
-                Text("FBA")
-            } footer: {
-                Text("仕入れフォームのデフォルト値になります。商品ごとに変更できます。")
-            }
-
-            Section("配送料") {
-                HStack {
-                    Text("配送料デフォルト(円)")
-                    Spacer()
-                    TextField("配送料", value: $settings.purchaseShippingIncomeDefault, format: .number)
-                        .keyboardType(.numberPad)
-                        .multilineTextAlignment(.trailing)
-                        .frame(width: 120)
-                        .focused($focusedField, equals: .shippingIncome)
-                }
-                Text("購入者が支払い、自分に入金される額です。")
-                    .font(.footnote)
-                    .foregroundColor(.secondary)
-
-                HStack {
-                    Text("発送費用デフォルト(円)")
-                    Spacer()
-                    TextField("発送費用", value: $settings.purchaseShippingCostDefault, format: .number)
-                        .keyboardType(.numberPad)
-                        .multilineTextAlignment(.trailing)
-                        .frame(width: 120)
-                        .focused($focusedField, equals: .shippingCost)
-                }
-                Text("自分が支払う発送コストです。")
-                    .font(.footnote)
-                    .foregroundColor(.secondary)
-            }
-
             Section("仕入先") {
                 ForEach(settings.purchaseSuppliers, id: \.self) { supplier in
                     Text(supplier)
@@ -64,7 +19,7 @@ struct PurchaseSettingsView: View {
 
                 HStack {
                     TextField("仕入先を追加", text: $newSupplier)
-                        .focused($focusedField, equals: .newSupplier)
+                        .focused($isNewSupplierFocused)
                         .onSubmit(addSupplier)
                     Button {
                         addSupplier()
@@ -75,11 +30,11 @@ struct PurchaseSettingsView: View {
                 }
             }
         }
-        .navigationTitle("仕入れ設定")
+        .navigationTitle("仕入先")
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()
-                Button("完了") { focusedField = nil }
+                Button("完了") { isNewSupplierFocused = false }
             }
         }
     }
