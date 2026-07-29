@@ -230,6 +230,11 @@ struct PurchaseListRow: View {
         return formatter
     }()
 
+    /// 表示するJANコード(ISBN-13があればそれ、無ければスキャンしたコード)。
+    private var janCode: String {
+        item.isbn13 ?? item.scannedCode ?? "-"
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             AsyncImage(url: item.imageUrl.flatMap(URL.init(string:))) { phase in
@@ -257,16 +262,27 @@ struct PurchaseListRow: View {
                     .fontWeight(.medium)
                     .lineLimit(2)
 
+                // 仕入れ日 / JAN / ランク。商品タブの履歴行と同じ表記に揃える
+                // (JANはbarcode.viewfinder、ランクは折れ線グラフアイコン)。
                 HStack(spacing: 8) {
-                    Text(Self.dateFormatter.string(from: item.addedAt))
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                    Text("仕入れ日:\(Self.dateFormatter.string(from: item.purchaseDate ?? item.addedAt))")
+
+                    HStack(spacing: 3) {
+                        Image(systemName: "barcode.viewfinder")
+                        Text(janCode)
+                    }
+
                     if let rank = item.salesRank {
-                        Text("ランク: \(rank)位")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                        HStack(spacing: 3) {
+                            Image(systemName: "chart.line.uptrend.xyaxis")
+                            Text("\(rank)位")
+                        }
                     }
                 }
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
 
                 HStack(spacing: 8) {
                     // コンディション(未設定時は既定の「良い」を表示。保存値そのものは変えない)。

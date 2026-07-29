@@ -764,7 +764,11 @@ struct PurchaseFormView: View {
     /// 仕入れ情報セクション: 仕入れ日・仕入先・自分用メモ(出品には使わない)。
     private var purchaseInfoSection: some View {
         Section("仕入れ情報") {
-            DatePicker("仕入れ日", selection: $viewModel.purchaseDate, displayedComponents: .date)
+            DatePicker(
+                "仕入れ日",
+                selection: $viewModel.purchaseDate,
+                displayedComponents: [.date, .hourAndMinute]
+            )
 
             Picker("仕入先", selection: $viewModel.supplier) {
                 ForEach(viewModel.supplierOptions, id: \.self) { option in
