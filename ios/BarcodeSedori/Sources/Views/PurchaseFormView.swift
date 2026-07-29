@@ -147,6 +147,14 @@ final class PurchaseFormViewModel: ObservableObject {
         }
     }
 
+    /// 商品セクションに表示するランキング(スキャン時点の値)。
+    var salesRank: Int? {
+        switch mode {
+        case .add(let draft): return draft.salesRank
+        case .edit(let item): return item.salesRank
+        }
+    }
+
     init(
         mode: PurchaseFormMode,
         settings: SettingsStore = .shared,
@@ -508,6 +516,17 @@ struct PurchaseFormView: View {
                     Text(viewModel.janCode ?? "-")
                         .foregroundColor(.secondary)
                 }
+                HStack {
+                    Text("ランキング")
+                    Spacer()
+                    if let rank = viewModel.salesRank {
+                        Text("\(rank)位")
+                            .foregroundColor(.secondary)
+                    } else {
+                        Text("-")
+                            .foregroundColor(.secondary)
+                    }
+                }
                 restrictionRow
             }
 
@@ -621,14 +640,13 @@ struct PurchaseFormView: View {
         }
     }
 
-    /// 出品制限の1行に共通の体裁(1行に収める・小さめの文字)。
+    /// 出品制限の1行に共通の体裁(他の行と同じ文字サイズで1行に収める)。
     private func restrictionLine<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         HStack(spacing: 8) {
             content()
         }
-        .font(.footnote)
         .lineLimit(1)
-        .minimumScaleFactor(0.8)
+        .minimumScaleFactor(0.7)
     }
 
     /// 利益セクション: 出品価格・配送料(黒=入る)/ 仕入れ価格・手数料・発送費用(赤=出る)/
