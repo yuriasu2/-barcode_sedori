@@ -1,16 +1,16 @@
 import SwiftUI
 import Charts
 
-/// 価格推移グラフ1本分の点。時刻と値(円 or ランキング位)。
+/// 価格推移グラフ1本分の点。時刻と値(円 or ランキング位、プロット用に正規化される前の値)。
 private struct ChartPoint: Identifiable {
     let id = UUID()
     let time: Date
     let value: Double
 }
 
-/// -1(データなし)で分割した1本の連続区間。series識別子ごとに独立した折れ線として描画することで、
-/// データなし区間をまたいで線が繋がらないようにする。
-private struct ChartSegment: Identifiable {
+/// 1系列分の連続した折れ線データ。-1(データなし)はforward-fillで直前値に置き換え済みで、
+/// 右端(現在時刻)まで最後の値の点を追加済みのため、系列内で線が途切れることはない。
+private struct ChartSeries: Identifiable {
     let id: String
     let color: Color
     let points: [ChartPoint]
@@ -18,7 +18,10 @@ private struct ChartSegment: Identifiable {
 
 /// 価格推移グラフ(Pro専用)。旧来のKeepaサーバー画像描画をやめ、
 /// /api/graph-data で取得した履歴データをSwift Chartsで自前描画する。
-/// 上段=価格(Amazon/新品/中古)、下段=ランキングの2段構成(iOS16 Chartsには2軸が無いため)。
+///
+/// Keepaと同じ見た目に寄せるため、価格(Amazon/新品/中古)とランキングを1つのチャートに重ねる。
+/// iOS16のSwift Chartsは2軸を持てないため、ランキングの値を価格のy domainへ線形変換してプロットし、
+/// 右側にランキング用の見かけ上の軸を追加する「正規化方式」で実装している(詳細はcombinedChart内のコメント参照)。
 struct PriceHistoryChartView: View {
     let asin: String
     let range: GraphRange
@@ -32,8 +35,8 @@ struct PriceHistoryChartView: View {
     /// (Keepaトークンの追加消費ゼロ)。同じasinの再取得も避ける(アプリ終了で破棄)。
     static var dataCache: [String: GraphData] = [:]
 
-    /// 上段(170)+間隔(4)+下段(70)。ロード中/失敗時もこの高さを確保してレイアウトが跳ねないようにする。
-    private static let reservedHeight: CGFloat = 170 + 4 + 70
+    /// 価格とランキングを重ねた1段構成。ロード中/失敗時もこの高さを確保してレイアウトが跳ねないようにする。
+    private static let reservedHeight: CGFloat = 200
 
     var body: some View {
         Group {
@@ -98,139 +101,181 @@ struct PriceHistoryChartView: View {
     @ViewBuilder
     private func chartsBody(data: GraphData) -> some View {
         let now = Date()
-        let amazonSegments = segments(from: data.series.amazon, seriesId: "amazon", color: .orange, now: now)
-        let newSegments = segments(from: data.series.new, seriesId: "new", color: .blue, now: now)
-        // 中古は黒だが、ダークモードでは.primary(白系)に自動追従させる。
-        let usedSegments = segments(from: data.series.used, seriesId: "used", color: .primary, now: now)
-        let rankSegments = segments(from: data.series.rank, seriesId: "rank", color: .green, now: now)
-        let priceSegments = amazonSegments + newSegments + usedSegments
         let domain = xDomain(data: data, now: now)
+        let amazon = series(from: data.series.amazon, seriesId: "amazon", color: .orange, now: now)
+        let newSeries = series(from: data.series.new, seriesId: "new", color: .blue, now: now)
+        // 中古は黒だが、ダークモードでは.primary(白系)に自動追従させる。
+        let used = series(from: data.series.used, seriesId: "used", color: .primary, now: now)
+        let rank = series(from: data.series.rank, seriesId: "rank", color: .green, now: now)
+        let priceSeries = [amazon, newSeries, used].compactMap { $0 }
 
-        if priceSegments.isEmpty && rankSegments.isEmpty {
+        if priceSeries.isEmpty && rank == nil {
             Text("履歴データがありません")
                 .font(.caption)
                 .foregroundColor(.secondary)
                 .frame(maxWidth: .infinity)
                 .frame(height: Self.reservedHeight)
         } else {
-            VStack(spacing: 4) {
-                // 点が0個の系列(価格 or ランキングまるごと)は描かない。
-                if !priceSegments.isEmpty {
-                    // ランキング段が無いときだけ価格段にx軸ラベルを出す。
-                    priceChart(segments: priceSegments, domain: domain, showsXAxisLabels: rankSegments.isEmpty)
-                }
-                if !rankSegments.isEmpty {
-                    rankChart(segments: rankSegments, domain: domain)
-                }
-            }
+            combinedChart(priceSeries: priceSeries, rankSeries: rank, domain: domain)
         }
     }
 
+    /// 価格とランキングを1つのChartに重ねて描画する。
+    ///
+    /// - 価格が1系列以上あるとき: 価格は実値のままプロットし、y domainを[0, priceDomainMax]とする。
+    ///   ランキングがあれば `plottedY = rank / maxRank * priceDomainMax` で価格domainへ正規化してから
+    ///   同じChartに重ねる。右側の軸は見かけ上の目盛りで、目盛り位置の値vを
+    ///   `rank = v / priceDomainMax * maxRank` で逆変換してランキング表記に直す。
+    /// - 価格が1つも無くランキングだけがあるとき: ランキングを実値のままプロットし、
+    ///   右軸のみを表示する(左軸は出さない)。
     @ViewBuilder
-    private func priceChart(segments: [ChartSegment], domain: ClosedRange<Date>, showsXAxisLabels: Bool) -> some View {
-        Chart {
-            ForEach(segments) { segment in
-                ForEach(segment.points) { point in
-                    LineMark(
-                        x: .value("時刻", point.time),
-                        y: .value("価格", point.value),
-                        series: .value("系列", segment.id)
-                    )
-                    .foregroundStyle(segment.color)
-                    .interpolationMethod(.stepEnd)
-                }
+    private func combinedChart(
+        priceSeries: [ChartSeries],
+        rankSeries: ChartSeries?,
+        domain: ClosedRange<Date>
+    ) -> some View {
+        if !priceSeries.isEmpty {
+            let priceMax = priceSeries.flatMap { $0.points }.map { $0.value }.max() ?? 0
+            let priceDomainMax = max(priceMax * 1.05, 1)
+            let maxRank = rankSeries?.points.map { $0.value }.max() ?? 0
+            // ランキングを価格domainへ正規化(0除算回避のためmaxRank<=0なら正規化せず実値のまま=右軸は出さない)。
+            let normalizedRank: ChartSeries? = rankSeries.flatMap { rs -> ChartSeries? in
+                guard maxRank > 0 else { return nil }
+                let points = rs.points.map { ChartPoint(time: $0.time, value: $0.value / maxRank * priceDomainMax) }
+                return ChartSeries(id: rs.id, color: rs.color, points: points)
             }
-        }
-        // 凡例は既存のgraphLegend(親側の自前描画)を使うため、Charts標準の凡例は隠す。
-        .chartLegend(.hidden)
-        .chartXScale(domain: domain)
-        .chartXAxis {
-            AxisMarks { value in
-                AxisGridLine()
-                if showsXAxisLabels, let date = value.as(Date.self) {
-                    AxisValueLabel { Text(Self.axisDateFormatter.string(from: date)) }
+
+            Chart {
+                ForEach(priceSeries) { s in
+                    ForEach(s.points) { point in
+                        LineMark(
+                            x: .value("時刻", point.time),
+                            y: .value("価格", point.value),
+                            series: .value("系列", s.id)
+                        )
+                        .foregroundStyle(s.color)
+                        .interpolationMethod(.stepEnd)
+                    }
                 }
-            }
-        }
-        .chartYAxis {
-            AxisMarks(position: .leading) { value in
-                AxisGridLine()
-                AxisValueLabel {
-                    if let yen = value.as(Double.self) {
-                        Text(Self.formatYen(yen))
-                            .font(.system(size: 9))
+                if let normalizedRank {
+                    ForEach(normalizedRank.points) { point in
+                        LineMark(
+                            x: .value("時刻", point.time),
+                            y: .value("ランキング(正規化)", point.value),
+                            series: .value("系列", normalizedRank.id)
+                        )
+                        .foregroundStyle(normalizedRank.color)
+                        .interpolationMethod(.stepEnd)
                     }
                 }
             }
-        }
-        .frame(height: 170)
-    }
+            // 凡例は既存のgraphLegend(親側の自前描画)を使うため、Charts標準の凡例は隠す。
+            .chartLegend(.hidden)
+            .chartXScale(domain: domain)
+            .chartYScale(domain: 0...priceDomainMax)
+            .chartXAxis {
+                AxisMarks { value in
+                    AxisGridLine()
+                    if let date = value.as(Date.self) {
+                        AxisValueLabel { Text(Self.axisDateFormatter.string(from: date)) }
+                    }
+                }
+            }
+            .chartYAxis {
+                AxisMarks(position: .leading) { value in
+                    AxisGridLine()
+                    AxisValueLabel {
+                        if let yen = value.as(Double.self) {
+                            Text(Self.formatYen(yen))
+                                .font(.system(size: 9))
+                        }
+                    }
+                }
+                if normalizedRank != nil {
+                    // 右軸(ランキング)は見かけ上の軸。目盛り位置vは価格domain上の値なので、
+                    // 正規化の逆変換 rank = v / priceDomainMax * maxRank で実際の順位に戻して表示する。
+                    // 左と目盛り数が揃わずグリッド線が二重になるとうるさいため、グリッド線は出さずラベルのみ描く。
+                    AxisMarks(position: .trailing, values: .automatic(desiredCount: 5)) { value in
+                        AxisValueLabel {
+                            if let plotted = value.as(Double.self) {
+                                let rank = plotted / priceDomainMax * maxRank
+                                Text(Self.formatRank(rank))
+                                    .font(.system(size: 9))
+                            }
+                        }
+                    }
+                }
+            }
+            .frame(height: 200)
+        } else if let rankSeries {
+            // 価格系列が全て空: ランキングを実値のままプロットし、右軸のみ表示する(左軸なし)。
+            let rankMax = rankSeries.points.map { $0.value }.max() ?? 0
+            let rankDomainMax = max(rankMax * 1.05, 1)
 
-    @ViewBuilder
-    private func rankChart(segments: [ChartSegment], domain: ClosedRange<Date>) -> some View {
-        Chart {
-            ForEach(segments) { segment in
-                ForEach(segment.points) { point in
+            Chart {
+                ForEach(rankSeries.points) { point in
                     LineMark(
                         x: .value("時刻", point.time),
                         y: .value("ランキング", point.value),
-                        series: .value("系列", segment.id)
+                        series: .value("系列", rankSeries.id)
                     )
-                    .foregroundStyle(segment.color)
+                    .foregroundStyle(rankSeries.color)
                     .interpolationMethod(.stepEnd)
                 }
             }
-        }
-        .chartLegend(.hidden)
-        .chartXScale(domain: domain)
-        .chartXAxis {
-            // 下段は常にx軸ラベルを出す(上段と同じ範囲を共有)。
-            AxisMarks { value in
-                AxisGridLine()
-                if let date = value.as(Date.self) {
-                    AxisValueLabel { Text(Self.axisDateFormatter.string(from: date)) }
-                }
-            }
-        }
-        .chartYAxis {
-            AxisMarks(position: .leading) { value in
-                AxisGridLine()
-                AxisValueLabel {
-                    if let rank = value.as(Double.self) {
-                        Text(Self.formatRank(rank))
-                            .font(.system(size: 9))
+            .chartLegend(.hidden)
+            .chartXScale(domain: domain)
+            .chartYScale(domain: 0...rankDomainMax)
+            .chartXAxis {
+                AxisMarks { value in
+                    AxisGridLine()
+                    if let date = value.as(Date.self) {
+                        AxisValueLabel { Text(Self.axisDateFormatter.string(from: date)) }
                     }
                 }
             }
+            .chartYAxis {
+                AxisMarks(position: .trailing) { value in
+                    AxisGridLine()
+                    AxisValueLabel {
+                        if let rank = value.as(Double.self) {
+                            Text(Self.formatRank(rank))
+                                .font(.system(size: 9))
+                        }
+                    }
+                }
+            }
+            .frame(height: 200)
         }
-        .frame(height: 70)
     }
 
     // MARK: - データ加工
 
-    /// 生の[[時刻, 値]]を期間でフィルタし、-1(データなし)で分割した区間の配列にする。
-    private func segments(from raw: [[Double]], seriesId: String, color: Color, now: Date) -> [ChartSegment] {
+    /// 生の[[時刻, 値]]を期間でフィルタし、-1(データなし)をforward-fill(直前の有効値で埋める)して
+    /// 1本の連続系列にする。先頭から連続する-1(直前値が無い)は捨てる。
+    /// 最後に、最終点の後ろへ「現在時刻(=窓の右端。全期間表示でも常に現在時刻)で最後の値」の点を追加し、
+    /// .stepEndの線が右端まで水平に伸びて途切れないようにする。
+    private func series(from raw: [[Double]], seriesId: String, color: Color, now: Date) -> ChartSeries? {
         let points = filteredPoints(raw: raw, now: now)
-        guard !points.isEmpty else { return [] }
+        guard !points.isEmpty else { return nil }
 
-        var result: [ChartSegment] = []
-        var current: [ChartPoint] = []
-        var index = 0
+        var filled: [ChartPoint] = []
+        var lastValid: Double?
         for (time, value) in points {
             if value == -1 {
-                if !current.isEmpty {
-                    result.append(ChartSegment(id: "\(seriesId)-\(index)", color: color, points: current))
-                    index += 1
-                    current = []
-                }
-                continue
+                guard let lastValid else { continue }
+                filled.append(ChartPoint(time: time, value: lastValid))
+            } else {
+                lastValid = value
+                filled.append(ChartPoint(time: time, value: value))
             }
-            current.append(ChartPoint(time: time, value: value))
         }
-        if !current.isEmpty {
-            result.append(ChartSegment(id: "\(seriesId)-\(index)", color: color, points: current))
+        guard let last = filled.last else { return nil }
+
+        if last.time < now {
+            filled.append(ChartPoint(time: now, value: last.value))
         }
-        return result
+        return ChartSeries(id: seriesId, color: color, points: filled)
     }
 
     /// 期間フィルタ。全期間(range.rawValue==0)はそのまま全点。それ以外は
@@ -251,7 +296,7 @@ struct PriceHistoryChartView: View {
         return windowed
     }
 
-    /// 上下2段で共有するx軸の範囲。期間指定時は「今日からrange日前〜今日」、
+    /// チャートで共有するx軸の範囲。期間指定時は「今日からrange日前〜今日」、
     /// 全期間時は全系列を通した最古〜最新の時刻を使う。
     private func xDomain(data: GraphData, now: Date) -> ClosedRange<Date> {
         if range.rawValue > 0 {
