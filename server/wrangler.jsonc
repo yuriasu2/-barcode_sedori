@@ -18,7 +18,13 @@
     "MARKETPLACE_ID": "A1VC38T7YXB528",
     "SPAPI_ENDPOINT": "https://sellingpartnerapi-fe.amazon.com",
     "FREE_DEVICE_DAILY_LIMIT": "150"
-  }
+  },
+  // 広告配信設定(/api/ads)を置くKV namespace。id は namespace 作成後に埋める
+  // (`wrangler kv namespace create ADS_CONFIG`)。id未設定(プレースホルダ)のままでも
+  // routes.js側はglobalThis.__adsKv未設定として安全側({version:0,slots:{}})に倒れる。
+  "kv_namespaces": [
+    { "binding": "ADS_CONFIG", "id": "f476a5086dc0496a90d4f07ced0e14af" }
+  ]
   // Secrets(LWA_CLIENT_ID/LWA_CLIENT_SECRET/KEEPA_API_KEY/SPAPI_APP_ID)は
   // `wrangler secret put` で登録する(このファイルに書かない)。
   // LWA_REFRESH_TOKEN はどの環境にも置かない(BYO前提)。

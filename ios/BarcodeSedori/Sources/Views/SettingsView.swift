@@ -229,7 +229,9 @@ struct SettingsView: View {
                         .foregroundColor(.secondary)
                 }
             }
-            .navigationTitle("設定")
+            // 大タイトル「設定」は削除し、広告枠(下部固定枠)の分の余白を確保する
+            // (商品/仕入れタブでナビバーを隠した先例に合わせる)。
+            .toolbar(.hidden, for: .navigationBar)
             .alert(item: $viewModel.spapiTestAlert) { alert in
                 Alert(
                     title: Text(alert.title),

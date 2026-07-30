@@ -20,6 +20,8 @@ struct BarcodeSedoriApp: App {
                 .task {
                     // 起動時にPro状態(StoreKit)を初期化・監視開始する。
                     entitlements.start()
+                    // 起動時にサーバー管理型広告設定を取得する(キャッシュ即反映→裏で更新)。
+                    AdsConfigStore.shared.start()
                     await requestTrackingIfNeeded()
                 }
         }

@@ -27,6 +27,11 @@ export default {
       if (typeof v === 'string') process.env[k] = v;
     }
 
+    // KVバインディング(オブジェクト)はprocess.envへコピーできない(文字列専用)ため、
+    // globalThisへ橋渡しする。routes.js側は globalThis.__adsKv を直接参照する
+    // (envをroutes.jsまで引き回す既存の仕組みが無いための簡易な受け渡し)。
+    globalThis.__adsKv = env.ADS_CONFIG || null;
+
     const url = new URL(request.url);
 
     // /health は routes.js に依存させず即応させる(index.jsと同じ挙動)

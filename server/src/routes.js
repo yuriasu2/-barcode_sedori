@@ -24,6 +24,7 @@ const searchCache = new LruCache();
 const offersCache = new LruCache();
 const graphCache = new LruCache({ ttlMs: 60 * 60 * 1000, maxSize: 200 }); // グラフ画像: 1時間キャッシュ
 const graphDataCache = new LruCache({ ttlMs: 60 * 60 * 1000, maxSize: 200 }); // グラフ生データ: 画像と同じ1時間キャッシュ
+const adsConfigCache = new LruCache({ ttlMs: 60 * 1000, maxSize: 1 }); // 広告配信設定: 60秒キャッシュ(KV読み取り抑制)
 
 /**
  * /api/graph-dataのキャッシュキー。handleSearchViaKeepaでの先入れとエンドポイント本体で
@@ -1195,6 +1196,129 @@ router.get('/api/spapi/test', async (req, res) => {
   }
 });
 
+// ============================================================
+// 広告配信(ads) — サーバー管理型広告。アプリ更新・サーバーデプロイなしで
+// KVの内容を差し替えるだけで広告の追加・停止ができる(設計書参照)。
+// ============================================================
+
+const ADS_CONFIG_KV_KEY = 'config';
+const ADS_CONFIG_CACHE_KEY = 'ads_config';
+// KV未設定・キー無し・JSON破損時の安全側デフォルト(=全スロット非表示)。
+const ADS_DEFAULT_CONFIG = { version: 0, slots: {} };
+
+/**
+ * worker.js が env.ADS_CONFIG(KVバインディング)を橋渡しした globalThis.__adsKv を取得する。
+ * namespace未作成・ローカル実行など未設定時はnull。
+ */
+function getAdsKv() {
+  return globalThis.__adsKv || null;
+}
+
+/**
+ * GET /api/ads の本体(広告配信設定)をKVから読み込む。
+ * Workerメモリで60秒キャッシュしKV読み取り回数を抑える。
+ * KV未設定・キー無し・JSON破損はすべて安全側(ADS_DEFAULT_CONFIG)にフォールバックする
+ * (配信者=自分自身のためスロット値の検証はしないが、パース失敗だけは握りつぶす)。
+ */
+async function loadAdsConfig() {
+  const cached = adsConfigCache.get(ADS_CONFIG_CACHE_KEY);
+  if (cached) return cached;
+
+  const kv = getAdsKv();
+  if (!kv) {
+    adsConfigCache.set(ADS_CONFIG_CACHE_KEY, ADS_DEFAULT_CONFIG);
+    return ADS_DEFAULT_CONFIG;
+  }
+
+  let config = ADS_DEFAULT_CONFIG;
+  try {
+    const raw = await kv.get(ADS_CONFIG_KV_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        config = {
+          version: typeof parsed.version === 'number' ? parsed.version : 0,
+          slots: parsed.slots && typeof parsed.slots === 'object' ? parsed.slots : {},
+        };
+      }
+    }
+  } catch (err) {
+    console.error('[ads] config parse failed:', err.message);
+    config = ADS_DEFAULT_CONFIG;
+  }
+
+  adsConfigCache.set(ADS_CONFIG_CACHE_KEY, config);
+  return config;
+}
+
+// GET /api/ads — 広告配信設定。認証不要(秘匿情報を含まない)。
+router.get('/api/ads', async (req, res) => {
+  const config = await loadAdsConfig();
+  res.json(config);
+});
+
+const AD_EVENT_KINDS = ['impression', 'click'];
+const AD_EVENT_STRING_MAX_LEN = 64;
+
+/**
+ * POST /api/ads/event の入力を検証する。
+ * slot/adIdは非空文字列64文字まで、kindはimpression/clickの2値のみ。
+ * 個人情報・端末IDは受け取らない契約のためそもそも項目自体が無い。
+ */
+function validateAdEventInput(body) {
+  const slot = String((body && body.slot) || '').trim();
+  const adId = String((body && body.adId) || '').trim();
+  const kind = String((body && body.kind) || '').trim();
+
+  if (!slot || slot.length > AD_EVENT_STRING_MAX_LEN) {
+    return { ok: false, message: 'slotは1〜64文字の文字列で指定してください' };
+  }
+  if (!adId || adId.length > AD_EVENT_STRING_MAX_LEN) {
+    return { ok: false, message: 'adIdは1〜64文字の文字列で指定してください' };
+  }
+  if (!AD_EVENT_KINDS.includes(kind)) {
+    return { ok: false, message: `kindは ${AD_EVENT_KINDS.join(' / ')} のいずれかを指定してください` };
+  }
+  return { ok: true, value: { slot, adId, kind } };
+}
+
+/**
+ * KVの日次カウンタ(stats:{YYYY-MM-DD}:{adId}:{kind}、UTC日付)をread-modify-writeで加算する。
+ * 同時アクセスでの取りこぼし(競合)は許容する(厳密な計数は不要。おおよその傾向のみ必要なため)。
+ */
+async function incrementAdEventCounter(kv, adId, kind) {
+  const today = new Date().toISOString().slice(0, 10); // UTC日付(YYYY-MM-DD)
+  const key = `stats:${today}:${adId}:${kind}`;
+  const current = await kv.get(key);
+  const next = (parseInt(current, 10) || 0) + 1;
+  await kv.put(key, String(next));
+}
+
+// POST /api/ads/event — 広告の表示/クリック計測。認証不要。個人情報・端末IDは記録しない。
+// Response(204)はbody不可(Fetch標準のnull body status)のため、MiniRouterのjson()と
+// 組み合わせられる200+空オブジェクトで代替する(設計書の許容範囲内)。
+router.post('/api/ads/event', async (req, res) => {
+  const validated = validateAdEventInput(req.body);
+  if (!validated.ok) {
+    return res.status(400).json({ error: 'invalid_request', message: validated.message });
+  }
+
+  const kv = getAdsKv();
+  if (!kv) {
+    // KV未設定でもアプリ側の計測呼び出しは失敗させない。
+    return res.status(200).json({});
+  }
+
+  try {
+    await incrementAdEventCounter(kv, validated.value.adId, validated.value.kind);
+  } catch (err) {
+    // 計測の失敗をアプリに波及させない(握りつぶして200)。
+    console.error('[ads:event] counter update failed:', err.message);
+  }
+
+  res.status(200).json({});
+});
+
 router.get('/oauth/login', oauth.handleOAuthLogin);
 router.get('/oauth/callback', oauth.handleOAuthCallback);
 
@@ -1216,5 +1340,9 @@ router.buildListingItemBody = buildListingItemBody;
 router.FULFILLMENT_CHANNELS = FULFILLMENT_CHANNELS;
 router.mapFeeDetailType = mapFeeDetailType;
 router.buildFeesBreakdown = buildFeesBreakdown;
+// テスト用途に広告配信ヘルパー・キャッシュを公開する。
+router.adsConfigCache = adsConfigCache;
+router.loadAdsConfig = loadAdsConfig;
+router.validateAdEventInput = validateAdEventInput;
 
 module.exports = router;

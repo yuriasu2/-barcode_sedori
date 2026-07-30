@@ -209,6 +209,30 @@ final class APIClient {
         return try await perform(request, as: ListingSubmissionResult.self)
     }
 
+    /// GET /api/ads — サーバー管理型広告の配信設定(認証不要)。
+    func fetchAds() async throws -> AdsResponse {
+        let request = try makeRequest(path: "/api/ads")
+        return try await perform(request, as: AdsResponse.self)
+    }
+
+    /// POST /api/ads/event — 広告の表示(impression)/クリック(click)を計測する。
+    /// 応答は200/204で本文が無いことがあるため、perform()のデコードは使わずステータスのみ確認する。
+    func sendAdEvent(slot: String, adId: String, kind: String) async throws {
+        struct AdEventBody: Encodable {
+            let slot: String
+            let adId: String
+            let kind: String
+        }
+        let request = try makePostRequest(
+            path: "/api/ads/event",
+            body: AdEventBody(slot: slot, adId: adId, kind: kind)
+        )
+        let (_, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
+            throw APIClientError.invalidResponse
+        }
+    }
+
     /// GET /api/spapi/test
     /// 設定画面の「接続テスト」ボタンから呼ばれる。ヘッダーのSP-API認証情報でサーバーが疎通確認を行う。
     /// サーバーは常にHTTP 200で { ok: Bool, message: String? } を返す設計のため、

@@ -36,7 +36,7 @@ struct PaywallView: View {
         "オファー一覧(送料込・最安順)をフル表示",
         "Keepa価格推移グラフ",
         "OCR(ISBN/JAN文字認識)スキャン",
-        "広告なし",
+        "検索画面の広告を削除",
         "スキャンのクールダウン短縮(5秒→1秒)",
         "1日のスキャン上限なし(無料は100件/日)",
     ]
@@ -49,7 +49,7 @@ struct PaywallView: View {
                         Text("アマレンズ Pro")
                             .font(.title2)
                             .fontWeight(.bold)
-                        Text("すべての機能を制限なく、広告なしで。")
+                        Text("すべての機能を制限なく。")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                     }
