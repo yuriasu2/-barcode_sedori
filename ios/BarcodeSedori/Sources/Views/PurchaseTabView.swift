@@ -303,7 +303,7 @@ struct PurchaseTabView: View {
                 }
             }
         }
-        .listStyle(.insetGrouped)
+        .listStyle(.plain)
         // isSelecting@Stateをこの階層のeditMode環境値へ明示的に反映する(自前トグルのため)。
         // Listの複数選択チェックマークUIはこの環境値がactiveのときのみ表示される。
         .environment(\.editMode, .constant(isSelecting ? .active : .inactive))
@@ -368,21 +368,18 @@ struct PurchaseListRow: View {
                     Color.clear
                 }
             }
-            .frame(width: 56, height: 56)
+            .frame(width: 50, height: 50)
             .background(Color(.secondarySystemBackground))
-            .cornerRadius(8)
+            .cornerRadius(6)
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(item.title ?? "(タイトル不明)")
                     .font(.subheadline)
-                    .fontWeight(.medium)
                     .lineLimit(2)
 
-                // 仕入れ日 / JAN / ランク。商品タブの履歴行と同じ表記に揃える
+                // JAN / ランク。商品タブの履歴行と同じ表記に揃える
                 // (JANはbarcode.viewfinder、ランクは折れ線グラフアイコン)。
                 HStack(spacing: 8) {
-                    Text("仕入れ日:\(Self.dateFormatter.string(from: item.purchaseDate ?? item.addedAt))")
-
                     HStack(spacing: 3) {
                         Image(systemName: "barcode.viewfinder")
                         Text(janCode)
@@ -420,13 +417,16 @@ struct PurchaseListRow: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
 
-                if let sku = item.sku ?? item.listedSku {
-                    Text("SKU:\(sku)")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
+                HStack(spacing: 8) {
+                    if let sku = item.sku ?? item.listedSku {
+                        Text("SKU:\(sku)")
+                    }
+                    Text("仕入れ日:\(Self.dateFormatter.string(from: item.purchaseDate ?? item.addedAt))")
                 }
+                .font(.caption2)
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
             }
         }
         .padding(.vertical, 4)
