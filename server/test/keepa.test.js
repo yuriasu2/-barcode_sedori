@@ -1044,3 +1044,287 @@ test('/api/graph: キャッシュキーはrangeごとに分離される(range違
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// keepa client: extractGraphSeries(グラフ生データ)
+// ---------------------------------------------------------------------------
+
+test('keepa client: extractGraphSeries はcsvの交互配列([keepa分,value,...])を[[unixSec,value],...]に変換する', () => {
+  const keepa = require('../src/keepa/client');
+  const csv = [];
+  csv[0] = [5000000, 2500, 5000100, 2600]; // AMAZON
+  csv[1] = [5000000, 1500, 5000100, 1600]; // NEW
+  csv[2] = [5000000, 1200]; // USED
+  csv[3] = [5000000, 3000]; // SALES(rank)
+  const product = { csv };
+
+  const series = keepa.extractGraphSeries(product);
+
+  assert.equal(series.amazon.length, 2);
+  assert.deepEqual(series.amazon[0], [(5000000 + 21564000) * 60, 2500]);
+  assert.deepEqual(series.amazon[1], [(5000100 + 21564000) * 60, 2600]);
+  assert.deepEqual(series.new[0], [(5000000 + 21564000) * 60, 1500]);
+  assert.deepEqual(series.used[0], [(5000000 + 21564000) * 60, 1200]);
+  assert.deepEqual(series.rank[0], [(5000000 + 21564000) * 60, 3000]);
+});
+
+test('keepa client: extractGraphSeries は-1(データなし)の値もそのまま保持する', () => {
+  const keepa = require('../src/keepa/client');
+  const csv = [];
+  csv[1] = [5000000, 1500, 5000100, -1]; // NEW: 2点目は在庫切れ等でデータなし
+  const product = { csv };
+
+  const series = keepa.extractGraphSeries(product);
+  assert.deepEqual(series.new, [
+    [(5000000 + 21564000) * 60, 1500],
+    [(5000100 + 21564000) * 60, -1],
+  ]);
+});
+
+test('keepa client: extractGraphSeries はcsvが無い/該当系列が無い場合は空配列を返す', () => {
+  const keepa = require('../src/keepa/client');
+  assert.deepEqual(keepa.extractGraphSeries(null), { amazon: [], new: [], used: [], rank: [] });
+  assert.deepEqual(keepa.extractGraphSeries({}), { amazon: [], new: [], used: [], rank: [] });
+  assert.deepEqual(keepa.extractGraphSeries({ csv: [] }), { amazon: [], new: [], used: [], rank: [] });
+});
+
+test('keepa client: extractGraphSeries は1001点以上の系列を1000点へ間引き、最初と最後の点は保持する', () => {
+  const keepa = require('../src/keepa/client');
+  const pointCount = 1001;
+  const rawCsv = [];
+  for (let i = 0; i < pointCount; i += 1) {
+    rawCsv.push(i * 10, 1000 + i); // keepa分は単調増加させる(実データも昇順)
+  }
+  const csv = [];
+  csv[1] = rawCsv; // NEW
+  const product = { csv };
+
+  const series = keepa.extractGraphSeries(product);
+  assert.equal(series.new.length, 1000);
+  // 最初の点(rawCsvの先頭ペア)
+  assert.deepEqual(series.new[0], [(0 + 21564000) * 60, 1000]);
+  // 最後の点(rawCsvの末尾ペア)
+  const lastKeepaTime = (pointCount - 1) * 10;
+  assert.deepEqual(series.new[series.new.length - 1], [(lastKeepaTime + 21564000) * 60, 1000 + pointCount - 1]);
+});
+
+test('keepa client: extractGraphSeries は1000点以下の系列は間引かない', () => {
+  const keepa = require('../src/keepa/client');
+  const rawCsv = [];
+  for (let i = 0; i < 500; i += 1) {
+    rawCsv.push(i * 10, i);
+  }
+  const csv = [];
+  csv[0] = rawCsv;
+  const product = { csv };
+
+  const series = keepa.extractGraphSeries(product);
+  assert.equal(series.amazon.length, 500);
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/graph-data?asin= — グラフ生データ(画像でなくJSON)
+// ---------------------------------------------------------------------------
+
+test('/api/graph-data: 無料(ヘッダーなし)は403 plan_required', async () => {
+  await withEnv({ KEEPA_API_KEY: 'test-keepa-key' }, async () => {
+    const routes = freshRoutes();
+    const req = { query: { asin: 'B000TEST' }, headers: {} };
+    const res = createMockRes();
+    const route = routes.match('GET', '/api/graph-data');
+    await route.handler(req, res);
+
+    assert.equal(res.statusCode, 403);
+    assert.equal(res.body.error, 'plan_required');
+  });
+});
+
+test('/api/graph-data: asin未指定は400', async () => {
+  await withEnv({ KEEPA_API_KEY: 'test-keepa-key' }, async () => {
+    const routes = freshRoutes();
+    const req = { query: {}, headers: PRO };
+    const res = createMockRes();
+    const route = routes.match('GET', '/api/graph-data');
+    await route.handler(req, res);
+
+    assert.equal(res.statusCode, 400);
+  });
+});
+
+test('/api/graph-data: KEEPA_API_KEY未設定なら404 keepa_not_configured', async () => {
+  await withEnv({ KEEPA_API_KEY: undefined }, async () => {
+    const routes = freshRoutes();
+    const req = { query: { asin: 'B000TEST' }, headers: PRO };
+    const res = createMockRes();
+    const route = routes.match('GET', '/api/graph-data');
+    await route.handler(req, res);
+
+    assert.equal(res.statusCode, 404);
+    assert.equal(res.body.error, 'keepa_not_configured');
+  });
+});
+
+test('/api/graph-data: 正常応答は{series:{amazon,new,used,rank}}の形で返す', async (t) => {
+  await withEnv({ KEEPA_API_KEY: 'test-keepa-key' }, async () => {
+    const routes = freshRoutes();
+    const keepa = require('../src/keepa/client');
+
+    keepa.getProduct = async ({ asin, history }) => {
+      assert.equal(asin, 'B000GRAPHDATA');
+      assert.equal(history, 1);
+      const csv = [];
+      csv[1] = [5000000, 1500]; // NEW
+      return { product: { asin, csv } };
+    };
+
+    const req = { query: { asin: 'B000GRAPHDATA' }, headers: PRO };
+    const res = createMockRes();
+    const route = routes.match('GET', '/api/graph-data');
+    await route.handler(req, res);
+
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(Object.keys(res.body), ['series']);
+    assert.deepEqual(Object.keys(res.body.series).sort(), ['amazon', 'new', 'rank', 'used']);
+    assert.deepEqual(res.body.series.new, [[(5000000 + 21564000) * 60, 1500]]);
+
+    t.after(() => {
+      routes.graphDataCache.clear();
+    });
+  });
+});
+
+test('/api/graph-data: キャッシュ命中時はKeepaを再度呼ばない', async (t) => {
+  await withEnv({ KEEPA_API_KEY: 'test-keepa-key' }, async () => {
+    const routes = freshRoutes();
+    const keepa = require('../src/keepa/client');
+
+    let callCount = 0;
+    keepa.getProduct = async ({ asin }) => {
+      callCount += 1;
+      const csv = [];
+      csv[1] = [5000000, 1500];
+      return { product: { asin, csv } };
+    };
+
+    const route = routes.match('GET', '/api/graph-data');
+    const req = { query: { asin: 'B000GRAPHCACHE' }, headers: PRO };
+
+    const res1 = createMockRes();
+    await route.handler(req, res1);
+    const res2 = createMockRes();
+    await route.handler(req, res2);
+
+    assert.equal(callCount, 1);
+    assert.deepEqual(res1.body, res2.body);
+
+    t.after(() => {
+      routes.graphDataCache.clear();
+    });
+  });
+});
+
+test('/api/graph-data: keepa_tokens_exhaustedは503、その他エラーは502で返す', async () => {
+  await withEnv({ KEEPA_API_KEY: 'test-keepa-key' }, async () => {
+    const routes = freshRoutes();
+    const keepa = require('../src/keepa/client');
+
+    keepa.getProduct = async () => {
+      const err = new Error('keepa_tokens_exhausted');
+      err.code = 'keepa_tokens_exhausted';
+      throw err;
+    };
+
+    const req = { query: { asin: 'B000GRAPHERR1' }, headers: PRO };
+    const res = createMockRes();
+    const route = routes.match('GET', '/api/graph-data');
+    await route.handler(req, res);
+
+    assert.equal(res.statusCode, 503);
+    assert.equal(res.body.error, 'keepa_tokens_exhausted');
+  });
+});
+
+test('/api/graph-data: getProductが想定外エラーを投げたら502 graph_data_failed', async () => {
+  await withEnv({ KEEPA_API_KEY: 'test-keepa-key' }, async () => {
+    const routes = freshRoutes();
+    const keepa = require('../src/keepa/client');
+
+    keepa.getProduct = async () => {
+      throw new Error('boom');
+    };
+
+    const req = { query: { asin: 'B000GRAPHERR2' }, headers: PRO };
+    const res = createMockRes();
+    const route = routes.match('GET', '/api/graph-data');
+    await route.handler(req, res);
+
+    assert.equal(res.statusCode, 502);
+    assert.equal(res.body.error, 'graph_data_failed');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleSearchViaKeepa: graphDataCacheの先入れ(トークン追加消費ゼロ化)
+// ---------------------------------------------------------------------------
+
+test('/api/search(keepa経路): history:1でgetProductを呼び、graphDataCacheへ先入れする(応答自体には含めない)', async (t) => {
+  await withEnv(
+    {
+      LWA_CLIENT_ID: undefined,
+      LWA_CLIENT_SECRET: undefined,
+      LWA_REFRESH_TOKEN: undefined,
+      KEEPA_API_KEY: 'test-keepa-key',
+    },
+    async () => {
+      const routes = freshRoutes();
+      const keepa = require('../src/keepa/client');
+
+      let receivedHistory;
+      keepa.getProduct = async ({ code, history }) => {
+        receivedHistory = history;
+        const csv = [];
+        csv[1] = [5000000, 1500]; // NEW
+        return {
+          product: {
+            asin: 'B00PREFILL01',
+            title: 'グラフ先入れテスト',
+            imagesCSV: 'sample.jpg',
+            stats: { current: [2000, 1500, 800, 5000, 2200] },
+            csv,
+          },
+        };
+      };
+
+      const req = { query: { code: '9784471103644' }, headers: {} };
+      const res = createMockRes();
+      const route = routes.match('GET', '/api/search');
+      await route.handler(req, res);
+
+      assert.equal(receivedHistory, 1);
+      // 検索応答自体にはグラフ生データを含めない(契約を変えない)。
+      assert.ok(!('series' in res.body));
+      assert.ok(!('graph' in res.body));
+
+      // graphDataCacheへ先入れされているため、後続の/api/graph-dataはKeepaを再度呼ばない。
+      let graphDataCallCount = 0;
+      const originalGetProduct = keepa.getProduct;
+      keepa.getProduct = async (params) => {
+        graphDataCallCount += 1;
+        return originalGetProduct(params);
+      };
+
+      const graphReq = { query: { asin: 'B00PREFILL01' }, headers: PRO };
+      const graphRes = createMockRes();
+      const graphRoute = routes.match('GET', '/api/graph-data');
+      await graphRoute.handler(graphReq, graphRes);
+
+      assert.equal(graphDataCallCount, 0); // キャッシュ命中のためKeepaは呼ばれない
+      assert.deepEqual(graphRes.body.series.new, [[(5000000 + 21564000) * 60, 1500]]);
+
+      t.after(() => {
+        routes.searchCache.clear();
+        routes.graphDataCache.clear();
+      });
+    }
+  );
+});

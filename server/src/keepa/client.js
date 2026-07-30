@@ -245,10 +245,12 @@ function isNewCondition(conditionInt) {
 
 /**
  * Keepa product リクエスト。
- * GET /product?key=&domain=5&(code=|asin=)&stats=90&history=0(&offers=20)
- * @param {{code?: string, asin?: string, offers?: number}} params
+ * GET /product?key=&domain=5&(code=|asin=)&stats=90&history=0|1(&offers=20)
+ * history=1にしてもトークン消費はhistory=0と同じ1個(実測済み)。
+ * グラフ生データ(csv配列)が必要な呼び出し元のみ history:true を指定する。
+ * @param {{code?: string, asin?: string, offers?: number, history?: boolean}} params
  */
-async function getProduct({ code, asin, offers } = {}) {
+async function getProduct({ code, asin, offers, history } = {}) {
   if (!code && !asin) {
     throw new Error('getProduct: code または asin が必要です');
   }
@@ -256,7 +258,7 @@ async function getProduct({ code, asin, offers } = {}) {
   const query = {
     domain: JP_DOMAIN_ID,
     stats: 90,
-    history: 0,
+    history: history ? 1 : 0,
   };
   if (code) query.code = code;
   if (asin) query.asin = asin;
@@ -266,6 +268,85 @@ async function getProduct({ code, asin, offers } = {}) {
   const products = json && json.products;
   const product = Array.isArray(products) && products.length ? products[0] : null;
   return { product, tokensLeft: json ? json.tokensLeft : undefined };
+}
+
+// グラフ生データとして抽出する系列とcsvインデックスの対応(Product.CsvType)。
+const GRAPH_SERIES_CSV_INDEX = {
+  amazon: CSV_TYPE.AMAZON,
+  new: CSV_TYPE.NEW,
+  used: CSV_TYPE.USED,
+  rank: CSV_TYPE.SALES,
+};
+
+// 各系列の最大点数。アプリ側の描画負荷とレスポンスサイズを抑えるため間引く。
+const GRAPH_SERIES_MAX_POINTS = 1000;
+
+/**
+ * Keepa時刻(分)→unix秒 のオフセット(実測により確認済み)。
+ * isOfferFresh等で使うkeepaMinuteToUnixMs(相対比較にのみ使用)とは起点が異なるため、
+ * グラフ生データの絶対時刻変換専用に独立させている。
+ */
+const GRAPH_TIME_OFFSET_MINUTES = 21564000;
+
+function keepaMinuteToUnixSecForGraph(keepaMinute) {
+  return (keepaMinute + GRAPH_TIME_OFFSET_MINUTES) * 60;
+}
+
+/**
+ * 点列(時刻昇順)を最大maxPoints点まで間引く。
+ * 最初と最後の点は必ず残し、間は等間隔なインデックスで抽出する。
+ * @param {Array} points
+ * @param {number} maxPoints
+ */
+function decimatePoints(points, maxPoints) {
+  const n = points.length;
+  if (n <= maxPoints) return points;
+  if (maxPoints <= 1) return [points[0]];
+
+  const result = [];
+  const step = (n - 1) / (maxPoints - 1);
+  let lastIndex = -1;
+  for (let i = 0; i < maxPoints; i += 1) {
+    let idx = Math.round(i * step);
+    if (idx <= lastIndex) idx = lastIndex + 1;
+    if (idx > n - 1) idx = n - 1;
+    result.push(points[idx]);
+    lastIndex = idx;
+  }
+  return result;
+}
+
+/**
+ * csvの1系列([keepa分, value, keepa分, value, ...]のフラット配列)を
+ * [[unixSec, value], ...]に変換する。-1(データなし)もそのまま含める。
+ * @param {number[]|null|undefined} csvSeries
+ */
+function csvSeriesToPoints(csvSeries) {
+  if (!Array.isArray(csvSeries) || csvSeries.length < 2) return [];
+  const points = [];
+  for (let i = 0; i + 1 < csvSeries.length; i += 2) {
+    const keepaTime = csvSeries[i];
+    const value = csvSeries[i + 1];
+    if (typeof keepaTime !== 'number') continue;
+    points.push([keepaMinuteToUnixSecForGraph(keepaTime), value]);
+  }
+  return decimatePoints(points, GRAPH_SERIES_MAX_POINTS);
+}
+
+/**
+ * Keepa Product(history=1で取得したもの)のcsv配列から、
+ * グラフ描画用の生データ4系列(amazon/new/used/rank)を抽出する。
+ * @param {object|null|undefined} product Keepa Product Object
+ * @returns {{amazon: Array<[number, number]>, new: Array<[number, number]>, used: Array<[number, number]>, rank: Array<[number, number]>}}
+ */
+function extractGraphSeries(product) {
+  const csv = product && product.csv;
+  const result = { amazon: [], new: [], used: [], rank: [] };
+  if (!Array.isArray(csv)) return result;
+  for (const key of Object.keys(GRAPH_SERIES_CSV_INDEX)) {
+    result[key] = csvSeriesToPoints(csv[GRAPH_SERIES_CSV_INDEX[key]]);
+  }
+  return result;
 }
 
 /**
@@ -467,4 +548,5 @@ module.exports = {
   extractOffersFromProduct,
   getGraphImage,
   keepaMinuteToUnixMs,
+  extractGraphSeries,
 };

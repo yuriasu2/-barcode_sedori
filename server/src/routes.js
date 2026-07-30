@@ -23,6 +23,15 @@ const FREE_DEVICE_DAILY_LIMIT = parseInt(process.env.FREE_DEVICE_DAILY_LIMIT, 10
 const searchCache = new LruCache();
 const offersCache = new LruCache();
 const graphCache = new LruCache({ ttlMs: 60 * 60 * 1000, maxSize: 200 }); // グラフ画像: 1時間キャッシュ
+const graphDataCache = new LruCache({ ttlMs: 60 * 60 * 1000, maxSize: 200 }); // グラフ生データ: 画像と同じ1時間キャッシュ
+
+/**
+ * /api/graph-dataのキャッシュキー。handleSearchViaKeepaでの先入れとエンドポイント本体で
+ * 同一キーになるよう共通化する。
+ */
+function graphDataCacheKey(asin) {
+  return `graphdata:${asin}`;
+}
 
 /**
  * Keepa経路の結果は長め(30分)にキャッシュする。
@@ -506,7 +515,10 @@ async function handleSearchViaKeepa(req, res, code, cacheKey) {
       });
     }
 
-    const { product } = await keepa.getProduct({ code: janOrIsbn });
+    // history:1で取得してもトークン消費はhistory:0と同じ1個(実測済み)。
+    // ここで取得したproductからグラフ生データも抽出しgraphDataCacheへ先入れすることで、
+    // Keepa経路で検索した商品のグラフ(/api/graph-data)はトークン追加消費ゼロで返せる。
+    const { product } = await keepa.getProduct({ code: janOrIsbn, history: 1 });
     const mapped = keepa.mapProductToSearchResult(product);
 
     if (!mapped) {
@@ -523,6 +535,11 @@ async function handleSearchViaKeepa(req, res, code, cacheKey) {
         reason: 'catalog_not_found',
         source: 'keepa',
       });
+    }
+
+    if (mapped.asin) {
+      const series = keepa.extractGraphSeries(product);
+      graphDataCache.set(graphDataCacheKey(mapped.asin), { series });
     }
 
     // breakEvenはstats最安値(送料不明のためlandedとみなす。第2段階statsフォールバックと同じ扱い)。
@@ -917,6 +934,44 @@ router.get('/api/graph', async (req, res) => {
   }
 });
 
+// GET /api/graph-data?asin= — Keepa価格履歴の生データ(グラフを画像でなくアプリ側で描画するため)
+// /api/graphと同じくPro限定・Keepa未設定は404。handleSearchViaKeepa経由の検索で
+// 既にgraphDataCacheへ先入れされていれば、ここでKeepaを追加で呼ぶことはない。
+router.get('/api/graph-data', async (req, res) => {
+  const asin = String(req.query.asin || '').trim();
+  if (!asin) {
+    return res.status(400).json({ error: 'asin query parameter is required' });
+  }
+
+  // グラフはKeepa鍵消費(サーバー共有コスト)のためPro限定。
+  if (!isProRequest(req.headers)) {
+    return res.status(403).json({ error: 'plan_required', message: 'グラフはProプランでご利用いただけます。' });
+  }
+
+  if (!keepa.getApiKey()) {
+    return res.status(404).json({ error: 'keepa_not_configured' });
+  }
+
+  const cacheKey = graphDataCacheKey(asin);
+  const cached = graphDataCache.get(cacheKey);
+  if (cached) {
+    return res.json(cached);
+  }
+
+  try {
+    const { product } = await keepa.getProduct({ asin, history: 1 });
+    const responseBody = { series: keepa.extractGraphSeries(product) };
+    graphDataCache.set(cacheKey, responseBody);
+    res.json(responseBody);
+  } catch (err) {
+    if (err.code === 'keepa_tokens_exhausted') {
+      return res.status(503).json({ error: 'keepa_tokens_exhausted', message: err.message });
+    }
+    console.error(`[graph-data] asin=${asin} failed:`, err.message);
+    res.status(502).json({ error: 'graph_data_failed', message: err.message });
+  }
+});
+
 /**
  * FeeDetailListの1件(FeeType)を、アプリ向けのtype/labelに分類する。
  * ReferralFee→販売手数料 / VariableClosingFee・FixedClosingFee→カテゴリ成約料 /
@@ -1146,6 +1201,7 @@ router.get('/oauth/callback', oauth.handleOAuthCallback);
 router.searchCache = searchCache;
 router.offersCache = offersCache;
 router.graphCache = graphCache;
+router.graphDataCache = graphDataCache;
 // テスト用途にプラン判定関数を公開する。
 router.isProRequest = isProRequest;
 // テスト用途に定価抽出ヘルパーを公開する。

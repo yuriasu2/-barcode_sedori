@@ -14,19 +14,22 @@ enum ScanMode: String, CaseIterable, Identifiable {
     var isOCRMode: Bool { self == .ocr }
 }
 
-/// CHANGES-v6.1.md: Keepaグラフの期間切替セグメント(90日/1年/3年)。初期値は90日。
+/// 価格推移グラフの期間切替セグメント(1ヶ月/3ヶ月/1年/全期間)。初期値は3ヶ月。
+/// rawValueは「今日からの日数」で、0は全期間(履歴データ全点を使う)を表す特別値。
 enum GraphRange: Int, CaseIterable, Identifiable {
-    case ninetyDays = 90
+    case oneMonth = 30
+    case threeMonths = 90
     case oneYear = 365
-    case threeYears = 1095
+    case all = 0
 
     var id: Int { rawValue }
 
     var label: String {
         switch self {
-        case .ninetyDays: return "90日"
+        case .oneMonth: return "1ヶ月"
+        case .threeMonths: return "3ヶ月"
         case .oneYear: return "1年"
-        case .threeYears: return "3年"
+        case .all: return "全期間"
         }
     }
 }
@@ -181,8 +184,8 @@ struct SearchTabView: View {
     @State private var browserTarget: BrowserTarget?
     /// タブ状態。開発用ディープリンク(debug-search)で流し込まれた検索コードを受け取るため監視する。
     @ObservedObject private var navigation = AppNavigation.shared
-    /// CHANGES-v6.1.md: Keepaグラフの期間切替。初期値は90日。
-    @State private var selectedGraphRange: GraphRange = .ninetyDays
+    /// 価格推移グラフの期間切替。初期値は3ヶ月。
+    @State private var selectedGraphRange: GraphRange = .threeMonths
 
     var body: some View {
         NavigationView {
@@ -513,16 +516,15 @@ struct SearchTabView: View {
 
     // MARK: - Keepaグラフ
 
-    /// Keepa価格推移グラフ(Pro専用。無料は body 側で freeAdArea を表示する)。
+    /// 価格推移グラフ(Pro専用。無料は body 側で freeAdArea を表示する)。
     @ViewBuilder
     private var keepaGraph: some View {
         if let asin = viewModel.latestResult?.asin {
             VStack(spacing: 6) {
                 HStack(alignment: .top, spacing: 6) {
-                    // AsyncImageはX-App-Planヘッダーを送れずProでも403になるため、自前ローダで取得する。
-                    // Keepa側のタイトル・凡例は描かせず(APIClient側でtitle=0&legend=0)、
+                    // サーバーから履歴データ(/api/graph-data)を取得し、端末側でSwift Chartsに描画する。
                     // 凡例は右に短い表記で自前描画してプロット領域を広く使う。
-                    KeepaGraphImageView(asin: asin, range: selectedGraphRange.rawValue)
+                    PriceHistoryChartView(asin: asin, range: selectedGraphRange)
                     graphLegend
                         .frame(width: 66, alignment: .leading)
                 }
@@ -531,13 +533,13 @@ struct SearchTabView: View {
         }
     }
 
-    /// グラフの凡例。Keepaの画像内の色に合わせた点と短いラベルだけを出す(値は入れない)。
+    /// グラフの凡例。チャートの線の色に合わせた点と短いラベルだけを出す(値は入れない)。
     private var graphLegend: some View {
         VStack(alignment: .leading, spacing: 6) {
-            legendItem(color: Color(red: 0.44, green: 0.70, blue: 0.46), label: "ランキング")
+            legendItem(color: .green, label: "ランキング")
             legendItem(color: .orange, label: "Amazon")
-            legendItem(color: Color(red: 0.53, green: 0.53, blue: 0.87), label: "新品")
-            legendItem(color: Color(white: 0.2), label: "中古")
+            legendItem(color: .blue, label: "新品")
+            legendItem(color: .primary, label: "中古")
         }
         .padding(.top, 2)
     }
@@ -555,7 +557,7 @@ struct SearchTabView: View {
         .minimumScaleFactor(0.8)
     }
 
-    /// グラフ画像の直下に置く期間切替セグメント(90日/1年/3年)。
+    /// グラフの直下に置く期間切替セグメント(1ヶ月/3ヶ月/1年/全期間)。
     private var graphRangeSegment: some View {
         HStack(spacing: 0) {
             ForEach(GraphRange.allCases) { range in
@@ -865,75 +867,6 @@ private struct ResultCardActionButtons: View {
 }
 
 // MARK: - オファーパネル View
-
-/// Keepaグラフ画像を認証ヘッダー付きで取得して表示する(AsyncImageの代替)。
-/// asin/range が変わると再取得。失敗時はフォールバック文言を出す。
-private struct KeepaGraphImageView: View {
-    let asin: String
-    let range: Int
-
-    @State private var image: UIImage?
-    @State private var loadFailed = false
-    /// タップでの再読込を`.task(id:)`に伝えるためのカウンタ(idに含めて再実行させる)。
-    @State private var retryToken = 0
-
-    /// asin+range をキーにしたセッション内キャッシュ。期間の切り替え直しで
-    /// Keepaトークンを再消費しないために保持する(アプリ終了で破棄)。
-    private static var imageCache: [String: UIImage] = [:]
-
-    var body: some View {
-        Group {
-            if let image {
-                Image(uiImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(maxWidth: .infinity)
-                    .cornerRadius(10)
-            } else if loadFailed {
-                VStack(spacing: 4) {
-                    Text("グラフを一時的に取得できません")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Text("タップして再読み込み")
-                        .font(.caption2)
-                        .foregroundColor(.accentColor)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 20)
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    retryToken += 1
-                }
-            } else {
-                HStack {
-                    Spacer()
-                    ProgressView()
-                    Spacer()
-                }
-                .frame(height: 80)
-            }
-        }
-        // asin/range/retryToken が変わるたびに再取得する。
-        // グラフ画像はKeepaトークンを1枚あたり1個消費するため、一度取得した組み合わせは
-        // セッション内キャッシュから返し、期間を切り替え直しても追加消費しない。
-        .task(id: "\(asin)-\(range)-\(retryToken)") {
-            let key = "\(asin)-\(range)"
-            if let cached = Self.imageCache[key] {
-                image = cached
-                loadFailed = false
-                return
-            }
-            image = nil
-            loadFailed = false
-            if let loaded = await APIClient.shared.graphImage(asin: asin, range: range) {
-                Self.imageCache[key] = loaded
-                image = loaded
-            } else {
-                loadFailed = true
-            }
-        }
-    }
-}
 
 private struct OffersPanelView: View {
     let title: String

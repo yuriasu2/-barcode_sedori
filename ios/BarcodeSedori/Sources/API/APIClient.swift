@@ -169,28 +169,12 @@ final class APIClient {
         return try await perform(request, as: OffersResult.self)
     }
 
-    /// Keepaグラフ画像を取得する。
-    /// AsyncImageはカスタムヘッダー(X-App-Plan等)を送れず、Proでも /api/graph が403になるため、
-    /// 認証ヘッダー付きのmakeRequest経由で自前取得する。失敗時(403/通信断/非画像)はnil。
-    /// title/legendはKeepaの描画を抑止する指定(0で非表示)。凡例はアプリ側で短い表記で描くため常に0。
-    /// heightはKeepaへ渡すキャンバス高さ(px)。
-    func graphImage(asin: String, range: Int = 90, height: Int = 240) async -> UIImage? {
-        do {
-            let request = try makeRequest(path: "/api/graph", queryItems: [
-                URLQueryItem(name: "asin", value: asin),
-                URLQueryItem(name: "range", value: String(range)),
-                URLQueryItem(name: "title", value: "0"),
-                URLQueryItem(name: "legend", value: "0"),
-                URLQueryItem(name: "height", value: String(height)),
-            ])
-            let (data, response) = try await session.data(for: request)
-            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-                return nil
-            }
-            return UIImage(data: data)
-        } catch {
-            return nil
-        }
+    /// GET /api/graph-data?asin={ASIN}
+    /// 価格・ランキングの履歴データ(Pro限定)。端末側でSwift Chartsに描画するため、
+    /// 旧/api/graphのようなKeepa側レンダリング画像ではなく生データを受け取る。
+    func graphData(asin: String) async throws -> GraphData {
+        let request = try makeRequest(path: "/api/graph-data", queryItems: [URLQueryItem(name: "asin", value: asin)])
+        return try await perform(request, as: GraphData.self)
     }
 
     /// GET /api/listings/restrictions?asin=&condition=
