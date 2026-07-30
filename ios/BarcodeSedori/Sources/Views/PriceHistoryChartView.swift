@@ -162,8 +162,9 @@ struct PriceHistoryChartView: View {
     /// (Keepaトークンの追加消費ゼロ)。同じasinの再取得も避ける(アプリ終了で破棄)。
     static var dataCache: [String: GraphData] = [:]
 
-    /// 価格とランキングを重ねた1段構成。ロード中/失敗時もこの高さを確保してレイアウトが跳ねないようにする。
-    private static let reservedHeight: CGFloat = 200
+    /// 価格とランキングを重ねた1段構成の高さ。チャート本体もこの値を使う。
+    /// ロード中/失敗時も同じ高さを確保してレイアウトが跳ねないようにする。
+    private static let reservedHeight: CGFloat = 140
 
     var body: some View {
         Group {
@@ -384,7 +385,7 @@ struct PriceHistoryChartView: View {
                     }
                 }
             }
-            .frame(height: 200)
+            .frame(height: Self.reservedHeight)
         } else if let rankSeries {
             // 価格系列が全て空: ランキングを実値のままプロットし、右軸のみ表示する(左軸なし)。
             let rankValues = rankSeries.allPoints.map { $0.value }
@@ -429,7 +430,7 @@ struct PriceHistoryChartView: View {
                     }
                 }
             }
-            .frame(height: 200)
+            .frame(height: Self.reservedHeight)
         }
     }
 
