@@ -47,18 +47,17 @@ enum AdSlot: Codable, Equatable {
     }
 
     /// この広告をProの端末に表示してよいか("all"なら常にtrue、"free"なら無料ユーザーのみtrue)。
+    /// Proは全枠で広告を出さない(サーバー設定のaudienceに関わらずアプリ側で一律に止める)。
+    /// audienceは無料ユーザー内での出し分け用に契約へ残してあるが、現状は判定に使わない。
     func isVisible(isPro: Bool) -> Bool {
-        switch self {
-        case .admob(let slot): return slot.audience == .all || !isPro
-        case .custom(let slot): return slot.audience == .all || !isPro
-        }
+        !isPro
     }
 }
 
 /// AdMobバナー枠。
 struct AdMobSlot: Codable, Equatable {
-    /// バナーサイズ。adaptiveは画面幅からSDKが高さを算出するため下部固定枠では使用禁止
-    /// (50ptを超える結果になり得る。サーバー側の運用ルール)。
+    /// バナーサイズ。現在アプリ側はAdMobを常にadaptiveで描画するため、この指定は使っていない
+    /// (将来固定サイズへ戻せるよう契約には残す)。
     enum SizeKind: String, Codable {
         case adaptive
         case banner

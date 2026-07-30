@@ -1,11 +1,11 @@
 import SwiftUI
 
 /// サーバー管理型広告枠の共通ビュー。AdsConfigStoreから該当スロットを引いて描画する。
-/// スロットが無い/audience不一致(free限定広告をProの端末で開いた場合)/マスタースイッチOFFの
-/// いずれかに該当するときはEmptyView(高さも取らない)。
+/// スロットが無い/Pro/マスタースイッチOFFのいずれかに該当するときはEmptyView(高さも取らない)。
 struct AdSlotView: View {
     let slotId: String
-    /// 下部固定枠(50pt)など、高さを固定したい場合に指定する。未指定なら広告種別の自然な高さに従う。
+    /// 自社バナー(custom)の枠の高さを固定したい場合に指定する。
+    /// AdMobは常にアダプティブのため、この値ではなくSDK算出の高さに従う。
     var fixedHeight: CGFloat?
 
     @ObservedObject private var store = AdsConfigStore.shared
@@ -27,9 +27,10 @@ struct AdSlotView: View {
     private func content(for slot: AdSlot) -> some View {
         switch slot {
         case .admob(let admob):
-            let size = BannerAdView.Size(admob.size)
-            BannerAdView(unitId: admob.unitId, size: size)
-                .frame(height: fixedHeight ?? size.height)
+            // AdMobはどの枠でもアダプティブバナーにする(端末幅から高さが同期算出されるため、
+            // 枠ごとに高さを決め打ちせずレイアウトも跳ねない)。
+            BannerAdView(unitId: admob.unitId, size: .adaptive)
+                .frame(height: BannerAdView.Size.adaptive.height)
                 .frame(maxWidth: .infinity)
         case .custom(let custom):
             customAdView(custom)
@@ -70,18 +71,6 @@ struct AdSlotView: View {
                 SafariView(url: target.url)
                     .ignoresSafeArea()
             }
-        }
-    }
-}
-
-private extension BannerAdView.Size {
-    /// AdMobSlot.SizeKind(サーバー配信設定)からBannerAdView.Sizeへ変換する。
-    init(_ kind: AdMobSlot.SizeKind) {
-        switch kind {
-        case .adaptive: self = .adaptive
-        case .banner: self = .banner
-        case .largeBanner: self = .largeBanner
-        case .mediumRectangle: self = .mediumRectangle
         }
     }
 }

@@ -302,7 +302,7 @@ struct SearchTabView: View {
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "lock.fill")
-                    Text("Keepaグラフ表示はProで")
+                    Text("広告削除とKeepaグラフ表示はProで")
                         .font(.subheadline)
                         .fontWeight(.semibold)
                     Spacer()
