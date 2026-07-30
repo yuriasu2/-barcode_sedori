@@ -100,6 +100,49 @@ private struct NiceScale {
     }
 }
 
+/// 価格軸の区間数に合わせて「ちょうどregions区間」に収まるランキング軸を作る。
+/// stepは1/2/5×10^nの切りの良い値から、domainMin(データ最小値をstepへ切り下げ)+regions*stepが
+/// データ最大値以上になる最小のものを選ぶ。こうすると右軸の目盛りが
+/// 価格軸のグリッド線(横線)とちょうど同じ高さに1対1で載る。
+private struct AlignedRankScale {
+    let domainMin: Double
+    let domainMax: Double
+    /// 目盛りのランキング値(domainMinからstep刻みでregions+1個)。
+    let ticks: [Double]
+
+    init?(dataMin: Double, dataMax: Double, regions: Int) {
+        guard regions >= 1 else { return nil }
+        var lo = dataMin
+        var hi = dataMax
+        if lo == hi {
+            // 横一直線(全点同値)は±5%(最低±1)広げてから計算する。
+            let pad = max(abs(lo) * 0.05, 1)
+            lo = max(0, lo - pad)
+            hi += pad
+        }
+
+        // step候補を小さい方から試し、regions区間で収まる最初の値を採用する。
+        let multipliers: [Double] = [1, 2, 5]
+        let startExponent = Int(floor(log10(max((hi - lo) / Double(regions), 1)))) - 1
+        var chosen: (min: Double, step: Double)?
+        outer: for exponent in startExponent...(startExponent + 12) {
+            for multiplier in multipliers {
+                let step = multiplier * pow(10, Double(exponent))
+                let base = max(0, (lo / step).rounded(.down) * step)
+                if base + step * Double(regions) >= hi {
+                    chosen = (base, step)
+                    break outer
+                }
+            }
+        }
+        guard let chosen else { return nil }
+
+        domainMin = chosen.min
+        domainMax = chosen.min + chosen.step * Double(regions)
+        ticks = (0...regions).map { chosen.min + chosen.step * Double($0) }
+    }
+}
+
 /// 価格推移グラフ(Pro専用)。旧来のKeepaサーバー画像描画をやめ、
 /// /api/graph-data で取得した履歴データをSwift Chartsで自前描画する。
 ///
@@ -208,12 +251,10 @@ struct PriceHistoryChartView: View {
     ///
     /// - 価格が1系列以上あるとき: 価格は実値のままプロットし、y domainは表示中データからNiceScaleで
     ///   算出した[priceDomainMin, priceDomainMax](Keepaのように下限もデータへ追従、ただし負にはしない)。
-    ///   ランキングがあれば、ランキング側も別途NiceScale(価格軸と同じ区間数を目標に)でdomainを求め、
-    ///   `plotted = (rank - rankDomainMin) / (rankDomainMax - rankDomainMin) * (priceDomainMax - priceDomainMin) + priceDomainMin`
-    ///   で価格domainへ線形正規化してから同じChartに重ねる。右側の軸はrankScaleのticks(切りの良い
-    ///   ランキング値)を同じ式でプロット座標へ変換した位置に置き、ラベルは逆変換
-    ///   `rank = (plotted - priceDomainMin) / (priceDomainMax - priceDomainMin) * (rankDomainMax - rankDomainMin) + rankDomainMin`
-    ///   で元のランキング値に戻して表示する。
+    ///   ランキングがあれば、AlignedRankScaleで「価格軸とちょうど同じ区間数×切りの良いstep」の
+    ///   domainを求め、`plotted = (rank - rankDomainMin) / (rankDomainMax - rankDomainMin) * (priceDomainMax - priceDomainMin) + priceDomainMin`
+    ///   で価格domainへ線形正規化してから同じChartに重ねる。右側の軸の目盛り位置は価格軸のticksと
+    ///   同一(=横線と同じ高さ)で、ラベルはindexで対応するランキング値を表示する。
     /// - 価格が1つも無くランキングだけがあるとき: ランキングを実値のままNiceScaleでdomain・ticksを求め、
     ///   右軸のみを表示する(左軸は出さない)。
     ///
@@ -234,12 +275,12 @@ struct PriceHistoryChartView: View {
             let priceRegionCount = priceScale.ticks.count - 1
 
             let rankValues = rankSeries?.allPoints.map { $0.value } ?? []
-            let rankScale: NiceScale? = rankValues.isEmpty
+            let rankScale: AlignedRankScale? = rankValues.isEmpty
                 ? nil
-                : NiceScale(
+                : AlignedRankScale(
                     dataMin: rankValues.min() ?? 0,
                     dataMax: rankValues.max() ?? 1,
-                    targetTicks: priceRegionCount
+                    regions: priceRegionCount
                 )
 
             // ランキングを価格domainへ線形正規化(0除算回避のためrankDomainMax<=rankDomainMinなら
@@ -257,15 +298,9 @@ struct PriceHistoryChartView: View {
                 }
                 return ChartSeries(id: rs.id, color: rs.color, segments: segments)
             }
-            // 右軸の目盛り位置。rankScale.ticks(切りの良いランキング値)を同じ正規化式で
-            // プロット座標へ変換しておく(ラベルは描画時に逆変換で元のランキング値へ戻す)。
-            let rankAxisPositions: [Double] = {
-                guard let rankScale, rankScale.domainMax > rankScale.domainMin else { return [] }
-                return rankScale.ticks.map { tick in
-                    (tick - rankScale.domainMin) / (rankScale.domainMax - rankScale.domainMin)
-                        * (priceDomainMax - priceDomainMin) + priceDomainMin
-                }
-            }()
+            // 右軸の目盛り位置は価格軸のticksそのもの(横線と同じ高さ)。
+            // AlignedRankScaleのticksは価格ticksとindexで1対1に対応する。
+            let rankAxisPositions: [Double] = rankScale != nil ? priceScale.ticks : []
 
             Chart {
                 ForEach(priceSeries) { s in
@@ -335,15 +370,12 @@ struct PriceHistoryChartView: View {
                     }
                 }
                 if let rankScale, !rankAxisPositions.isEmpty {
-                    // 右軸(ランキング)は見かけ上の軸。目盛り位置はrankScale.ticksを正規化式で
-                    // プロット座標へ変換した値なので、ラベルは逆変換で元のランキング値に戻して表示する。
-                    // 左と目盛り数が揃わずグリッド線が二重になるとうるさいため、グリッド線は出さずラベルのみ描く。
+                    // 右軸(ランキング)は見かけ上の軸。目盛り位置は価格軸のticksと同一なので
+                    // 横線と必ず一致する。ラベルはindexで対応するランキング値(切りの良い値)を表示する。
                     AxisMarks(position: .trailing, values: rankAxisPositions) { value in
                         AxisValueLabel {
-                            if let plotted = value.as(Double.self) {
-                                let rank = (plotted - priceDomainMin) / (priceDomainMax - priceDomainMin)
-                                    * (rankScale.domainMax - rankScale.domainMin) + rankScale.domainMin
-                                Text(Self.formatRank(rank))
+                            if value.index < rankScale.ticks.count {
+                                Text(Self.formatRank(rankScale.ticks[value.index]))
                                     .font(.system(size: 9))
                             }
                         }
