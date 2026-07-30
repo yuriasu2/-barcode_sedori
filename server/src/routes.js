@@ -892,15 +892,20 @@ router.get('/api/graph', async (req, res) => {
   }
 
   const range = normalizeGraphRange(req.query.range);
+  // タイトル・凡例の描画有無(0/1)。アプリが自前で凡例を描く場合に0を渡す。
+  const title = req.query.title === '0' ? 0 : undefined;
+  const legend = req.query.legend === '0' ? 0 : undefined;
+  // 高さ(px)。指定が無ければKeepaへ渡す既定値(300)を使う。
+  const height = parseNonNegativeIntQuery(req.query.height) || undefined;
 
-  const cacheKey = `graph:${asin}:${range}`;
+  const cacheKey = `graph:${asin}:${range}:${title ?? 1}:${legend ?? 1}:${height ?? 300}`;
   const cached = graphCache.get(cacheKey);
   if (cached) {
     return res.binary(cached.buffer, cached.contentType);
   }
 
   try {
-    const { buffer, contentType } = await keepa.getGraphImage(asin, range);
+    const { buffer, contentType } = await keepa.getGraphImage(asin, range, { title, legend, height });
     graphCache.set(cacheKey, { buffer, contentType });
     res.binary(buffer, contentType);
   } catch (err) {

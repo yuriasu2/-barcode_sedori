@@ -517,12 +517,42 @@ struct SearchTabView: View {
     @ViewBuilder
     private var keepaGraph: some View {
         if let asin = viewModel.latestResult?.asin {
-            VStack(spacing: 8) {
-                // AsyncImageはX-App-Planヘッダーを送れずProでも403になるため、自前ローダで取得する。
-                KeepaGraphImageView(asin: asin, range: selectedGraphRange.rawValue)
+            VStack(spacing: 6) {
+                HStack(alignment: .top, spacing: 6) {
+                    // AsyncImageはX-App-Planヘッダーを送れずProでも403になるため、自前ローダで取得する。
+                    // Keepa側のタイトル・凡例は描かせず(APIClient側でtitle=0&legend=0)、
+                    // 凡例は右に短い表記で自前描画してプロット領域を広く使う。
+                    KeepaGraphImageView(asin: asin, range: selectedGraphRange.rawValue)
+                    graphLegend
+                        .frame(width: 66, alignment: .leading)
+                }
                 graphRangeSegment
             }
         }
+    }
+
+    /// グラフの凡例。Keepaの画像内の色に合わせた点と短いラベルだけを出す(値は入れない)。
+    private var graphLegend: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            legendItem(color: Color(red: 0.44, green: 0.70, blue: 0.46), label: "ランキング")
+            legendItem(color: .orange, label: "Amazon")
+            legendItem(color: Color(red: 0.53, green: 0.53, blue: 0.87), label: "新品")
+            legendItem(color: Color(white: 0.2), label: "中古")
+        }
+        .padding(.top, 2)
+    }
+
+    private func legendItem(color: Color, label: String) -> some View {
+        HStack(spacing: 4) {
+            Circle()
+                .fill(color)
+                .frame(width: 7, height: 7)
+            Text(label)
+                .font(.caption2)
+                .foregroundColor(.secondary)
+        }
+        .lineLimit(1)
+        .minimumScaleFactor(0.8)
     }
 
     /// グラフ画像の直下に置く期間切替セグメント(90日/1年/3年)。
@@ -847,6 +877,10 @@ private struct KeepaGraphImageView: View {
     /// タップでの再読込を`.task(id:)`に伝えるためのカウンタ(idに含めて再実行させる)。
     @State private var retryToken = 0
 
+    /// asin+range をキーにしたセッション内キャッシュ。期間の切り替え直しで
+    /// Keepaトークンを再消費しないために保持する(アプリ終了で破棄)。
+    private static var imageCache: [String: UIImage] = [:]
+
     var body: some View {
         Group {
             if let image {
@@ -880,10 +914,19 @@ private struct KeepaGraphImageView: View {
             }
         }
         // asin/range/retryToken が変わるたびに再取得する。
+        // グラフ画像はKeepaトークンを1枚あたり1個消費するため、一度取得した組み合わせは
+        // セッション内キャッシュから返し、期間を切り替え直しても追加消費しない。
         .task(id: "\(asin)-\(range)-\(retryToken)") {
+            let key = "\(asin)-\(range)"
+            if let cached = Self.imageCache[key] {
+                image = cached
+                loadFailed = false
+                return
+            }
             image = nil
             loadFailed = false
             if let loaded = await APIClient.shared.graphImage(asin: asin, range: range) {
+                Self.imageCache[key] = loaded
                 image = loaded
             } else {
                 loadFailed = true

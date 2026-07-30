@@ -391,7 +391,7 @@ function extractOffersFromProduct(product) {
  * @param {number} [range] グラフ期間(日数)。省略時は90。
  * @returns {Promise<{buffer: Buffer, contentType: string}>}
  */
-async function getGraphImage(asin, range) {
+async function getGraphImage(asin, range, options) {
   const apiKey = getApiKey();
   if (!apiKey) {
     const err = new Error('keepa_api_key_missing');
@@ -399,6 +399,7 @@ async function getGraphImage(asin, range) {
     throw err;
   }
 
+  const opts = options || {};
   const query = new URLSearchParams({
     key: apiKey,
     domain: String(JP_DOMAIN_ID),
@@ -410,9 +411,13 @@ async function getGraphImage(asin, range) {
     range: String(range || 90),
     // Keepaのフォント・線幅はピクセル固定のため、大きなキャンバスで取ると画面上で文字が極小になる。
     // iPhoneの表示幅(約1100px)より小さめに取り、画面幅へ拡大表示させることで文字・線を相対的に大きく見せる。
-    width: '600',
-    height: '300',
+    width: String(opts.width || 600),
+    height: String(opts.height || 300),
   });
+  // タイトル・凡例の描画有無。アプリ側で凡例を自前描画する場合は0を指定して
+  // プロット領域を横いっぱいに使う。
+  if (opts.title != null) query.set('title', String(opts.title));
+  if (opts.legend != null) query.set('legend', String(opts.legend));
   const url = `${KEEPA_BASE_URL}/graphimage?${query.toString()}`;
 
   let res;
