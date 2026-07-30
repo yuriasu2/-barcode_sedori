@@ -9,16 +9,29 @@ private struct ChartPoint: Identifiable {
     let value: Double
 }
 
-/// 1系列分の連続した折れ線データ。-1(データなし)はforward-fillで直前値に置き換え済みで、
-/// 右端(現在時刻)まで最後の値の点を追加済みのため、系列内で線が途切れることはない。
-private struct ChartSeries: Identifiable {
+/// 1系列の中の連続した1区間(セグメント)。-1(データなし)の位置で系列を分割した結果で、
+/// セグメントごとに独立したChart描画(series)として扱うことで、区間をまたいで線をつながないようにする。
+private struct ChartSegment: Identifiable {
     let id: String
-    let color: Color
     let points: [ChartPoint]
 }
 
+/// 1系列分の折れ線データ。-1(データなし)の前後でChartSegmentに分割済みで、
+/// forward-fillや右端(現在時刻)までの延長は行わない。データが無い区間はそのまま線が途切れる。
+private struct ChartSeries: Identifiable {
+    let id: String
+    let color: Color
+    let segments: [ChartSegment]
+
+    /// 全セグメントを通した点(y domainの算出などセグメントを区別しない集計に使う)。
+    var allPoints: [ChartPoint] { segments.flatMap { $0.points } }
+}
+
 /// データ範囲から「切りの良い」目盛り間隔と軸範囲を求める(Keepa風の自動スケール)。
-/// step候補は 1/2/5 × 10^n。domainはstepの倍数へ内外に丸める(下限も0固定にせずデータへ追従させる)。
+/// step候補は 1/2/5 × 10^n を昇順に並べたもの(2.5は使わない)。domainはstepの倍数へ
+/// 内外に丸める(下限も0固定にせずデータへ追従させる)。区間数(ticks.count - 1)が
+/// targetTicksを超える場合は、超えなくなるまでstep候補を1段ずつ上げて再計算する
+/// (Y軸の段数をtargetTicks以下に揃えるため)。
 private struct NiceScale {
     let domainMin: Double
     let domainMax: Double
@@ -34,31 +47,54 @@ private struct NiceScale {
             hi += pad
         }
 
-        let rawStep = (hi - lo) / Double(targetTicks)
-        let magnitude = pow(10, floor(log10(rawStep)))
-        let normalized = rawStep / magnitude
-        let step: Double
-        if normalized < 1.5 {
-            step = 1 * magnitude
-        } else if normalized < 3 {
-            step = 2 * magnitude
-        } else if normalized < 7 {
-            step = 5 * magnitude
-        } else {
-            step = 10 * magnitude
+        let maxRegions = max(targetTicks, 1)
+        let rawStep = (hi - lo) / Double(maxRegions)
+        let magnitudeExponent = Int(floor(log10(rawStep)))
+        let normalized = rawStep / pow(10, Double(magnitudeExponent))
+
+        // step候補: [1, 2, 5] × 10^n を昇順に並べた列。indexを1つ進めるごとに
+        // 1→2→5→(桁上げして)1→2→5…と大きくなっていく。
+        let multipliers: [Double] = [1, 2, 5]
+        func step(at index: Int) -> Double {
+            let exponent = magnitudeExponent + index / multipliers.count
+            let multiplier = multipliers[index % multipliers.count]
+            return multiplier * pow(10, Double(exponent))
         }
 
-        let niceMin = max(0, (lo / step).rounded(.down) * step)
-        let niceMax = (hi / step).rounded(.up) * step
+        var candidateIndex: Int
+        if normalized < 1.5 {
+            candidateIndex = 0
+        } else if normalized < 3 {
+            candidateIndex = 1
+        } else if normalized < 7 {
+            candidateIndex = 2
+        } else {
+            candidateIndex = 3
+        }
+
+        var currentStep = step(at: candidateIndex)
+        var niceMin = max(0, (lo / currentStep).rounded(.down) * currentStep)
+        var niceMax = (hi / currentStep).rounded(.up) * currentStep
+        var regionCount = Int(((niceMax - niceMin) / currentStep).rounded())
+
+        // 区間数がtargetTicksを超えている間は、超えなくなるまで次のstep候補へ進める。
+        while regionCount > maxRegions {
+            candidateIndex += 1
+            currentStep = step(at: candidateIndex)
+            niceMin = max(0, (lo / currentStep).rounded(.down) * currentStep)
+            niceMax = (hi / currentStep).rounded(.up) * currentStep
+            regionCount = Int(((niceMax - niceMin) / currentStep).rounded())
+        }
+
         domainMin = niceMin
         domainMax = niceMax
 
         var generatedTicks: [Double] = []
         var v = niceMin
         // 浮動小数誤差でticksが1本欠けたり増えたりしないよう微小許容を入れる。
-        while v <= niceMax + step * 0.001 {
+        while v <= niceMax + currentStep * 0.001 {
             generatedTicks.append(v)
-            v += step
+            v += currentStep
         }
         ticks = generatedTicks
     }
@@ -172,7 +208,7 @@ struct PriceHistoryChartView: View {
     ///
     /// - 価格が1系列以上あるとき: 価格は実値のままプロットし、y domainは表示中データからNiceScaleで
     ///   算出した[priceDomainMin, priceDomainMax](Keepaのように下限もデータへ追従、ただし負にはしない)。
-    ///   ランキングがあれば、ランキング側も別途NiceScaleでdomainを求め、
+    ///   ランキングがあれば、ランキング側も別途NiceScale(価格軸と同じ区間数を目標に)でdomainを求め、
     ///   `plotted = (rank - rankDomainMin) / (rankDomainMax - rankDomainMin) * (priceDomainMax - priceDomainMin) + priceDomainMin`
     ///   で価格domainへ線形正規化してから同じChartに重ねる。右側の軸はrankScaleのticks(切りの良い
     ///   ランキング値)を同じ式でプロット座標へ変換した位置に置き、ラベルは逆変換
@@ -180,6 +216,10 @@ struct PriceHistoryChartView: View {
     ///   で元のランキング値に戻して表示する。
     /// - 価格が1つも無くランキングだけがあるとき: ランキングを実値のままNiceScaleでdomain・ticksを求め、
     ///   右軸のみを表示する(左軸は出さない)。
+    ///
+    /// 各系列は-1(データなし)の位置で分割済みのChartSegmentごとに独立したseriesとして描画するため、
+    /// データが途切れた区間は線がつながらない。Amazon系列のみ、線の下をchartYScaleの下限まで
+    /// 薄いオレンジで塗るAreaMarkを追加してKeepaの見た目に寄せる。
     @ViewBuilder
     private func combinedChart(
         priceSeries: [ChartSeries],
@@ -187,27 +227,35 @@ struct PriceHistoryChartView: View {
         domain: ClosedRange<Date>
     ) -> some View {
         if !priceSeries.isEmpty {
-            let priceValues = priceSeries.flatMap { $0.points }.map { $0.value }
+            let priceValues = priceSeries.flatMap { $0.allPoints }.map { $0.value }
             let priceScale = NiceScale(dataMin: priceValues.min() ?? 0, dataMax: priceValues.max() ?? 1)
             let priceDomainMin = priceScale.domainMin
             let priceDomainMax = priceScale.domainMax
+            let priceRegionCount = priceScale.ticks.count - 1
 
-            let rankValues = rankSeries?.points.map { $0.value } ?? []
+            let rankValues = rankSeries?.allPoints.map { $0.value } ?? []
             let rankScale: NiceScale? = rankValues.isEmpty
                 ? nil
-                : NiceScale(dataMin: rankValues.min() ?? 0, dataMax: rankValues.max() ?? 1)
+                : NiceScale(
+                    dataMin: rankValues.min() ?? 0,
+                    dataMax: rankValues.max() ?? 1,
+                    targetTicks: priceRegionCount
+                )
 
             // ランキングを価格domainへ線形正規化(0除算回避のためrankDomainMax<=rankDomainMinなら
-            // 正規化できない=右軸自体を出さない)。
+            // 正規化できない=右軸自体を出さない)。セグメント構成はそのまま、値だけ変換する。
             let normalizedRank: ChartSeries? = rankSeries.flatMap { rs -> ChartSeries? in
                 guard let rankScale, rankScale.domainMax > rankScale.domainMin else { return nil }
-                let points = rs.points.map { point -> ChartPoint in
-                    let normalized = (point.value - rankScale.domainMin)
-                        / (rankScale.domainMax - rankScale.domainMin)
-                        * (priceDomainMax - priceDomainMin) + priceDomainMin
-                    return ChartPoint(time: point.time, value: normalized)
+                let segments = rs.segments.map { segment -> ChartSegment in
+                    let points = segment.points.map { point -> ChartPoint in
+                        let normalized = (point.value - rankScale.domainMin)
+                            / (rankScale.domainMax - rankScale.domainMin)
+                            * (priceDomainMax - priceDomainMin) + priceDomainMin
+                        return ChartPoint(time: point.time, value: normalized)
+                    }
+                    return ChartSegment(id: segment.id, points: points)
                 }
-                return ChartSeries(id: rs.id, color: rs.color, points: points)
+                return ChartSeries(id: rs.id, color: rs.color, segments: segments)
             }
             // 右軸の目盛り位置。rankScale.ticks(切りの良いランキング値)を同じ正規化式で
             // プロット座標へ変換しておく(ラベルは描画時に逆変換で元のランキング値へ戻す)。
@@ -221,25 +269,43 @@ struct PriceHistoryChartView: View {
 
             Chart {
                 ForEach(priceSeries) { s in
-                    ForEach(s.points) { point in
-                        LineMark(
-                            x: .value("時刻", point.time),
-                            y: .value("価格", point.value),
-                            series: .value("系列", s.id)
-                        )
-                        .foregroundStyle(s.color)
-                        .interpolationMethod(.stepEnd)
+                    ForEach(s.segments) { segment in
+                        if s.id == "amazon" {
+                            // Amazon本体価格のみ、線の下をチャート下端(priceDomainMin)まで
+                            // 薄いオレンジで塗ってKeepa風の見た目にする。
+                            ForEach(segment.points) { point in
+                                AreaMark(
+                                    x: .value("時刻", point.time),
+                                    yStart: .value("下限", priceDomainMin),
+                                    yEnd: .value("価格", point.value),
+                                    series: .value("系列", segment.id)
+                                )
+                                .foregroundStyle(Color.orange.opacity(0.15))
+                                .interpolationMethod(.stepEnd)
+                            }
+                        }
+                        ForEach(segment.points) { point in
+                            LineMark(
+                                x: .value("時刻", point.time),
+                                y: .value("価格", point.value),
+                                series: .value("系列", segment.id)
+                            )
+                            .foregroundStyle(s.color)
+                            .interpolationMethod(.stepEnd)
+                        }
                     }
                 }
                 if let normalizedRank {
-                    ForEach(normalizedRank.points) { point in
-                        LineMark(
-                            x: .value("時刻", point.time),
-                            y: .value("ランキング(正規化)", point.value),
-                            series: .value("系列", normalizedRank.id)
-                        )
-                        .foregroundStyle(normalizedRank.color)
-                        .interpolationMethod(.stepEnd)
+                    ForEach(normalizedRank.segments) { segment in
+                        ForEach(segment.points) { point in
+                            LineMark(
+                                x: .value("時刻", point.time),
+                                y: .value("ランキング(正規化)", point.value),
+                                series: .value("系列", segment.id)
+                            )
+                            .foregroundStyle(normalizedRank.color)
+                            .interpolationMethod(.stepEnd)
+                        }
                     }
                 }
             }
@@ -250,8 +316,11 @@ struct PriceHistoryChartView: View {
             .chartXAxis {
                 AxisMarks { value in
                     AxisGridLine()
-                    if let date = value.as(Date.self) {
-                        AxisValueLabel { Text(Self.axisDateFormatter.string(from: date)) }
+                    AxisTick()
+                    AxisValueLabel(centered: false) {
+                        if let date = value.as(Date.self) {
+                            Text(Self.axisDateFormatter.string(from: date))
+                        }
                     }
                 }
             }
@@ -284,18 +353,20 @@ struct PriceHistoryChartView: View {
             .frame(height: 200)
         } else if let rankSeries {
             // 価格系列が全て空: ランキングを実値のままプロットし、右軸のみ表示する(左軸なし)。
-            let rankValues = rankSeries.points.map { $0.value }
+            let rankValues = rankSeries.allPoints.map { $0.value }
             let rankScale = NiceScale(dataMin: rankValues.min() ?? 0, dataMax: rankValues.max() ?? 1)
 
             Chart {
-                ForEach(rankSeries.points) { point in
-                    LineMark(
-                        x: .value("時刻", point.time),
-                        y: .value("ランキング", point.value),
-                        series: .value("系列", rankSeries.id)
-                    )
-                    .foregroundStyle(rankSeries.color)
-                    .interpolationMethod(.stepEnd)
+                ForEach(rankSeries.segments) { segment in
+                    ForEach(segment.points) { point in
+                        LineMark(
+                            x: .value("時刻", point.time),
+                            y: .value("ランキング", point.value),
+                            series: .value("系列", segment.id)
+                        )
+                        .foregroundStyle(rankSeries.color)
+                        .interpolationMethod(.stepEnd)
+                    }
                 }
             }
             .chartLegend(.hidden)
@@ -304,8 +375,11 @@ struct PriceHistoryChartView: View {
             .chartXAxis {
                 AxisMarks { value in
                     AxisGridLine()
-                    if let date = value.as(Date.self) {
-                        AxisValueLabel { Text(Self.axisDateFormatter.string(from: date)) }
+                    AxisTick()
+                    AxisValueLabel(centered: false) {
+                        if let date = value.as(Date.self) {
+                            Text(Self.axisDateFormatter.string(from: date))
+                        }
                     }
                 }
             }
@@ -326,36 +400,37 @@ struct PriceHistoryChartView: View {
 
     // MARK: - データ加工
 
-    /// 生の[[時刻, 値]]を期間でフィルタし、-1(データなし)をforward-fill(直前の有効値で埋める)して
-    /// 1本の連続系列にする。先頭から連続する-1(直前値が無い)は捨てる。
-    /// 最後に、最終点の後ろへ「現在時刻(=窓の右端。全期間表示でも常に現在時刻)で最後の値」の点を追加し、
-    /// .stepEndの線が右端まで水平に伸びて途切れないようにする。
+    /// 生の[[時刻, 値]]を期間でフィルタし、-1(データなし)の位置でChartSegmentに分割する。
+    /// forward-fillはせず、-1は「線を引かない区間」としてそのまま扱う。先頭から連続する-1
+    /// (直前に有効値が無いもの)はどのセグメントにも含めず捨てる。
     private func series(from raw: [[Double]], seriesId: String, color: Color, now: Date) -> ChartSeries? {
         let points = filteredPoints(raw: raw, now: now)
         guard !points.isEmpty else { return nil }
 
-        var filled: [ChartPoint] = []
-        var lastValid: Double?
+        var segments: [ChartSegment] = []
+        var current: [ChartPoint] = []
+        var segmentIndex = 0
         for (time, value) in points {
             if value == -1 {
-                guard let lastValid else { continue }
-                filled.append(ChartPoint(time: time, value: lastValid))
+                guard !current.isEmpty else { continue }
+                segments.append(ChartSegment(id: "\(seriesId)-\(segmentIndex)", points: current))
+                segmentIndex += 1
+                current = []
             } else {
-                lastValid = value
-                filled.append(ChartPoint(time: time, value: value))
+                current.append(ChartPoint(time: time, value: value))
             }
         }
-        guard let last = filled.last else { return nil }
-
-        if last.time < now {
-            filled.append(ChartPoint(time: now, value: last.value))
+        if !current.isEmpty {
+            segments.append(ChartSegment(id: "\(seriesId)-\(segmentIndex)", points: current))
         }
-        return ChartSeries(id: seriesId, color: color, points: filled)
+        guard !segments.isEmpty else { return nil }
+        return ChartSeries(id: seriesId, color: color, segments: segments)
     }
 
     /// 期間フィルタ。全期間(range.rawValue==0)はそのまま全点。それ以外は
-    /// 「今日からrange日前」以降の点に絞り、窓の直前の最後の点を窓の先頭時刻にクランプして
-    /// 先頭へ足す(ステップ線が左端の時刻から途切れず始まるように)。
+    /// 「今日からrange日前」以降の点に絞り、窓開始直前に有効値(-1でない値)があれば
+    /// その値を窓の先頭時刻にクランプして先頭へ足す(ステップ線が左端の時刻から途切れず
+    /// 始まるように)。窓開始直前が-1(データなし)しか無い場合は何も足さない。
     private func filteredPoints(raw: [[Double]], now: Date) -> [(Date, Double)] {
         let points: [(Date, Double)] = raw.compactMap { pair in
             guard pair.count == 2 else { return nil }
@@ -365,8 +440,8 @@ struct PriceHistoryChartView: View {
 
         let windowStart = now.addingTimeInterval(-Double(range.rawValue) * 86400)
         var windowed = points.filter { $0.0 >= windowStart }
-        if let lastBefore = points.last(where: { $0.0 < windowStart }) {
-            windowed.insert((windowStart, lastBefore.1), at: 0)
+        if let lastValidBefore = points.last(where: { $0.0 < windowStart && $0.1 != -1 }) {
+            windowed.insert((windowStart, lastValidBefore.1), at: 0)
         }
         return windowed
     }

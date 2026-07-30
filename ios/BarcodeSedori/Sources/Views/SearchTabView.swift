@@ -521,27 +521,24 @@ struct SearchTabView: View {
     private var keepaGraph: some View {
         if let asin = viewModel.latestResult?.asin {
             VStack(spacing: 6) {
-                HStack(alignment: .top, spacing: 6) {
-                    // サーバーから履歴データ(/api/graph-data)を取得し、端末側でSwift Chartsに描画する。
-                    // 凡例は右に短い表記で自前描画してプロット領域を広く使う。
-                    PriceHistoryChartView(asin: asin, range: selectedGraphRange)
-                    graphLegend
-                        .frame(width: 66, alignment: .leading)
-                }
+                // サーバーから履歴データ(/api/graph-data)を取得し、端末側でSwift Chartsに描画する。
+                // チャートは全幅、凡例は下に1列で自前描画する。
+                PriceHistoryChartView(asin: asin, range: selectedGraphRange)
+                graphLegend
                 graphRangeSegment
             }
         }
     }
 
-    /// グラフの凡例。チャートの線の色に合わせた点と短いラベルだけを出す(値は入れない)。
+    /// グラフの凡例。チャートの線の色に合わせた点と短いラベルをグラフ下に1列・中央寄せで並べる。
     private var graphLegend: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        HStack(spacing: 16) {
             legendItem(color: .green, label: "ランキング")
             legendItem(color: .orange, label: "Amazon")
             legendItem(color: .blue, label: "新品")
             legendItem(color: .primary, label: "中古")
         }
-        .padding(.top, 2)
+        .frame(maxWidth: .infinity)
     }
 
     private func legendItem(color: Color, label: String) -> some View {
