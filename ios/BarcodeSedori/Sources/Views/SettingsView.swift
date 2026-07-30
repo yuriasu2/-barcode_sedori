@@ -229,8 +229,13 @@ struct SettingsView: View {
                         .foregroundColor(.secondary)
                 }
             }
-            // 大タイトル「設定」は削除し、広告枠(下部固定枠)の分の余白を確保する
+            // 大タイトル「設定」は削除し、その分を画面上部の広告枠に充てる
             // (商品/仕入れタブでナビバーを隠した先例に合わせる)。
+            // safeAreaInsetはNavigationViewの内側(Form)に付ける。外側に付けると
+            // Form側の余白計算に反映されず、先頭セクションの見出しが枠の下に潜り込む。
+            .safeAreaInset(edge: .top) {
+                AdSlotView(slotId: "settings_bottom", fixedHeight: 50)
+            }
             .toolbar(.hidden, for: .navigationBar)
             .alert(item: $viewModel.spapiTestAlert) { alert in
                 Alert(

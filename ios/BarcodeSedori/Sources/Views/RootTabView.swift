@@ -31,10 +31,8 @@ struct RootTabView: View {
                 }
                 .tag(2)
 
+            // 設定タブの広告枠は画面上部に置くため、SettingsView内部(NavigationViewの中)で持つ。
             SettingsView()
-                .safeAreaInset(edge: .bottom) {
-                    AdSlotView(slotId: "settings_bottom", fixedHeight: 50)
-                }
                 .tabItem {
                     Label("設定", systemImage: "gearshape")
                 }

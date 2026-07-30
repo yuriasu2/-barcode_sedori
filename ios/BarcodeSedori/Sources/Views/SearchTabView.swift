@@ -762,10 +762,6 @@ private struct ResultCardActionButtons: View {
         result.title != nil
     }
 
-    private var showsRakutenButton: Bool {
-        result.title != nil
-    }
-
     var body: some View {
         // ボタンを1列に横並びにする(ユーザー指示 2026-07-25)。無料ユーザーは「仕」だけ抜けて並ぶ。
         // 各ボタンは幅可変(maxWidth: .infinity)で全幅を等分するため、余白0でも見切れない。
@@ -787,10 +783,6 @@ private struct ResultCardActionButtons: View {
             }
             if showsKakakuButton {
                 actionButton(label: "価", color: Color(red: 0.29, green: 0.29, blue: 0.72), action: openKakaku)
-            }
-            if showsRakutenButton {
-                // 楽天アフィリエイト導線。mボタン(赤系)と被らないよう楽天レッド寄りの色にする。
-                actionButton(label: "楽", color: Color(red: 0.75, green: 0.0, blue: 0.0), action: openRakuten)
             }
         }
     }
@@ -868,13 +860,6 @@ private struct ResultCardActionButtons: View {
     private func openKakaku() {
         guard let encoded = shiftJISEncodedTitle(),
               let url = URL(string: "https://kakaku.com/search_results/\(encoded)/") else { return }
-        onOpenLink(url)
-    }
-
-    /// 楽天市場のタイトル検索を開く(楽天アフィリエイト導線)。kakakuと違いUTF-8エンコードでよい。
-    private func openRakuten() {
-        guard let encoded = encodedTitle(),
-              let url = URL(string: "https://search.rakuten.co.jp/search/mall/\(encoded)/") else { return }
         onOpenLink(url)
     }
 }
