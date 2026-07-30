@@ -1,5 +1,6 @@
 import SwiftUI
 import Charts
+import Foundation
 
 /// 価格推移グラフ1本分の点。時刻と値(円 or ランキング位、プロット用に正規化される前の値)。
 private struct ChartPoint: Identifiable {
@@ -14,6 +15,53 @@ private struct ChartSeries: Identifiable {
     let id: String
     let color: Color
     let points: [ChartPoint]
+}
+
+/// データ範囲から「切りの良い」目盛り間隔と軸範囲を求める(Keepa風の自動スケール)。
+/// step候補は 1/2/5 × 10^n。domainはstepの倍数へ内外に丸める(下限も0固定にせずデータへ追従させる)。
+private struct NiceScale {
+    let domainMin: Double
+    let domainMax: Double
+    let ticks: [Double]
+
+    init(dataMin: Double, dataMax: Double, targetTicks: Int = 5) {
+        var lo = dataMin
+        var hi = dataMax
+        if lo == hi {
+            // 横一直線(全点同値)は±5%(最低±1)広げてから計算する。
+            let pad = max(abs(lo) * 0.05, 1)
+            lo -= pad
+            hi += pad
+        }
+
+        let rawStep = (hi - lo) / Double(targetTicks)
+        let magnitude = pow(10, floor(log10(rawStep)))
+        let normalized = rawStep / magnitude
+        let step: Double
+        if normalized < 1.5 {
+            step = 1 * magnitude
+        } else if normalized < 3 {
+            step = 2 * magnitude
+        } else if normalized < 7 {
+            step = 5 * magnitude
+        } else {
+            step = 10 * magnitude
+        }
+
+        let niceMin = max(0, (lo / step).rounded(.down) * step)
+        let niceMax = (hi / step).rounded(.up) * step
+        domainMin = niceMin
+        domainMax = niceMax
+
+        var generatedTicks: [Double] = []
+        var v = niceMin
+        // 浮動小数誤差でticksが1本欠けたり増えたりしないよう微小許容を入れる。
+        while v <= niceMax + step * 0.001 {
+            generatedTicks.append(v)
+            v += step
+        }
+        ticks = generatedTicks
+    }
 }
 
 /// 価格推移グラフ(Pro専用)。旧来のKeepaサーバー画像描画をやめ、
@@ -122,11 +170,15 @@ struct PriceHistoryChartView: View {
 
     /// 価格とランキングを1つのChartに重ねて描画する。
     ///
-    /// - 価格が1系列以上あるとき: 価格は実値のままプロットし、y domainを[0, priceDomainMax]とする。
-    ///   ランキングがあれば `plottedY = rank / maxRank * priceDomainMax` で価格domainへ正規化してから
-    ///   同じChartに重ねる。右側の軸は見かけ上の目盛りで、目盛り位置の値vを
-    ///   `rank = v / priceDomainMax * maxRank` で逆変換してランキング表記に直す。
-    /// - 価格が1つも無くランキングだけがあるとき: ランキングを実値のままプロットし、
+    /// - 価格が1系列以上あるとき: 価格は実値のままプロットし、y domainは表示中データからNiceScaleで
+    ///   算出した[priceDomainMin, priceDomainMax](Keepaのように下限もデータへ追従、ただし負にはしない)。
+    ///   ランキングがあれば、ランキング側も別途NiceScaleでdomainを求め、
+    ///   `plotted = (rank - rankDomainMin) / (rankDomainMax - rankDomainMin) * (priceDomainMax - priceDomainMin) + priceDomainMin`
+    ///   で価格domainへ線形正規化してから同じChartに重ねる。右側の軸はrankScaleのticks(切りの良い
+    ///   ランキング値)を同じ式でプロット座標へ変換した位置に置き、ラベルは逆変換
+    ///   `rank = (plotted - priceDomainMin) / (priceDomainMax - priceDomainMin) * (rankDomainMax - rankDomainMin) + rankDomainMin`
+    ///   で元のランキング値に戻して表示する。
+    /// - 価格が1つも無くランキングだけがあるとき: ランキングを実値のままNiceScaleでdomain・ticksを求め、
     ///   右軸のみを表示する(左軸は出さない)。
     @ViewBuilder
     private func combinedChart(
@@ -135,15 +187,37 @@ struct PriceHistoryChartView: View {
         domain: ClosedRange<Date>
     ) -> some View {
         if !priceSeries.isEmpty {
-            let priceMax = priceSeries.flatMap { $0.points }.map { $0.value }.max() ?? 0
-            let priceDomainMax = max(priceMax * 1.05, 1)
-            let maxRank = rankSeries?.points.map { $0.value }.max() ?? 0
-            // ランキングを価格domainへ正規化(0除算回避のためmaxRank<=0なら正規化せず実値のまま=右軸は出さない)。
+            let priceValues = priceSeries.flatMap { $0.points }.map { $0.value }
+            let priceScale = NiceScale(dataMin: priceValues.min() ?? 0, dataMax: priceValues.max() ?? 1)
+            let priceDomainMin = priceScale.domainMin
+            let priceDomainMax = priceScale.domainMax
+
+            let rankValues = rankSeries?.points.map { $0.value } ?? []
+            let rankScale: NiceScale? = rankValues.isEmpty
+                ? nil
+                : NiceScale(dataMin: rankValues.min() ?? 0, dataMax: rankValues.max() ?? 1)
+
+            // ランキングを価格domainへ線形正規化(0除算回避のためrankDomainMax<=rankDomainMinなら
+            // 正規化できない=右軸自体を出さない)。
             let normalizedRank: ChartSeries? = rankSeries.flatMap { rs -> ChartSeries? in
-                guard maxRank > 0 else { return nil }
-                let points = rs.points.map { ChartPoint(time: $0.time, value: $0.value / maxRank * priceDomainMax) }
+                guard let rankScale, rankScale.domainMax > rankScale.domainMin else { return nil }
+                let points = rs.points.map { point -> ChartPoint in
+                    let normalized = (point.value - rankScale.domainMin)
+                        / (rankScale.domainMax - rankScale.domainMin)
+                        * (priceDomainMax - priceDomainMin) + priceDomainMin
+                    return ChartPoint(time: point.time, value: normalized)
+                }
                 return ChartSeries(id: rs.id, color: rs.color, points: points)
             }
+            // 右軸の目盛り位置。rankScale.ticks(切りの良いランキング値)を同じ正規化式で
+            // プロット座標へ変換しておく(ラベルは描画時に逆変換で元のランキング値へ戻す)。
+            let rankAxisPositions: [Double] = {
+                guard let rankScale, rankScale.domainMax > rankScale.domainMin else { return [] }
+                return rankScale.ticks.map { tick in
+                    (tick - rankScale.domainMin) / (rankScale.domainMax - rankScale.domainMin)
+                        * (priceDomainMax - priceDomainMin) + priceDomainMin
+                }
+            }()
 
             Chart {
                 ForEach(priceSeries) { s in
@@ -172,7 +246,7 @@ struct PriceHistoryChartView: View {
             // 凡例は既存のgraphLegend(親側の自前描画)を使うため、Charts標準の凡例は隠す。
             .chartLegend(.hidden)
             .chartXScale(domain: domain)
-            .chartYScale(domain: 0...priceDomainMax)
+            .chartYScale(domain: priceDomainMin...priceDomainMax)
             .chartXAxis {
                 AxisMarks { value in
                     AxisGridLine()
@@ -182,7 +256,7 @@ struct PriceHistoryChartView: View {
                 }
             }
             .chartYAxis {
-                AxisMarks(position: .leading) { value in
+                AxisMarks(position: .leading, values: priceScale.ticks) { value in
                     AxisGridLine()
                     AxisValueLabel {
                         if let yen = value.as(Double.self) {
@@ -191,14 +265,15 @@ struct PriceHistoryChartView: View {
                         }
                     }
                 }
-                if normalizedRank != nil {
-                    // 右軸(ランキング)は見かけ上の軸。目盛り位置vは価格domain上の値なので、
-                    // 正規化の逆変換 rank = v / priceDomainMax * maxRank で実際の順位に戻して表示する。
+                if let rankScale, !rankAxisPositions.isEmpty {
+                    // 右軸(ランキング)は見かけ上の軸。目盛り位置はrankScale.ticksを正規化式で
+                    // プロット座標へ変換した値なので、ラベルは逆変換で元のランキング値に戻して表示する。
                     // 左と目盛り数が揃わずグリッド線が二重になるとうるさいため、グリッド線は出さずラベルのみ描く。
-                    AxisMarks(position: .trailing, values: .automatic(desiredCount: 5)) { value in
+                    AxisMarks(position: .trailing, values: rankAxisPositions) { value in
                         AxisValueLabel {
                             if let plotted = value.as(Double.self) {
-                                let rank = plotted / priceDomainMax * maxRank
+                                let rank = (plotted - priceDomainMin) / (priceDomainMax - priceDomainMin)
+                                    * (rankScale.domainMax - rankScale.domainMin) + rankScale.domainMin
                                 Text(Self.formatRank(rank))
                                     .font(.system(size: 9))
                             }
@@ -209,8 +284,8 @@ struct PriceHistoryChartView: View {
             .frame(height: 200)
         } else if let rankSeries {
             // 価格系列が全て空: ランキングを実値のままプロットし、右軸のみ表示する(左軸なし)。
-            let rankMax = rankSeries.points.map { $0.value }.max() ?? 0
-            let rankDomainMax = max(rankMax * 1.05, 1)
+            let rankValues = rankSeries.points.map { $0.value }
+            let rankScale = NiceScale(dataMin: rankValues.min() ?? 0, dataMax: rankValues.max() ?? 1)
 
             Chart {
                 ForEach(rankSeries.points) { point in
@@ -225,7 +300,7 @@ struct PriceHistoryChartView: View {
             }
             .chartLegend(.hidden)
             .chartXScale(domain: domain)
-            .chartYScale(domain: 0...rankDomainMax)
+            .chartYScale(domain: rankScale.domainMin...rankScale.domainMax)
             .chartXAxis {
                 AxisMarks { value in
                     AxisGridLine()
@@ -235,7 +310,7 @@ struct PriceHistoryChartView: View {
                 }
             }
             .chartYAxis {
-                AxisMarks(position: .trailing) { value in
+                AxisMarks(position: .trailing, values: rankScale.ticks) { value in
                     AxisGridLine()
                     AxisValueLabel {
                         if let rank = value.as(Double.self) {
