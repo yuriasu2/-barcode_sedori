@@ -327,6 +327,7 @@ struct PriceHistoryChartView: View {
                             )
                             .foregroundStyle(s.color)
                             .interpolationMethod(.stepEnd)
+                            .lineStyle(StrokeStyle(lineWidth: 1))
                         }
                     }
                 }
@@ -340,6 +341,7 @@ struct PriceHistoryChartView: View {
                             )
                             .foregroundStyle(normalizedRank.color)
                             .interpolationMethod(.stepEnd)
+                            .lineStyle(StrokeStyle(lineWidth: 1))
                         }
                     }
                 }
@@ -398,6 +400,7 @@ struct PriceHistoryChartView: View {
                         )
                         .foregroundStyle(rankSeries.color)
                         .interpolationMethod(.stepEnd)
+                        .lineStyle(StrokeStyle(lineWidth: 1))
                     }
                 }
             }

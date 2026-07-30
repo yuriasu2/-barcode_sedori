@@ -284,9 +284,10 @@ struct SearchTabView: View {
         .frame(maxWidth: .infinity)
         .frame(height: UIScreen.main.bounds.height * 0.35)
         .clipped()
-
-        // スキャン画面の左右余白は0(ユーザー指示 2026-07-25)。カメラと同じく全幅で使う。
-        modeToggle
+        // バーコード/OCR切替はカメラ映像の中(下端)に重ねる。
+        .overlay(alignment: .bottom) {
+            modeToggle
+        }
 
         latestResultCard
 
@@ -404,21 +405,23 @@ struct SearchTabView: View {
                     .font(.subheadline)
                     .fontWeight(.bold)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .foregroundColor(isSelected ? .white : .accentColor)
-                    .background(isSelected ? Color.accentColor : Color.clear)
-                    // 透明背景(Color.clear)だと文字部分しか反応しないため、セル全体を当たり判定にする。
+                    .padding(.vertical, 8)
+                    // カメラ映像に重ねるため文字は常に白。選択中の側だけ白枠で囲んで示す。
+                    .foregroundColor(.white)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.white, lineWidth: isSelected ? 1.5 : 0)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 4)
+                    )
+                    // 透明背景だと文字部分しか反応しないため、セル全体を当たり判定にする。
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
         }
-        .background(Color(.secondarySystemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(Color.accentColor, lineWidth: 1.5)
-        )
+        // カメラの上に置く行全体は暗め透過にして映像と区別する。
+        .background(Color.black.opacity(0.35))
     }
 
     // MARK: - 最新スキャン結果カード
@@ -521,6 +524,8 @@ struct SearchTabView: View {
     private var keepaGraph: some View {
         if let asin = viewModel.latestResult?.asin {
             VStack(spacing: 6) {
+                // オファーパネルとの重なりを避けるための余白。
+                Spacer().frame(height: 10)
                 // サーバーから履歴データ(/api/graph-data)を取得し、端末側でSwift Chartsに描画する。
                 // チャートは全幅、凡例は下に1列で自前描画する。
                 PriceHistoryChartView(asin: asin, range: selectedGraphRange)
