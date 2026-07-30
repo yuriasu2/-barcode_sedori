@@ -1088,38 +1088,69 @@ test('keepa client: extractGraphSeries はcsvが無い/該当系列が無い場�
   assert.deepEqual(keepa.extractGraphSeries({ csv: [] }), { amazon: [], new: [], used: [], rank: [] });
 });
 
-test('keepa client: extractGraphSeries は1001点以上の系列を1000点へ間引き、最初と最後の点は保持する', () => {
+test('keepa client: extractGraphSeries は古い区間を250点へ間引き、最初と最後の点は保持する', () => {
   const keepa = require('../src/keepa/client');
+  // 1年より前(最古区間)に収まるよう、現在から2〜3年前あたりへ並べる。
+  const nowMinute = Math.floor(Date.now() / 60000) - 21564000;
+  const startMinute = nowMinute - 3 * 365 * 24 * 60;
   const pointCount = 1001;
   const rawCsv = [];
   for (let i = 0; i < pointCount; i += 1) {
-    rawCsv.push(i * 10, 1000 + i); // keepa分は単調増加させる(実データも昇順)
+    rawCsv.push(startMinute + i * 10, 1000 + i);
   }
   const csv = [];
   csv[1] = rawCsv; // NEW
   const product = { csv };
 
   const series = keepa.extractGraphSeries(product);
-  assert.equal(series.new.length, 1000);
-  // 最初の点(rawCsvの先頭ペア)
-  assert.deepEqual(series.new[0], [(0 + 21564000) * 60, 1000]);
-  // 最後の点(rawCsvの末尾ペア)
-  const lastKeepaTime = (pointCount - 1) * 10;
+  assert.equal(series.new.length, 250);
+  assert.deepEqual(series.new[0], [(startMinute + 21564000) * 60, 1000]);
+  const lastKeepaTime = startMinute + (pointCount - 1) * 10;
   assert.deepEqual(series.new[series.new.length - 1], [(lastKeepaTime + 21564000) * 60, 1000 + pointCount - 1]);
 });
 
-test('keepa client: extractGraphSeries は1000点以下の系列は間引かない', () => {
+test('keepa client: extractGraphSeries は区間の上限以下なら間引かない', () => {
   const keepa = require('../src/keepa/client');
+  const nowMinute = Math.floor(Date.now() / 60000) - 21564000;
+  const startMinute = nowMinute - 3 * 365 * 24 * 60;
   const rawCsv = [];
-  for (let i = 0; i < 500; i += 1) {
-    rawCsv.push(i * 10, i);
+  for (let i = 0; i < 200; i += 1) {
+    rawCsv.push(startMinute + i * 10, i);
   }
   const csv = [];
   csv[0] = rawCsv;
   const product = { csv };
 
   const series = keepa.extractGraphSeries(product);
-  assert.equal(series.amazon.length, 500);
+  assert.equal(series.amazon.length, 200);
+});
+
+test('keepa client: extractGraphSeries は直近ほど密になるよう区間ごとに配分する', () => {
+  const keepa = require('../src/keepa/client');
+  // 5年分を1時間おきに並べる(全区間が上限を超える密度)。
+  const nowMinute = Math.floor(Date.now() / 60000) - 21564000;
+  const totalHours = 5 * 365 * 24;
+  const rawCsv = [];
+  for (let i = totalHours; i >= 0; i -= 1) {
+    rawCsv.push(nowMinute - i * 60, 100 + (i % 50));
+  }
+  const csv = [];
+  csv[3] = rawCsv; // SALES
+  const product = { csv };
+
+  const series = keepa.extractGraphSeries(product);
+  const now = Math.floor(Date.now() / 1000);
+  const within = (days) => series.rank.filter((p) => p[0] >= now - days * 86400).length;
+
+  // 合計は4区間×250の上限内。
+  assert.ok(series.rank.length <= 1000, `合計 ${series.rank.length} 点`);
+  // 直近1ヶ月・3ヶ月に十分な点が残る(旧実装では数点しか残らなかった)。
+  assert.ok(within(30) >= 200, `1ヶ月 ${within(30)} 点`);
+  assert.ok(within(90) >= 450, `3ヶ月 ${within(90)} 点`);
+  // 時刻昇順であること。
+  for (let i = 1; i < series.rank.length; i += 1) {
+    assert.ok(series.rank[i][0] > series.rank[i - 1][0], '時刻昇順');
+  }
 });
 
 // ---------------------------------------------------------------------------

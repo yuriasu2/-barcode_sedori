@@ -278,8 +278,20 @@ const GRAPH_SERIES_CSV_INDEX = {
   rank: CSV_TYPE.SALES,
 };
 
-// 各系列の最大点数。アプリ側の描画負荷とレスポンスサイズを抑えるため間引く。
-const GRAPH_SERIES_MAX_POINTS = 1000;
+/**
+ * 各系列の間引き配分。アプリのグラフは期間(1ヶ月/3ヶ月/1年/全期間)を切り替えて表示するため、
+ * 全履歴を一律に間引くと短い期間に点がほとんど残らない(11年分を1000点に均すと直近3ヶ月に数点)。
+ * 「今日からの経過日数」で区間を分け、区間ごとに上限を持たせて配分する。
+ * スマホの描画幅では1画面あたり200〜300点を超えると視覚的に区別できないため、
+ * 各区間250点あれば足り、合計は従来と同じ1000点に収まる。
+ * maxAgeDays が null の区間は「それ以前すべて」を表す。
+ */
+const GRAPH_SERIES_BUCKETS = [
+  { maxAgeDays: 30, maxPoints: 250 },
+  { maxAgeDays: 90, maxPoints: 250 },
+  { maxAgeDays: 365, maxPoints: 250 },
+  { maxAgeDays: null, maxPoints: 250 },
+];
 
 /**
  * Keepa時刻(分)→unix秒 のオフセット(実測により確認済み)。
@@ -330,7 +342,38 @@ function csvSeriesToPoints(csvSeries) {
     if (typeof keepaTime !== 'number') continue;
     points.push([keepaMinuteToUnixSecForGraph(keepaTime), value]);
   }
-  return decimatePoints(points, GRAPH_SERIES_MAX_POINTS);
+  return decimateByAge(points, nowSec());
+}
+
+// 現在時刻(unix秒)。テストから固定値を注入できるよう関数に切り出す。
+function nowSec() {
+  return Math.floor(Date.now() / 1000);
+}
+
+/**
+ * GRAPH_SERIES_BUCKETSの配分で間引く。新しい区間から順に切り出し、
+ * 各区間の中では従来どおり等間隔(先頭・末尾を保持)で間引く。
+ * 返り値は時刻昇順。
+ * @param {Array<[number, number]>} points 時刻昇順の点列
+ * @param {number} now 基準時刻(unix秒)
+ */
+function decimateByAge(points, now) {
+  if (!points.length) return points;
+
+  const result = [];
+  // 古い区間から順に詰めることで、結果は時刻昇順のまま組み立てられる。
+  for (let i = GRAPH_SERIES_BUCKETS.length - 1; i >= 0; i -= 1) {
+    const bucket = GRAPH_SERIES_BUCKETS[i];
+    // この区間が受け持つ時間範囲 [from, to)。
+    // fromは自身のmaxAgeDays(nullなら下限なし)、toは1つ新しい区間の下限
+    // (最新区間は上限なし=未来日付の点も拾う)。
+    const from = bucket.maxAgeDays === null ? -Infinity : now - bucket.maxAgeDays * 86400;
+    const newerBucket = i > 0 ? GRAPH_SERIES_BUCKETS[i - 1] : null;
+    const to = newerBucket ? now - newerBucket.maxAgeDays * 86400 : Infinity;
+    const slice = points.filter((p) => p[0] >= from && p[0] < to);
+    result.push(...decimatePoints(slice, bucket.maxPoints));
+  }
+  return result;
 }
 
 /**
