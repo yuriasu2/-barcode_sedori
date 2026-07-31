@@ -263,7 +263,7 @@ struct SearchTabView: View {
                 }
             }
             // 残りが少なくなった時点で広告を先読みしておく。枠切れオーバーレイが出てから
-            // 読み込むと「動画を見て+5回」をタップしてから数秒待たされるため。
+            // 読み込むと「動画を見てスキャン+5回」をタップしてから数秒待たされるため。
             .onChange(of: quota.unitsRemaining) { remaining in
                 if !isSearchUnlimited && remaining <= 1 && showsRewardedAdOption {
                     rewardedAds.preload()
@@ -399,7 +399,7 @@ struct SearchTabView: View {
         viewModel.handleScan(code)
     }
 
-    /// リワード広告フロー(枠切れオーバーレイの「動画を見て+5回」/グラフ枠の「動画を見てグラフを見る」の共通処理)。
+    /// リワード広告フロー(枠切れオーバーレイの「動画を見てスキャン+5回」/グラフ枠の「動画を見てグラフを見る」の共通処理)。
     /// 広告を表示し、報酬獲得できたらサーバー側の枠加算(+5)が届くまで待つ。
     ///
     /// 加算はGoogle→サーバーのSSVコールバックで非同期に行われるため、視聴直後は未反映のことがある。
@@ -441,6 +441,8 @@ struct SearchTabView: View {
     /// 「非Pro・グラフ表示に使うユニットを使い切った」場合のみ。
     private var freeAdArea: some View {
         VStack(spacing: 8) {
+            AdSlotView(slotId: "search_ad")
+
             Button {
                 showPaywall = true
             } label: {
@@ -476,8 +478,6 @@ struct SearchTabView: View {
                 .buttonStyle(.plain)
                 .disabled(isProcessingRewardedAd)
             }
-
-            AdSlotView(slotId: "search_ad")
         }
     }
 
