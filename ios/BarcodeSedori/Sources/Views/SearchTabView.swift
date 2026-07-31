@@ -697,16 +697,16 @@ private struct LatestResultCardView: View {
                                 .foregroundColor(.secondary)
                         }
 
-                        if let rank = result.salesRank {
-                            // 「ランク」の文字は商品タブと同じ折れ線グラフアイコンで表す。
-                            HStack(spacing: 6) {
-                                Image(systemName: "chart.line.uptrend.xyaxis")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                Text("\(rank)位")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
+                        // 「ランク」の文字は商品タブと同じ折れ線グラフアイコンで表す。
+                        // ランキングが取得できない商品は非表示にせず「圏外」と明示する
+                        // (表示が無いと取得漏れなのか圏外なのか区別がつかないため)。
+                        HStack(spacing: 6) {
+                            Image(systemName: "chart.line.uptrend.xyaxis")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Text(result.salesRank.map { "\($0)位" } ?? "ランキング圏外")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
                         }
                     }
                     .fixedSize(horizontal: true, vertical: false)
