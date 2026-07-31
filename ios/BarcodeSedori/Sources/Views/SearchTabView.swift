@@ -142,12 +142,14 @@ final class SearchTabViewModel: ObservableObject {
             }
         } catch {
             isSearching = false
-            // 無料枠ユニット上限超過(429・quota_exceeded)。quotaを反映してUIを枠切れ状態にする。
-            if case APIClientError.quotaExceeded(let quota, let message) = error {
+            // 無料枠ユニット上限超過(429・quota_exceeded)。quotaを反映すればisQuotaExhaustedが
+            // trueになりQuotaPaywallOverlayが自動的に表示されるため、ここでは
+            // searchErrorMessageを設定しない(同じ内容の赤文字が二重に出るのを避けるため)。
+            if case APIClientError.quotaExceeded(let quota, _) = error {
                 ScanQuotaStore.shared.apply(quota)
-                searchErrorMessage = message ?? "本日の無料スキャン上限に達しました。"
             } else if case APIClientError.httpError(let status, _) = error, status == 429 {
                 // quota_exceeded形式でない429(旧サーバー互換)のフォールバック。
+                // こちらはquotaを受け取れずオーバーレイが自動では出ないため、文言で案内する。
                 searchErrorMessage = "本日の無料スキャン上限に達しました。Proにアップグレードすると無制限に使えます。"
             } else {
                 searchErrorMessage = error.localizedDescription
