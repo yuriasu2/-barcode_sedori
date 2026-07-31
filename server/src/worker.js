@@ -8,6 +8,10 @@
  * Worker手前で Cloudflare が直接配信するため、ここでの分岐は不要。
  */
 
+// Durable Object本体を再エクスポートする(Workersランタイムがクラスを見つけるために必須。
+// wrangler.jsonc の durable_objects.bindings[].class_name と一致させている)。
+export { DeviceQuotaDO } from './quotaDurableObject.js';
+
 let routesPromise = null;
 
 function loadRoutes() {
@@ -31,6 +35,10 @@ export default {
     // globalThisへ橋渡しする。routes.js側は globalThis.__adsKv を直接参照する
     // (envをroutes.jsまで引き回す既存の仕組みが無いための簡易な受け渡し)。
     globalThis.__adsKv = env.ADS_CONFIG || null;
+
+    // 無料枠ユニットのDurable Objectバインディング。deviceQuota.js側は
+    // globalThis.__quotaDO を直接参照する(__adsKvと同じ簡易な受け渡し方式)。
+    globalThis.__quotaDO = env.DEVICE_QUOTA || null;
 
     const url = new URL(request.url);
 

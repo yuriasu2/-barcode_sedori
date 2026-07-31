@@ -30,6 +30,15 @@
   // routes.js側はglobalThis.__adsKv未設定として安全側({version:0,slots:{}})に倒れる。
   "kv_namespaces": [
     { "binding": "ADS_CONFIG", "id": "f476a5086dc0496a90d4f07ced0e14af" }
+  ],
+  // 無料枠ユニット(deviceQuota.js)の永続化先。デバイスID単位でDOインスタンスを1個割り当てる。
+  "durable_objects": {
+    "bindings": [{ "name": "DEVICE_QUOTA", "class_name": "DeviceQuotaDO" }]
+  },
+  // new_sqlite_classes を使う(new_classes ではない)。無料プランではSQLiteバックエンドの
+  // Durable Objectsのみ利用可能なため(KVバックエンドは有料プラン専用)。
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["DeviceQuotaDO"] }
   ]
   // Secrets(LWA_CLIENT_ID/LWA_CLIENT_SECRET/KEEPA_API_KEY/SPAPI_APP_ID)は
   // `wrangler secret put` で登録する(このファイルに書かない)。

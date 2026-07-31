@@ -9,12 +9,12 @@ const deviceQuota = require('../src/deviceQuota');
 // deviceQuota.js 単体テスト(既定値: BASE_DAILY_UNITS=5, UNITS_PER_AD=5, MAX_DAILY_UNITS=100)
 // ---------------------------------------------------------------------------
 
-test('tryConsume: 基本枠5まで消費でき、6回目はallowed=false。quotaの各フィールドが期待値', () => {
+test('tryConsume: 基本枠5まで消費でき、6回目はallowed=false。quotaの各フィールドが期待値', async () => {
   deviceQuota._reset();
   const id = 'dev-A';
 
   for (let i = 1; i <= 5; i += 1) {
-    const result = deviceQuota.tryConsume(id, 1);
+    const result = await deviceQuota.tryConsume(id, 1);
     assert.equal(result.allowed, true, `${i}回目は許可されるはず`);
     assert.equal(result.quota.unitsUsed, i);
     assert.equal(result.quota.limit, 5);
@@ -25,7 +25,7 @@ test('tryConsume: 基本枠5まで消費でき、6回目はallowed=false。quota
     assert.equal(result.quota.adAvailable, true);
   }
 
-  const sixth = deviceQuota.tryConsume(id, 1);
+  const sixth = await deviceQuota.tryConsume(id, 1);
   assert.equal(sixth.allowed, false);
   assert.deepEqual(sixth.quota, {
     unitsRemaining: 0,
@@ -38,20 +38,20 @@ test('tryConsume: 基本枠5まで消費でき、6回目はallowed=false。quota
   });
 });
 
-test('tryConsume: deviceId空/未指定は常にallowed=true・消費なし・quotaは{unlimited:true}', () => {
+test('tryConsume: deviceId空/未指定は常にallowed=true・消費なし・quotaは{unlimited:true}', async () => {
   deviceQuota._reset();
-  assert.deepEqual(deviceQuota.tryConsume(null, 1), { allowed: true, quota: { unlimited: true } });
-  assert.deepEqual(deviceQuota.tryConsume(undefined, 1), { allowed: true, quota: { unlimited: true } });
-  assert.deepEqual(deviceQuota.tryConsume('', 1), { allowed: true, quota: { unlimited: true } });
+  assert.deepEqual(await deviceQuota.tryConsume(null, 1), { allowed: true, quota: { unlimited: true } });
+  assert.deepEqual(await deviceQuota.tryConsume(undefined, 1), { allowed: true, quota: { unlimited: true } });
+  assert.deepEqual(await deviceQuota.tryConsume('', 1), { allowed: true, quota: { unlimited: true } });
   // 消費されていないことを確認(登録すらされない)
   assert.equal(deviceQuota._entries.size, 0);
 });
 
-test('grantAd: 1本でlimitが10になり、さらに消費できる', () => {
+test('grantAd: 1本でlimitが10になり、さらに消費できる', async () => {
   deviceQuota._reset();
   const id = 'dev-B';
 
-  const grant = deviceQuota.grantAd(id);
+  const grant = await deviceQuota.grantAd(id);
   assert.equal(grant.granted, true);
   assert.equal(grant.quota.adGrantsToday, 1);
   assert.equal(grant.quota.limit, 10);
@@ -59,24 +59,24 @@ test('grantAd: 1本でlimitが10になり、さらに消費できる', () => {
 
   // 基本枠5を使い切った後でも、広告分の5(合計10)まで消費できる。
   for (let i = 1; i <= 5; i += 1) {
-    const r = deviceQuota.tryConsume(id, 1);
+    const r = await deviceQuota.tryConsume(id, 1);
     assert.equal(r.allowed, true, `基本枠消費 ${i}回目`);
   }
   for (let i = 6; i <= 10; i += 1) {
-    const r = deviceQuota.tryConsume(id, 1);
+    const r = await deviceQuota.tryConsume(id, 1);
     assert.equal(r.allowed, true, `広告分消費 ${i}回目`);
   }
-  const eleventh = deviceQuota.tryConsume(id, 1);
+  const eleventh = await deviceQuota.tryConsume(id, 1);
   assert.equal(eleventh.allowed, false);
 });
 
-test('grantAd: cap(100)到達後はgranted=falseでadGrantsが増えない(19本でcap、20本目はfalse)', () => {
+test('grantAd: cap(100)到達後はgranted=falseでadGrantsが増えない(19本でcap、20本目はfalse)', async () => {
   deviceQuota._reset();
   const id = 'dev-C';
 
   let lastQuota = null;
   for (let i = 1; i <= 19; i += 1) {
-    const r = deviceQuota.grantAd(id);
+    const r = await deviceQuota.grantAd(id);
     assert.equal(r.granted, true, `${i}本目は許可されるはず`);
     lastQuota = r.quota;
   }
@@ -86,49 +86,175 @@ test('grantAd: cap(100)到達後はgranted=falseでadGrantsが増えない(19本
   assert.equal(lastQuota.adAvailable, false);
   assert.equal(lastQuota.adGrantsToday, 19);
 
-  const twentieth = deviceQuota.grantAd(id);
+  const twentieth = await deviceQuota.grantAd(id);
   assert.equal(twentieth.granted, false);
   assert.equal(twentieth.quota.adGrantsToday, 19); // 増えない
-  assert.equal(deviceQuota.getState(id).adGrants, 19);
+  assert.equal((await deviceQuota.getState(id)).adGrants, 19);
 });
 
-test('日付が変わるとunitsUsedもadGrantsもリセットされる', () => {
+test('日付が変わるとunitsUsedもadGrantsもリセットされる', async () => {
   deviceQuota._reset();
   const id = 'dev-D';
 
-  deviceQuota.tryConsume(id, 3);
-  deviceQuota.grantAd(id);
-  assert.deepEqual(deviceQuota.getState(id), { unitsUsed: 3, adGrants: 1 });
+  await deviceQuota.tryConsume(id, 3);
+  await deviceQuota.grantAd(id);
+  assert.deepEqual(await deviceQuota.getState(id), { unitsUsed: 3, adGrants: 1 });
 
   // 内部の日付を過去日に書き換え、翌日をシミュレート
   deviceQuota._entries.set(id, { date: '2000-1-1', unitsUsed: 3, adGrants: 1 });
-  assert.deepEqual(deviceQuota.getState(id), { unitsUsed: 0, adGrants: 0 });
+  assert.deepEqual(await deviceQuota.getState(id), { unitsUsed: 0, adGrants: 0 });
 
-  const result = deviceQuota.tryConsume(id, 1);
+  const result = await deviceQuota.tryConsume(id, 1);
   assert.equal(result.allowed, true);
   assert.equal(result.quota.unitsUsed, 1);
   assert.equal(result.quota.adGrantsToday, 0);
   assert.equal(result.quota.limit, 5);
 });
 
-test('computeQuota: 副作用なし(呼び出しても内部状態は変化しない)', () => {
+test('computeQuota: 副作用なし(呼び出しても内部状態は変化しない)', async () => {
   deviceQuota._reset();
   const id = 'dev-E';
-  deviceQuota.tryConsume(id, 2);
+  await deviceQuota.tryConsume(id, 2);
 
-  const before = deviceQuota.getState(id);
-  const quota1 = deviceQuota.computeQuota(id);
-  const quota2 = deviceQuota.computeQuota(id);
-  const after = deviceQuota.getState(id);
+  const before = await deviceQuota.getState(id);
+  const quota1 = await deviceQuota.computeQuota(id);
+  const quota2 = await deviceQuota.computeQuota(id);
+  const after = await deviceQuota.getState(id);
 
   assert.deepEqual(quota1, quota2);
   assert.deepEqual(before, after);
   assert.equal(quota1.unitsUsed, 2);
 });
 
-test('computeQuota: deviceId空は{unlimited:true}のみを返す', () => {
-  assert.deepEqual(deviceQuota.computeQuota(null), { unlimited: true });
-  assert.deepEqual(deviceQuota.computeQuota(''), { unlimited: true });
+test('computeQuota: deviceId空は{unlimited:true}のみを返す', async () => {
+  assert.deepEqual(await deviceQuota.computeQuota(null), { unlimited: true });
+  assert.deepEqual(await deviceQuota.computeQuota(''), { unlimited: true });
+});
+
+// ---------------------------------------------------------------------------
+// DO経路(_setDurableBindingでモックbindingを注入)のテスト。
+// DO自体の計算ロジックはquotaDurableObject.js/quota-do.test.jsで検証済みのため、
+// ここではdeviceQuota.js側の「委譲(URL/メソッド)」と「障害時フォールバック方針」のみを見る。
+// ---------------------------------------------------------------------------
+
+/**
+ * fetch呼び出しを記録しつつ、あらかじめ用意したレスポンスを返すモックDOバインディング。
+ * @param {object} opts
+ * @param {*} [opts.response] 返すJSONボディ(オブジェクト)。省略時は{ok:true想定の空オブジェクト}
+ * @param {number} [opts.status] レスポンスstatus(既定200)
+ * @param {Error} [opts.throwError] 指定時、stub.fetchがこのエラーをthrowする(DO障害の再現)
+ * @param {Array} [opts.calls] fetch呼び出し引数を記録する配列(呼び出し元が用意する)
+ */
+function createMockDurableBinding(opts) {
+  return {
+    idFromName(deviceId) {
+      return { name: deviceId };
+    },
+    get(id) {
+      return {
+        async fetch(url, init) {
+          if (opts.calls) opts.calls.push({ id, url, init });
+          if (opts.throwError) throw opts.throwError;
+          return {
+            ok: !opts.status || opts.status < 400,
+            status: opts.status || 200,
+            async json() {
+              return opts.response;
+            },
+          };
+        },
+      };
+    },
+  };
+}
+
+test('DO経路: tryConsume/grantAd/getStateがDOへ正しいpath/method/クエリで委譲する', async (t) => {
+  const calls = [];
+  const quota = { unitsRemaining: 3, baseRemaining: 3, unitsUsed: 2, adGrantsToday: 0, adAvailable: true, capReached: false, limit: 5 };
+  const binding = createMockDurableBinding({ response: { allowed: true, quota }, calls });
+  deviceQuota._setDurableBinding(binding);
+  t.after(() => deviceQuota._setDurableBinding(undefined));
+
+  const consumeResult = await deviceQuota.tryConsume('DEV-DO-A', 2);
+  assert.deepEqual(consumeResult, { allowed: true, quota });
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].url, /^https:\/\/do\/consume\?/);
+  assert.equal(calls[0].init.method, 'POST');
+  const consumeUrl = new URL(calls[0].url);
+  assert.equal(consumeUrl.searchParams.get('units'), '2');
+  assert.ok(consumeUrl.searchParams.get('date'));
+
+  calls.length = 0;
+  binding.get = createMockDurableBinding({ response: { granted: true, quota }, calls }).get;
+  const grantResult = await deviceQuota.grantAd('DEV-DO-A');
+  assert.deepEqual(grantResult, { granted: true, quota });
+  assert.match(calls[0].url, /^https:\/\/do\/grant-ad\?/);
+  assert.equal(calls[0].init.method, 'POST');
+
+  calls.length = 0;
+  binding.get = createMockDurableBinding({ response: quota, calls }).get;
+  const state = await deviceQuota.getState('DEV-DO-A');
+  assert.deepEqual(state, { unitsUsed: quota.unitsUsed, adGrants: quota.adGrantsToday });
+  assert.match(calls[0].url, /^https:\/\/do\/peek\?/);
+  assert.equal(calls[0].init.method, 'GET');
+});
+
+test('DO経路: fetchが例外を投げたら「許可(可用性優先)」で倒す(tryConsume/grantAd)', async (t) => {
+  const binding = createMockDurableBinding({ throwError: new Error('DO down') });
+  deviceQuota._setDurableBinding(binding);
+  t.after(() => deviceQuota._setDurableBinding(undefined));
+
+  // 許可しつつ、quotaは「残量不明」を返す。ここで残量フル(unitsUsed:0)を返すと
+  // クライアントがローカルカウンタを毎回リセットしてしまい、障害中は全員が無制限になる。
+  const consumeResult = await deviceQuota.tryConsume('DEV-DO-B', 1);
+  assert.equal(consumeResult.allowed, true);
+  assert.deepEqual(consumeResult.quota, { unknown: true });
+
+  const grantResult = await deviceQuota.grantAd('DEV-DO-B');
+  assert.equal(grantResult.granted, true);
+  assert.deepEqual(grantResult.quota, { unknown: true });
+
+  // getStateは0/0(=残量フル)ではなくnull(不明)を返す。
+  assert.equal(await deviceQuota.getState('DEV-DO-B'), null);
+  assert.deepEqual(await deviceQuota.computeQuota('DEV-DO-B'), { unknown: true });
+});
+
+test('attachQuota: quotaがnull/未指定ならレスポンスにquotaを載せない', () => {
+  const routes = require('../src/routes');
+  const mk = () => ({ body: undefined, json(b) { this.body = b; return this; } });
+
+  const withQuota = mk();
+  routes.attachQuota(withQuota, { unitsUsed: 1 });
+  withQuota.json({ ok: true });
+  assert.deepEqual(withQuota.body, { ok: true, quota: { unitsUsed: 1 } });
+
+  const withoutQuota = mk();
+  routes.attachQuota(withoutQuota, null);
+  withoutQuota.json({ ok: true });
+  assert.deepEqual(withoutQuota.body, { ok: true });
+});
+
+test('DO経路: res.ok=falseなHTTPエラーもfetch例外と同様にフォールバックする', async (t) => {
+  const binding = createMockDurableBinding({ response: { error: 'boom' }, status: 500 });
+  deviceQuota._setDurableBinding(binding);
+  t.after(() => deviceQuota._setDurableBinding(undefined));
+
+  const consumeResult = await deviceQuota.tryConsume('DEV-DO-C', 1);
+  assert.equal(consumeResult.allowed, true);
+});
+
+test('DO経路: _setDurableBinding(null)はインメモリ経路を強制する(globalThis.__quotaDOがあっても無視)', async (t) => {
+  globalThis.__quotaDO = createMockDurableBinding({ throwError: new Error('呼ばれてはいけない') });
+  deviceQuota._setDurableBinding(null);
+  t.after(() => {
+    deviceQuota._setDurableBinding(undefined);
+    delete globalThis.__quotaDO;
+  });
+
+  deviceQuota._reset();
+  const result = await deviceQuota.tryConsume('DEV-DO-D', 1);
+  assert.equal(result.allowed, true);
+  assert.equal(result.quota.unitsUsed, 1); // インメモリ経路で実際に計算された値
 });
 
 // ---------------------------------------------------------------------------

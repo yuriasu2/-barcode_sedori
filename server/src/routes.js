@@ -96,17 +96,25 @@ function deviceIdOf(headers) {
 }
 
 /**
- * 非Pro・v2リクエスト専用: res.json()呼び出し時に最新のquotaフィールドを注入するよう
+ * 非Pro・v2リクエスト専用: res.json()呼び出し時にquotaフィールドを注入するよう
  * res.jsonを差し替える。handleSearchViaKeepa/graph-dataのフェッチ後のres.json呼び出し
  * (成功・エラー問わず)を変更せずに済ませるため、resオブジェクト自体を差し替えるのではなく
  * jsonメソッドだけ一時的に上書きする(resはリクエストごとに新規生成されるため他リクエストへの
- * 影響はない)。quotaは呼び出し時点でdeviceQuota.computeQuota(deviceId)を都度計算する
- * (直前のtryConsumeで更新されたunitsUsedを反映するため)。
+ * 影響はない)。
+ * deviceQuota.computeQuota/tryConsumeがDO経由の非同期I/Oになったため、res.json呼び出し時点で
+ * 都度計算することはできない(res.jsonは同期メソッドのまま維持したいため)。代わりに、
+ * 呼び出し側が既に確定させたquotaのスナップショットを引数で渡す方式にしている
+ * (消費した経路ではtryConsumeの戻り値result.quotaをそのまま渡せば、DOへの追加アクセスなしで済む)。
+ * quotaがnull(DO障害で残量不明)のときは何も注入しない。クライアントはサーバーが返した
+ * quotaで自分のローカル残量を上書きする設計のため、不明な状態で誤った値を載せるより
+ * 「載せない=クライアントのローカル値を維持させる」方が安全なため。
+ * @param {object} res
+ * @param {object|null} quota deviceQuota.computeQuota/tryConsume/grantAdの戻り値のquota
  */
-function attachQuota(res, headers) {
-  const deviceId = deviceIdOf(headers);
+function attachQuota(res, quota) {
+  if (!quota) return res;
   const originalJson = res.json;
-  res.json = (body) => originalJson.call(res, { ...body, quota: deviceQuota.computeQuota(deviceId) });
+  res.json = (body) => originalJson.call(res, { ...body, quota });
   return res;
 }
 
@@ -657,7 +665,7 @@ router.get('/api/search', async (req, res) => {
       // v2: 冒頭では消費せず、Keepa経路(サーバーのAPIキー消費)が確定してから判定する。
       if (cached) {
         // キャッシュヒットは消費なし。ただし最新のquotaはクライアントへ返す。
-        attachQuota(res, req.headers);
+        attachQuota(res, await deviceQuota.computeQuota(deviceId));
         return res.json(cached);
       }
       // handleSearchViaKeepaはコードを識別子へ変換できない場合、Keepaを呼ばずに
@@ -668,7 +676,7 @@ router.get('/api/search', async (req, res) => {
       const willCallKeepa =
         converted.codeType !== CODE_TYPES.UNRESOLVED && Boolean(converted.isbn13 || converted.jan);
       if (willCallKeepa) {
-        const consumeResult = deviceQuota.tryConsume(deviceId, 1);
+        const consumeResult = await deviceQuota.tryConsume(deviceId, 1);
         if (!consumeResult.allowed) {
           return res.status(429).json({
             error: 'quota_exceeded',
@@ -676,8 +684,12 @@ router.get('/api/search', async (req, res) => {
             quota: consumeResult.quota,
           });
         }
+        // 消費済みのquotaをそのまま使う(DOへの追加アクセスを避けるため)。
+        attachQuota(res, consumeResult.quota);
+      } else {
+        // Keepaを呼ばない(unresolved)場合でも、quotaは返す(消費はしない)。
+        attachQuota(res, await deviceQuota.computeQuota(deviceId));
       }
-      attachQuota(res, req.headers);
       return handleSearchViaKeepa(req, res, code, cacheKey);
     }
 
@@ -898,7 +910,7 @@ router.get('/api/graph-data', async (req, res) => {
   const cached = graphDataCache.get(cacheKey);
   if (cached) {
     // キャッシュヒットはPro判定より前に返す(誰であっても消費なし)。非Pro v2にはquotaを同梱する。
-    if (!isPro && isV2) attachQuota(res, req.headers);
+    if (!isPro && isV2) attachQuota(res, await deviceQuota.computeQuota(deviceId));
     return res.json(cached);
   }
 
@@ -907,7 +919,7 @@ router.get('/api/graph-data', async (req, res) => {
       // v2非対応の旧クライアントには無料グラフを開放しない(レガシー維持)。
       return res.status(403).json({ error: 'plan_required', message: 'グラフはProプランでご利用いただけます。' });
     }
-    const consumeResult = deviceQuota.tryConsume(deviceId, 1);
+    const consumeResult = await deviceQuota.tryConsume(deviceId, 1);
     if (!consumeResult.allowed) {
       return res.status(429).json({
         error: 'quota_exceeded',
@@ -915,7 +927,8 @@ router.get('/api/graph-data', async (req, res) => {
         quota: consumeResult.quota,
       });
     }
-    attachQuota(res, req.headers);
+    // 消費済みのquotaをそのまま使う(DOへの追加アクセスを避けるため)。
+    attachQuota(res, consumeResult.quota);
   }
 
   try {
@@ -939,7 +952,7 @@ router.get('/api/quota', async (req, res) => {
     return res.json({ unlimited: true, reason: 'pro' });
   }
   const deviceId = deviceIdOf(req.headers);
-  res.json(deviceQuota.computeQuota(deviceId));
+  res.json(await deviceQuota.computeQuota(deviceId));
 });
 
 /**
@@ -1300,6 +1313,7 @@ router.isProRequest = isProRequest;
 router.isQuotaV2Request = isQuotaV2Request;
 router.deviceIdOf = deviceIdOf;
 router.deviceQuota = deviceQuota;
+router.attachQuota = attachQuota;
 // テスト用途に定価抽出ヘルパーを公開する。
 router.extractListPriceJpy = extractListPriceJpy;
 // テスト用途にカタログ抽出ヘルパー(releaseDate等)を公開する。
