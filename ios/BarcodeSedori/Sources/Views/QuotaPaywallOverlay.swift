@@ -7,9 +7,11 @@ struct QuotaPaywallOverlay: View {
     let showsAdOption: Bool
     /// 「Amazon連携でスキャン無制限」を出すか(!settings.isSpApiLinkUsable)。
     let showsSpApiOption: Bool
+    /// リワード広告の表示中/枠の反映待ち中か。二重タップを防ぎ、進行状況を示すために使う。
+    var isProcessingAd: Bool = false
     /// 「①Proにアップグレード」タップ時の処理。
     let onUpgradeTap: () -> Void
-    /// 「②動画を見て+5回」タップ時の処理(Phase C実装後に使用)。
+    /// 「②動画を見て+5回」タップ時の処理。
     let onWatchAdTap: () -> Void
     /// 「③Amazon連携でスキャン無制限」タップ時の処理。
     let onSpApiLinkTap: () -> Void
@@ -38,12 +40,14 @@ struct QuotaPaywallOverlay: View {
 
                     if showsAdOption {
                         optionButton(
-                            title: "動画を見て+5回",
-                            subtitle: nil,
+                            // 反映待ちの間は何が起きているか分からず再タップされやすいため、文言で状態を示す。
+                            title: isProcessingAd ? "反映中…" : "動画を見て+5回",
+                            subtitle: isProcessingAd ? "枠の反映を待っています" : nil,
                             systemImage: "play.rectangle.fill",
                             isEmphasized: false,
                             action: onWatchAdTap
                         )
+                        .disabled(isProcessingAd)
                     }
 
                     if showsSpApiOption {

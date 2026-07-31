@@ -184,6 +184,13 @@ final class SearchTabViewModel: ObservableObject {
     }
 }
 
+/// リワード広告フローの結果通知(alert表示用)。タイトルと本文をまとめて差し替えるために型で持つ。
+private struct RewardedAdAlert: Identifiable {
+    let id = UUID()
+    let title: String
+    let message: String
+}
+
 struct SearchTabView: View {
     /// 検索タブが選択中(表示中)かどうか。falseのときはScannerViewへ渡してカメラセッションを停止させる。
     let isActive: Bool
@@ -211,6 +218,12 @@ struct SearchTabView: View {
     @ObservedObject private var navigation = AppNavigation.shared
     /// 価格推移グラフの期間切替。初期値は3ヶ月。
     @State private var selectedGraphRange: GraphRange = .threeMonths
+    /// リワード広告(Phase C)。ロード/表示中フラグの変化でボタンを更新するため監視する。
+    @ObservedObject private var rewardedAds = RewardedAdManager.shared
+    /// リワード広告の表示〜枠の反映待ちが進行中か。二重起動を防ぎ、UIへ「反映中…」を出すために持つ。
+    @State private var isProcessingRewardedAd = false
+    /// リワード広告フローの結果通知(準備失敗・反映待ちタイムアウト)。
+    @State private var rewardedAdAlert: RewardedAdAlert?
 
     var body: some View {
         NavigationView {
@@ -248,6 +261,25 @@ struct SearchTabView: View {
                 if exhausted && viewModel.scanMode == .ocr {
                     viewModel.scanMode = .barcode
                 }
+            }
+            // 残りが少なくなった時点で広告を先読みしておく。枠切れオーバーレイが出てから
+            // 読み込むと「動画を見て+5回」をタップしてから数秒待たされるため。
+            .onChange(of: quota.unitsRemaining) { remaining in
+                if !isSearchUnlimited && remaining <= 1 && showsRewardedAdOption {
+                    rewardedAds.preload()
+                }
+            }
+            .alert(
+                rewardedAdAlert?.title ?? "",
+                isPresented: Binding(
+                    get: { rewardedAdAlert != nil },
+                    set: { if !$0 { rewardedAdAlert = nil } }
+                ),
+                presenting: rewardedAdAlert
+            ) { _ in
+                Button("OK", role: .cancel) {}
+            } message: { alert in
+                Text(alert.message)
             }
             .sheet(isPresented: $showPaywall) {
                 PaywallView()
@@ -289,6 +321,11 @@ struct SearchTabView: View {
     private var isSearchUnlimited: Bool { entitlements.isPro || settings.isSpApiLinkUsable }
     /// 無料枠を使い切っており、これ以上スキャンできないか。
     private var isQuotaExhausted: Bool { !isSearchUnlimited && !quota.canScanToday }
+    /// リワード広告(動画を見て+5回)の導線を出してよいか。
+    /// AdsConfig.enabled(全広告のマスタースイッチ)も尊重するため RewardedAdManager.isEnabled を経由する。
+    private var showsRewardedAdOption: Bool {
+        rewardedAds.isEnabled && quota.adAvailable && !quota.capReached
+    }
 
     /// Pro/無料で共通の中身(カメラ・モード切替・結果カード・オファーパネル)。
     /// 検索バーは固定ヘッダーとして body 側に置くためここには含めない。
@@ -331,10 +368,11 @@ struct SearchTabView: View {
         .overlay {
             if isQuotaExhausted {
                 QuotaPaywallOverlay(
-                    showsAdOption: FreemiumFlags.rewardedAdsEnabled && quota.adAvailable && !quota.capReached,
+                    showsAdOption: showsRewardedAdOption,
                     showsSpApiOption: !settings.isSpApiLinkUsable,
+                    isProcessingAd: isProcessingRewardedAd,
                     onUpgradeTap: { showPaywall = true },
-                    onWatchAdTap: { /* Phase C実装後: リワード広告視聴フローを開始する */ },
+                    onWatchAdTap: { startRewardedAdFlow() },
                     onSpApiLinkTap: { AppNavigation.shared.selectedTab = AppNavigation.settingsTab }
                 )
             }
@@ -361,6 +399,43 @@ struct SearchTabView: View {
         viewModel.handleScan(code)
     }
 
+    /// リワード広告フロー(枠切れオーバーレイの「動画を見て+5回」/グラフ枠の「動画を見てグラフを見る」の共通処理)。
+    /// 広告を表示し、報酬獲得できたらサーバー側の枠加算(+5)が届くまで待つ。
+    ///
+    /// 加算はGoogle→サーバーのSSVコールバックで非同期に行われるため、視聴直後は未反映のことがある。
+    /// そのため「+5されました」とは即断せず、`waitForAdGrant()` が実際の増加を確認するまで「反映中…」を出す。
+    /// 反映されると unitsRemaining > 0 になり、isQuotaExhausted が false になってオーバーレイは自動的に消える。
+    private func startRewardedAdFlow() {
+        guard !isProcessingRewardedAd else { return }
+        isProcessingRewardedAd = true
+
+        Task { @MainActor in
+            let manager = RewardedAdManager.shared
+            let earnedReward = await manager.show(from: RewardedAdManager.topViewController())
+
+            guard earnedReward else {
+                isProcessingRewardedAd = false
+                // 表示まで到達していたなら「ユーザーが途中で閉じた」意図的な中断なので何も出さない。
+                if !manager.lastAttemptDidPresent {
+                    rewardedAdAlert = RewardedAdAlert(
+                        title: "広告を準備できませんでした",
+                        message: "しばらくしてからお試しください。"
+                    )
+                }
+                return
+            }
+
+            let granted = await quota.waitForAdGrant()
+            isProcessingRewardedAd = false
+            if !granted {
+                rewardedAdAlert = RewardedAdAlert(
+                    title: "反映に時間がかかっています",
+                    message: "しばらくしてからお試しください。付与はサーバーに届き次第、自動的に反映されます。"
+                )
+            }
+        }
+    }
+
     /// 無料プラン用: 状況に応じた案内 と、余白を埋める広告。上詰めでオファー直下に配置する。
     /// Proではないがユニット残がある間はkeepaGraphを表示するため、ここに来るのは
     /// 「非Pro・グラフ表示に使うユニットを使い切った」場合のみ。
@@ -383,14 +458,14 @@ struct SearchTabView: View {
             }
             .buttonStyle(.plain)
 
-            // Phase C: リワード広告実装後、ここに「動画を見てグラフを見る」ボタンを追加する。
-            if FreemiumFlags.rewardedAdsEnabled && quota.adAvailable && !quota.capReached {
+            // リワード広告で枠を増やせば、グラフ表示に使うユニットが復活する。
+            if showsRewardedAdOption {
                 Button {
-                    // Phase C実装後: リワード広告視聴フローを開始する
+                    startRewardedAdFlow()
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "play.rectangle.fill")
-                        Text("動画を見てグラフを見る")
+                        Text(isProcessingRewardedAd ? "反映中…" : "動画を見てグラフを見る")
                             .font(.subheadline)
                             .fontWeight(.semibold)
                         Spacer()
@@ -399,6 +474,7 @@ struct SearchTabView: View {
                     .padding(.horizontal, 4)
                 }
                 .buttonStyle(.plain)
+                .disabled(isProcessingRewardedAd)
             }
 
             AdSlotView(slotId: "search_ad")

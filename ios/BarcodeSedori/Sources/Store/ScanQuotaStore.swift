@@ -113,6 +113,30 @@ final class ScanQuotaStore: ObservableObject {
         persist(date: Self.todayString())
     }
 
+    /// リワード広告視聴後、サーバー側の枠加算(+5)が届くまで /api/quota をポーリングして待つ。
+    /// 増えたらtrue、タイムアウトしたらfalse。
+    ///
+    /// 加算はGoogleのサーバーからサーバーへ非同期に届くSSVコールバックで行われるため、
+    /// 視聴直後にはまだ反映されていないことがある。この待ちを入れずに「+5されました」と
+    /// 表示すると、実際にはまだ増えていない状態をユーザーへ見せてしまう。
+    ///
+    /// 実装場所をこのストアにした理由: 判定対象の `unitsRemaining` と、その更新経路である
+    /// `apply(_:)` を持つのがこのストアであり、外から残量の前後比較を行うより整合性を保ちやすいため。
+    func waitForAdGrant(timeoutSeconds: Double = 12) async -> Bool {
+        let before = unitsRemaining
+        let deadline = Date().addingTimeInterval(timeoutSeconds)
+
+        while Date() < deadline {
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            if Task.isCancelled { return false }
+            if let quota = try? await APIClient.shared.quota() {
+                apply(quota)
+                if unitsRemaining > before { return true }
+            }
+        }
+        return false
+    }
+
     private func persist(date: String) {
         defaults.set(date, forKey: Keys.date)
         defaults.set(unitsRemaining, forKey: Keys.unitsRemaining)
