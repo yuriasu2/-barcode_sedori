@@ -763,7 +763,8 @@ private struct ResultCardActionButtons: View {
     /// 外部リンク(a/m/価)タップ時の処理。親側でアプリ内ブラウザ(SafariView)のシートを開く。
     let onOpenLink: (URL) -> Void
 
-    private let buttonSize: CGFloat = 44
+    // ISBN・ランキングの2行(テキスト列)と高さを揃え、オファーパネルとの間の余白を無くす。
+    private let buttonSize: CGFloat = 34
 
     /// 仕入れボタンを表示するか(Pro限定・ASINあり)。現行の「仕入れリストへ追加」ボタンと同じゲート。
     private var showsPurchaseButton: Bool {
@@ -832,7 +833,7 @@ private struct ResultCardActionButtons: View {
                         // ラテン文字が小さく見えるため、1バイト文字だけ大きめのサイズにして
                         // 見かけの大きさを揃える。
                         Text(label)
-                            .font(.system(size: label.allSatisfy { $0.isASCII } ? 26 : 19, weight: .bold))
+                            .font(.system(size: label.allSatisfy { $0.isASCII } ? 20 : 15, weight: .bold))
                             .foregroundColor(.white)
                     }
                 }
