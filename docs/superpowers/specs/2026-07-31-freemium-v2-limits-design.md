@@ -2,7 +2,8 @@
 
 - 作成日: 2026-07-31
 - ステータス: 確定（実装前）
-- 関連文書: `FREEMIUM-PLAN.md`（旧設計・本書が制限まわりを置き換える）、`KEEPA-TOKEN-PLAN.md`、`docs/superpowers/specs/2026-07-30-server-managed-ads-design.md`
+- 関連文書: `FREEMIUM-PLAN.md`（旧設計・本書が制限まわりを置き換える）、`docs/superpowers/specs/2026-07-30-server-managed-ads-design.md`
+- スコープ外: **Keepaトークン枯渇時の制御は別文書「Keepa API トークン枯渇 対応 企画書」の管轄**であり、本書では扱わない
 
 ## 1. 背景と目的
 
@@ -71,7 +72,6 @@
 | `BASE_DAILY_UNITS` | 5 | 現行 `FREE_DEVICE_DAILY_LIMIT=150` を置き換え |
 | `UNITS_PER_AD` | 5 | |
 | `MAX_DAILY_UNITS` | 100 | 広告込みの日次ハードキャップ |
-| `TOKEN_RESERVE_FOR_PRO` | 50 | Keepa残量がこれ未満なら無料を拒否 |
 
 ### 4.2 デバイスクォータ（`deviceRateLimit.js` を拡張 → `deviceQuota.js`）
 
@@ -114,11 +114,9 @@
 - 検証NG → 400。付与しない。
 - これにより「クライアントの自己申告で+5」を排除する（動画を見ずに報酬を得る改ざんの対策）。
 
-### 4.4 Pro優先制御（トークン枯渇時のガード）
+### 4.4 トークン枯渇時の挙動
 
-- `keepa/client.js` の `getProduct` が返す `tokensLeft`（`server/src/keepa/client.js:173`。現在routes側で未使用）をモジュール変数 `lastKnownTokensLeft` として記録する。
-- 非ProのKeepaフェッチ前に `lastKnownTokensLeft < TOKEN_RESERVE_FOR_PRO` なら **503 `busy`**（「混雑しています。しばらくしてからお試しください」）。Proは通す。
-- 目的: 無料ユーザーの消費でProの検索が詰まる事態を防ぐ。
+- Keepaトークン枯渇時の制御（優先度・拒否・リトライ等）は別文書「Keepa API トークン枯渇 対応 企画書」の管轄。本設計では現行の挙動（枯渇時に503へマップ）を変更しない。
 
 ### 4.5 Pro判定に関する注記
 
@@ -187,7 +185,6 @@
 | 日次合計上限 | 100ユニット | サーバー |
 | 広告視聴上限 | 19本/日（=上限から逆算） | サーバー |
 | OCR上限 | 5回/日（基本枠内のみ・広告枠不可） | クライアント |
-| Pro予約トークン閾値 | 50 | サーバー |
 | 検索キャッシュTTL | 30分（現行） | サーバー |
 | グラフキャッシュTTL | 1時間（現行） | サーバー |
 | 日付境界 | サーバー=UTC、クライアント=ローカル（現行踏襲・ズレ許容） | — |
@@ -208,7 +205,7 @@
 
 | フェーズ | 内容 | 依存 |
 |---|---|---|
-| **A. サーバー** | ユニットモデル（`deviceQuota.js`）、`/api/search` 429化、`/api/graph-data` 無料開放、`/api/quota` 新設、Pro優先制御 | なし。広告なしでも成立 |
+| **A. サーバー** | ユニットモデル（`deviceQuota.js`）、`/api/search` 429化、`/api/graph-data` 無料開放、`/api/quota` 新設 | なし。広告なしでも成立 |
 | **B. iOS 制限まわり** | ScanQuotaStore改修、ペイウォールオーバーレイ（3択/2択）、OCR強制切替・ポップアップ、手入力ゲート修正、グラフ枠分岐 | A |
 | **C. リワード広告** | RewardedAdManager、SSVエンドポイント、AdMob管理画面設定、反映ポーリング | A, B |
 | **D. リリース準備** | 告知モーダル、PaywallView文言、リリースノート | B, C |
