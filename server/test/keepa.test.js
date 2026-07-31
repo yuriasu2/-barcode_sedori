@@ -893,16 +893,45 @@ test('keepa client: extractGraphSeries は直近ほど密になるよう区間�
 // GET /api/graph-data?asin= — グラフ生データ(画像でなくJSON)
 // ---------------------------------------------------------------------------
 
-test('/api/graph-data: 無料(ヘッダーなし)は403 plan_required', async () => {
+test('/api/graph-data: 無料(ヘッダーなし)は無料枠ユニットを消費して200で返す(グラフは無料開放)', async (t) => {
   await withEnv({ KEEPA_API_KEY: 'test-keepa-key' }, async () => {
     const routes = freshRoutes();
-    const req = { query: { asin: 'B000TEST' }, headers: {} };
+    const keepa = require('../src/keepa/client');
+    keepa.getProduct = async ({ asin }) => ({ product: { asin, csv: [] } });
+    routes.deviceQuota._reset();
+
+    const req = { query: { asin: 'B000FREEGRAPH' }, headers: { 'x-device-id': 'DEV-FREE-GRAPH' } };
     const res = createMockRes();
     const route = routes.match('GET', '/api/graph-data');
     await route.handler(req, res);
 
-    assert.equal(res.statusCode, 403);
-    assert.equal(res.body.error, 'plan_required');
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.quota.unitsUsed, 1);
+
+    t.after(() => {
+      routes.graphDataCache.clear();
+      routes.deviceQuota._reset();
+    });
+  });
+});
+
+test('/api/graph-data: 無料枠を使い切っていると429 quota_exceeded', async () => {
+  await withEnv({ KEEPA_API_KEY: 'test-keepa-key' }, async () => {
+    const routes = freshRoutes();
+    routes.deviceQuota._reset();
+    for (let i = 0; i < 5; i += 1) {
+      await routes.deviceQuota.tryConsume('DEV-EXHAUSTED-GRAPH', 1);
+    }
+
+    const req = { query: { asin: 'B000EXHAUSTED' }, headers: { 'x-device-id': 'DEV-EXHAUSTED-GRAPH' } };
+    const res = createMockRes();
+    const route = routes.match('GET', '/api/graph-data');
+    await route.handler(req, res);
+
+    assert.equal(res.statusCode, 429);
+    assert.equal(res.body.error, 'quota_exceeded');
+
+    routes.deviceQuota._reset();
   });
 });
 

@@ -9,19 +9,9 @@ const pricing = require('./spapi/pricing');
 const spapiAuth = require('./spapi/auth');
 const oauth = require('./oauth');
 const keepa = require('./keepa/client');
-const deviceRateLimit = require('./deviceRateLimit');
 const deviceQuota = require('./deviceQuota');
 const listings = require('./spapi/listings');
 const spapiClient = require('./spapi/client');
-
-/**
- * 無料プランのデバイス単位・日次バックストップ上限。
- * クライアントの100件/日より高め(手動検索・リトライを吸収し誤ブロックを避ける)。
- * env FREE_DEVICE_DAILY_LIMIT で上書き可能。
- * v2非対応の旧クライアント向けレガシー上限(x-quota-model: v2 を送るリクエストには適用しない。
- * v2では deviceQuota.js の無料枠ユニットモデルを使う)。
- */
-const FREE_DEVICE_DAILY_LIMIT = parseInt(process.env.FREE_DEVICE_DAILY_LIMIT, 10) || 150;
 
 const searchCache = new LruCache();
 const graphCache = new LruCache({ ttlMs: 60 * 60 * 1000, maxSize: 200 }); // グラフ画像: 1時間キャッシュ
@@ -77,17 +67,6 @@ function isProRequest(headers) {
 }
 
 /**
- * クライアントがフリーミアムv2(無料枠ユニット)モデルに対応しているか。
- * 旧クライアント(v1: 100件/日をクライアント側で管理)は基本枠5では即座に使えなくなるため、
- * 新クライアントが明示的に送るヘッダーでのみv2を適用し、無い場合はレガシーの
- * FREE_DEVICE_DAILY_LIMIT バックストップを使う。旧バージョンが十分に淘汰されたら削除する。
- */
-function isQuotaV2Request(headers) {
-  const model = headers && (headers['x-quota-model'] || headers['X-Quota-Model']);
-  return String(model || '').toLowerCase() === 'v2';
-}
-
-/**
  * リクエストヘッダーからデバイスID(端末識別子)を取り出す。無ければnull。
  */
 function deviceIdOf(headers) {
@@ -96,7 +75,7 @@ function deviceIdOf(headers) {
 }
 
 /**
- * 非Pro・v2リクエスト専用: res.json()呼び出し時にquotaフィールドを注入するよう
+ * 非Proリクエスト専用: res.json()呼び出し時にquotaフィールドを注入するよう
  * res.jsonを差し替える。handleSearchViaKeepa/graph-dataのフェッチ後のres.json呼び出し
  * (成功・エラー問わず)を変更せずに済ませるため、resオブジェクト自体を差し替えるのではなく
  * jsonメソッドだけ一時的に上書きする(resはリクエストごとに新規生成されるため他リクエストへの
@@ -630,19 +609,7 @@ router.get('/api/search', async (req, res) => {
   }
 
   const isPro = isProRequest(req.headers);
-  const isV2 = isQuotaV2Request(req.headers);
   const deviceId = deviceIdOf(req.headers);
-
-  if (!isPro && !isV2) {
-    // v2非対応の旧クライアント: 冒頭でのデバイス単位・日次バックストップ(クライアント改ざん対策)。
-    const check = deviceRateLimit.registerAndCheck(deviceId, FREE_DEVICE_DAILY_LIMIT);
-    if (!check.allowed) {
-      return res.status(429).json({
-        error: 'daily_limit_exceeded',
-        message: '本日の無料検索の上限に達しました。Proにアップグレードすると無制限に使えます。',
-      });
-    }
-  }
 
   const credentials = resolveSpApiCredentials(req.headers);
 
@@ -661,16 +628,16 @@ router.get('/api/search', async (req, res) => {
     const cacheKey = `keepa:${code}`;
     const cached = searchCache.get(cacheKey);
 
-    if (!isPro && isV2) {
-      // v2: 冒頭では消費せず、Keepa経路(サーバーのAPIキー消費)が確定してから判定する。
+    if (!isPro) {
+      // 冒頭では消費せず、Keepa経路(サーバーのAPIキー消費)が確定してから判定する。
       if (cached) {
         // キャッシュヒットは消費なし。ただし最新のquotaはクライアントへ返す。
         attachQuota(res, await deviceQuota.computeQuota(deviceId));
         return res.json(cached);
       }
       // handleSearchViaKeepaはコードを識別子へ変換できない場合、Keepaを呼ばずに
-      // unresolved/no_identifierを返す。基本枠が5しかないv2では、その空振りで1枠失うと
-      // 体感が悪いため、Keepa呼び出しが発生する見込みのときだけ消費する。
+      // unresolved/no_identifierを返す。基本枠は5しかないため、その空振りで1枠失うと
+      // 体感が悪い。Keepa呼び出しが発生する見込みのときだけ消費する。
       // convertCodeはI/Oの無い純粋関数なのでこことhandleSearchViaKeepa内で二重に呼んでも問題ない。
       const converted = convertCode(code);
       const willCallKeepa =
@@ -888,8 +855,8 @@ router.get('/api/graph', async (req, res) => {
 });
 
 // GET /api/graph-data?asin= — Keepa価格履歴の生データ(グラフを画像でなくアプリ側で描画するため)
-// キャッシュヒットは誰であっても消費なしで最優先返却。ミス時はPro/v2/レガシーで分岐する
-// (v2非対応の旧クライアントには従来通りPro限定403を維持し、無料開放しない)。
+// キャッシュヒットは誰であっても消費なしで最優先返却。ミス時は無料枠ユニットを消費する
+// (Pro/連携済みは無制限。無料はここでKeepa鍵を消費するため)。
 // handleSearchViaKeepa経由の検索で既にgraphDataCacheへ先入れされていれば、
 // ここでKeepaを追加で呼ぶことはない。
 router.get('/api/graph-data', async (req, res) => {
@@ -903,22 +870,17 @@ router.get('/api/graph-data', async (req, res) => {
   }
 
   const isPro = isProRequest(req.headers);
-  const isV2 = isQuotaV2Request(req.headers);
   const deviceId = deviceIdOf(req.headers);
 
   const cacheKey = graphDataCacheKey(asin);
   const cached = graphDataCache.get(cacheKey);
   if (cached) {
-    // キャッシュヒットはPro判定より前に返す(誰であっても消費なし)。非Pro v2にはquotaを同梱する。
-    if (!isPro && isV2) attachQuota(res, await deviceQuota.computeQuota(deviceId));
+    // キャッシュヒットはPro判定より前に返す(誰であっても消費なし)。非Proにはquotaを同梱する。
+    if (!isPro) attachQuota(res, await deviceQuota.computeQuota(deviceId));
     return res.json(cached);
   }
 
   if (!isPro) {
-    if (!isV2) {
-      // v2非対応の旧クライアントには無料グラフを開放しない(レガシー維持)。
-      return res.status(403).json({ error: 'plan_required', message: 'グラフはProプランでご利用いただけます。' });
-    }
     const consumeResult = await deviceQuota.tryConsume(deviceId, 1);
     if (!consumeResult.allowed) {
       return res.status(429).json({
@@ -1309,8 +1271,7 @@ router.graphCache = graphCache;
 router.graphDataCache = graphDataCache;
 // テスト用途にプラン判定関数を公開する。
 router.isProRequest = isProRequest;
-// テスト用途にフリーミアムv2判定・デバイスID抽出関数、deviceQuotaモジュール本体を公開する。
-router.isQuotaV2Request = isQuotaV2Request;
+// テスト用途にデバイスID抽出関数、deviceQuotaモジュール本体を公開する。
 router.deviceIdOf = deviceIdOf;
 router.deviceQuota = deviceQuota;
 router.attachQuota = attachQuota;

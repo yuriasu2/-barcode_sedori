@@ -17,9 +17,7 @@
     // 秘密ではない公開識別子。コード側にも同じ既定値があるが意図を明示するため置く。
     "MARKETPLACE_ID": "A1VC38T7YXB528",
     "SPAPI_ENDPOINT": "https://sellingpartnerapi-fe.amazon.com",
-    // v2非対応の旧クライアント向けレガシー上限(デバイス単位・日次のバックストップ)。
-    "FREE_DEVICE_DAILY_LIMIT": "150",
-    // フリーミアムv2「無料枠ユニット」モデル(deviceQuota.js)。
+    // 無料枠ユニットモデル(deviceQuota.js)。
     // 基本の1日あたりユニット数 / 広告視聴1本あたりの付与ユニット数 / 1日の上限(cap)。
     "BASE_DAILY_UNITS": "5",
     "UNITS_PER_AD": "5",

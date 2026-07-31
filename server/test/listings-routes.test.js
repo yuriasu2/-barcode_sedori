@@ -23,7 +23,7 @@ async function withEnv(vars, fn) {
 function freshRoutes() {
   delete require.cache[require.resolve('../src/routes')];
   delete require.cache[require.resolve('../src/spapi/listings')];
-  delete require.cache[require.resolve('../src/deviceRateLimit')];
+  delete require.cache[require.resolve('../src/deviceQuota')];
   return require('../src/routes');
 }
 

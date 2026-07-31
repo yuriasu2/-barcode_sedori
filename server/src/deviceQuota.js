@@ -14,8 +14,8 @@
  * 2経路のファサード:
  * - Workers本番: globalThis.__quotaDO(worker.jsがenv.DEVICE_QUOTAを橋渡し)経由でDOへ委譲する。
  *   KVバインディングを globalThis.__adsKv で橋渡ししているroutes.js側の流儀と揃えている。
- * - Node/Render/テスト: DOバインディングが存在しないため、従来のインメモリMapへフォールバックする
- *   (deviceRateLimit.jsと同じ「厳密な唯一の真実の情報源ではなくバックストップ」という位置づけ。
+ * - Node/Render/テスト: DOバインディングが存在しないため、インメモリMapへフォールバックする
+ *   (厳密な唯一の真実の情報源ではなくバックストップという位置づけ。
  *   Renderは単一プロセスで動くため、インメモリのままでも実用上は問題ない)。
  *
  * 公開APIは(DO経路がfetchベースの非同期I/Oのため)すべてasync化した。戻り値の形は
@@ -34,10 +34,10 @@
  * クライアントは quota.unknown を見たらローカルの残量を維持し、上書きしない。
  */
 
-const { todayString } = require('./deviceRateLimit');
+const { todayString } = require('./dateUtil');
 const quotaMath = require('./quotaMath');
 
-// モジュール読込時に一度だけ評価する(既存のFREE_DEVICE_DAILY_LIMITと同じ流儀)。
+// モジュール読込時に一度だけ評価する。
 // テストでenv差し替えを反映させたい場合は require.cache からこのモジュールを削除して再require する。
 const BASE_DAILY_UNITS = parseInt(process.env.BASE_DAILY_UNITS, 10) || 5;
 const UNITS_PER_AD = parseInt(process.env.UNITS_PER_AD, 10) || 5;
@@ -50,7 +50,7 @@ function limits() {
 /** deviceId -> { date, unitsUsed, adGrants }(インメモリ経路専用) */
 const entries = new Map();
 
-/** メモリ肥大化防止のしきい値。超えたら当日以外のエントリを一括削除する(deviceRateLimit.jsと同じ方式)。 */
+/** メモリ肥大化防止のしきい値。超えたら当日以外のエントリを一括削除する(dateUtil.jsと同じ方式)。 */
 const MAX_ENTRIES = 50000;
 
 function pruneIfNeeded(today) {
@@ -190,7 +190,8 @@ async function computeQuota(deviceId) {
 
 /**
  * ユニットを消費できるかを判定し、可能なら消費する。
- * deviceIdが空/未指定なら常にallowed=trueで消費しない(後方互換。deviceRateLimitと同じ思想)。
+ * deviceIdが空/未指定なら常にallowed=trueで消費しない(deviceIdが取れないクライアントを誤って
+ * ブロックしないための安全側)。
  * @param {string|null|undefined} deviceId
  * @param {number} [units=1]
  * @returns {Promise<{allowed: boolean, quota: object}>}

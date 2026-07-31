@@ -320,21 +320,21 @@ function mockKeepaSuccess(keepa) {
   });
 }
 
-const V1_ENV = {
+const KEEPA_ONLY_ENV = {
   LWA_CLIENT_ID: undefined,
   LWA_CLIENT_SECRET: undefined,
   LWA_REFRESH_TOKEN: undefined,
   KEEPA_API_KEY: 'test-keepa-key',
 };
 
-test('ルート: v2ヘッダーあり非Proが基本枠(5)超で/api/searchが429 quota_exceeded、body.quotaが付く', async (t) => {
-  await withEnv(V1_ENV, async () => {
+test('ルート: 非Proが基本枠(5)超で/api/searchが429 quota_exceeded、body.quotaが付く', async (t) => {
+  await withEnv(KEEPA_ONLY_ENV, async () => {
     const routes = freshRoutes();
     const keepa = require('../src/keepa/client');
     mockKeepaSuccess(keepa);
     routes.deviceQuota._reset();
 
-    const headers = { 'x-quota-model': 'v2', 'x-device-id': 'DEV-V2-A' };
+    const headers = { 'x-device-id': 'DEV-V2-A' };
     const route = routes.match('GET', '/api/search');
 
     for (let i = 0; i < 5; i += 1) {
@@ -360,7 +360,7 @@ test('ルート: v2ヘッダーあり非Proが基本枠(5)超で/api/searchが42
 });
 
 test('ルート: Keepaを呼ばないコード(unresolved)ではユニットを消費しない', async (t) => {
-  await withEnv(V1_ENV, async () => {
+  await withEnv(KEEPA_ONLY_ENV, async () => {
     const routes = freshRoutes();
     const keepa = require('../src/keepa/client');
     // 呼ばれたら失敗させる(この経路でKeepaへ問い合わせが飛ばないことの担保)。
@@ -369,7 +369,7 @@ test('ルート: Keepaを呼ばないコード(unresolved)ではユニットを�
     };
     routes.deviceQuota._reset();
 
-    const headers = { 'x-quota-model': 'v2', 'x-device-id': 'DEV-UNRESOLVED' };
+    const headers = { 'x-device-id': 'DEV-UNRESOLVED' };
     const route = routes.match('GET', '/api/search');
 
     // 書籍JANの2段目(192始まり)と桁数不正。どちらもconvertCodeがunresolvedにする。
@@ -388,53 +388,14 @@ test('ルート: Keepaを呼ばないコード(unresolved)ではユニットを�
   });
 });
 
-test('ルート: v2ヘッダー無しの非Proは基本枠(5)で切られず、レガシー上限(FREE_DEVICE_DAILY_LIMIT)まで通る(後方互換)', async (t) => {
-  await withEnv({ ...V1_ENV, FREE_DEVICE_DAILY_LIMIT: '7' }, async () => {
-    const routes = freshRoutes();
-    const keepa = require('../src/keepa/client');
-    mockKeepaSuccess(keepa);
-    const deviceRateLimit = require('../src/deviceRateLimit');
-    deviceRateLimit._reset();
-    routes.deviceQuota._reset();
-
-    // v2ヘッダーを送らない旧クライアント。x-device-idのみ送る。
-    const headers = { 'x-device-id': 'DEV-V1-A' };
-    const route = routes.match('GET', '/api/search');
-
-    // 基本枠5を超える6回目でも429にならない(レガシー上限は7)。
-    for (let i = 0; i < 6; i += 1) {
-      const res = createMockRes();
-      await route.handler({ query: { code: isbnCode(100 + i) }, headers }, res);
-      assert.notEqual(res.body && res.body.error, 'quota_exceeded');
-      assert.notEqual(res.body && res.body.error, 'daily_limit_exceeded');
-    }
-
-    // 7回目まではレガシー上限内(FREE_DEVICE_DAILY_LIMIT=7)。
-    const res7 = createMockRes();
-    await route.handler({ query: { code: isbnCode(106) }, headers }, res7);
-    assert.notEqual(res7.body && res7.body.error, 'daily_limit_exceeded');
-
-    // 8回目でレガシー上限超過。
-    const res8 = createMockRes();
-    await route.handler({ query: { code: isbnCode(107) }, headers }, res8);
-    assert.equal(res8.statusCode, 429);
-    assert.equal(res8.body.error, 'daily_limit_exceeded');
-
-    t.after(() => {
-      routes.searchCache.clear();
-      deviceRateLimit._reset();
-    });
-  });
-});
-
-test('ルート: Proはv2ヘッダーありでも429にならない', async (t) => {
-  await withEnv(V1_ENV, async () => {
+test('ルート: Proは基本枠(5)を超えても429にならず、quotaフィールドも付かない(無制限)', async (t) => {
+  await withEnv(KEEPA_ONLY_ENV, async () => {
     const routes = freshRoutes();
     const keepa = require('../src/keepa/client');
     mockKeepaSuccess(keepa);
     routes.deviceQuota._reset();
 
-    const headers = { 'x-quota-model': 'v2', 'x-device-id': 'DEV-PRO-A', 'x-app-plan': 'pro' };
+    const headers = { 'x-device-id': 'DEV-PRO-A', 'x-app-plan': 'pro' };
     const route = routes.match('GET', '/api/search');
 
     for (let i = 0; i < 8; i += 1) {
@@ -447,44 +408,6 @@ test('ルート: Proはv2ヘッダーありでも429にならない', async (t) 
 
     t.after(() => {
       routes.searchCache.clear();
-    });
-  });
-});
-
-test('ルート: /api/graph-data はv2ヘッダー無し非Proが403 plan_required(レガシー維持)', async () => {
-  await withEnv({ KEEPA_API_KEY: 'test-keepa-key' }, async () => {
-    const routes = freshRoutes();
-    const req = { query: { asin: 'B000TESTV1' }, headers: {} };
-    const res = createMockRes();
-    const route = routes.match('GET', '/api/graph-data');
-    await route.handler(req, res);
-
-    assert.equal(res.statusCode, 403);
-    assert.equal(res.body.error, 'plan_required');
-  });
-});
-
-test('ルート: /api/graph-data はv2ヘッダーあり非Proだと403にならず、ユニット消費してquota付きで返す', async (t) => {
-  await withEnv({ KEEPA_API_KEY: 'test-keepa-key' }, async () => {
-    const routes = freshRoutes();
-    const keepa = require('../src/keepa/client');
-    keepa.getProduct = async ({ asin }) => ({ product: { asin, csv: [] } });
-    routes.deviceQuota._reset();
-
-    const headers = { 'x-quota-model': 'v2', 'x-device-id': 'DEV-GRAPH-V2' };
-    const req = { query: { asin: 'B000TESTV2' }, headers };
-    const res = createMockRes();
-    const route = routes.match('GET', '/api/graph-data');
-    await route.handler(req, res);
-
-    assert.notEqual(res.statusCode, 403);
-    assert.equal(res.statusCode, 200);
-    assert.ok(res.body.quota);
-    assert.equal(res.body.quota.unitsUsed, 1);
-
-    t.after(() => {
-      routes.graphDataCache.clear();
-      routes.deviceQuota._reset();
     });
   });
 });

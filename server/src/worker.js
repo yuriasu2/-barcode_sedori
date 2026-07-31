@@ -16,8 +16,8 @@ let routesPromise = null;
 
 function loadRoutes() {
   if (!routesPromise) {
-    // routes.js はモジュール読込時に process.env.FREE_DEVICE_DAILY_LIMIT を読むため、
-    // env→process.env コピーの後まで読込を遅延させる(初回リクエスト時のみimport)。
+    // routes.js(が読み込むdeviceQuota.js)はモジュール読込時にprocess.env.BASE_DAILY_UNITS等を
+    // 読むため、env→process.env コピーの後まで読込を遅延させる(初回リクエスト時のみimport)。
     routesPromise = import('./routes.js');
   }
   return routesPromise;
