@@ -439,44 +439,51 @@ struct SearchTabView: View {
     /// 無料プラン用: 状況に応じた案内 と、余白を埋める広告。上詰めでオファー直下に配置する。
     /// Proではないがユニット残がある間はkeepaGraphを表示するため、ここに来るのは
     /// 「非Pro・グラフ表示に使うユニットを使い切った」場合のみ。
+    ///
+    /// グラフ専用の案内(枠切れ文言・「動画を見てグラフを見る」)はSP-API連携済みのときだけ出す。
+    /// 未連携の場合は同じユニットをスキャンでも消費するため、枠が尽きた時点でカメラ上に
+    /// 枠切れオーバーレイ(Pro/動画を見てスキャン+5回/Amazon連携)が既に出ている。
+    /// そこへほぼ同じ内容の導線を重ねても画面が混むだけなので、広告バナーのみにする。
     private var freeAdArea: some View {
         VStack(spacing: 8) {
             AdSlotView(slotId: "search_ad")
 
-            Button {
-                showPaywall = true
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "lock.fill")
-                    Text("本日のグラフ表示枠を使い切りました。Proなら無制限")
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.caption)
-                }
-                .foregroundColor(.primary)
-                .padding(.horizontal, 4)
-            }
-            .buttonStyle(.plain)
-
-            // リワード広告で枠を増やせば、グラフ表示に使うユニットが復活する。
-            if showsRewardedAdOption {
+            if settings.isSpApiLinkUsable {
                 Button {
-                    startRewardedAdFlow()
+                    showPaywall = true
                 } label: {
                     HStack(spacing: 6) {
-                        Image(systemName: "play.rectangle.fill")
-                        Text(isProcessingRewardedAd ? "反映中…" : "動画を見てグラフを見る")
+                        Image(systemName: "lock.fill")
+                        Text("本日のグラフ表示枠を使い切りました。Proなら無制限")
                             .font(.subheadline)
                             .fontWeight(.semibold)
                         Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption)
                     }
                     .foregroundColor(.primary)
                     .padding(.horizontal, 4)
                 }
                 .buttonStyle(.plain)
-                .disabled(isProcessingRewardedAd)
+
+                // リワード広告で枠を増やせば、グラフ表示に使うユニットが復活する。
+                if showsRewardedAdOption {
+                    Button {
+                        startRewardedAdFlow()
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "play.rectangle.fill")
+                            Text(isProcessingRewardedAd ? "反映中…" : "動画を見てグラフを見る")
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                            Spacer()
+                        }
+                        .foregroundColor(.primary)
+                        .padding(.horizontal, 4)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isProcessingRewardedAd)
+                }
             }
         }
     }
