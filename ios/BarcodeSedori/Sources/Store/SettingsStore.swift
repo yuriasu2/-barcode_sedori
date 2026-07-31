@@ -301,9 +301,9 @@ final class SettingsStore: ObservableObject {
 
     // 出品説明文テンプレートの既定値(設定画面・出品フォームで編集可)。
     static let defaultListingTemplateNew =
-        "新品・未使用品です。丁寧に梱包して自己発送でお届けします。"
+        "新品・未使用品です。丁寧に梱包してお届けします。"
     static let defaultListingTemplateLikeNew =
-        "使用感がほとんど無い美品です。目立った傷・汚れはありません。丁寧に梱包して自己発送でお届けします。"
+        "使用感がほとんど無い美品です。目立った傷・汚れはありません。丁寧に梱包してお届けします。"
     static let defaultListingTemplateVeryGood =
         "使用感は少なく良好な状態です。目立つ傷・汚れはありません。丁寧に梱包してお届けします。"
     static let defaultListingTemplateGood =
