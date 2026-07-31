@@ -25,7 +25,7 @@ enum ListingConditionType: String, CaseIterable, Identifiable, Codable {
         }
     }
 
-    /// /api/offers のOffer.condition正規化コードとの対応(初期価格の同コンディション検索に使う)。
+    /// OffersModels.Offer.condition正規化コードとの対応(初期価格の同コンディション検索に使う)。
     var offerConditionCode: String {
         switch self {
         case .newNew: return "new"

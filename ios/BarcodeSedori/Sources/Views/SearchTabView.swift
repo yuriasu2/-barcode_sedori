@@ -40,16 +40,16 @@ enum GraphRange: Int, CaseIterable, Identifiable {
 final class SearchTabViewModel: ObservableObject {
     @Published var scanMode: ScanMode = .barcode
 
-    /// 最新のスキャン/検索結果(第1段階: /api/search)
+    /// 最新のスキャン/検索結果(/api/search)
     @Published var latestResult: SearchResult?
     /// 最新にスキャンされたコード文字列(カード内のコード表示に使う)
     @Published var latestScannedCode: String?
-    /// 検索中(第1段階)フラグ
+    /// 検索中フラグ
     @Published var isSearching = false
-    /// 検索(第1段階)失敗時のエラーメッセージ
+    /// 検索失敗時のエラーメッセージ
     @Published var searchErrorMessage: String?
 
-    /// オファー(第2段階: /api/offers)結果
+    /// SP-API経路のとき/api/search応答に同梱されるオファー一覧。Keepa経路ではnil。
     @Published var offersResult: OffersResult?
     /// オファー読み込み中フラグ
     @Published var isLoadingOffers = false
@@ -63,12 +63,24 @@ final class SearchTabViewModel: ObservableObject {
     private let apiClient: APIClient
     private let historyStore: ScanHistoryStore
 
-    /// 直近history追加したエントリのid。第2段階(offers)完了時にこのidの履歴を更新するために保持する。
+    /// 直近history追加したエントリのid。オファー同梱時にこのidの履歴を更新するために保持する。
     private var pendingHistoryItemId: UUID?
 
     init(apiClient: APIClient = .shared, historyStore: ScanHistoryStore = .shared) {
         self.apiClient = apiClient
         self.historyStore = historyStore
+    }
+
+    /// 新品の出品者数。offersResult(SP-API経路)にあればそれを優先し、
+    /// 無ければKeepa第1段階で取得済みのprofitInputs.sellerCounts.newにフォールバックする。
+    /// どちらも取得できなければnil(呼び出し側は人数を出さず「新品」だけ表示し、0人と誤表示しない)。
+    var newSellerCount: Int? {
+        offersResult?.newCount ?? offersResult?.new?.count ?? latestResult?.profitInputs?.sellerCounts?.new
+    }
+
+    /// 中古の出品者数。解決順はnewSellerCountと同じ(offersResult → profitInputs.sellerCounts.used → nil)。
+    var usedSellerCount: Int? {
+        offersResult?.usedCount ?? offersResult?.used?.count ?? latestResult?.profitInputs?.sellerCounts?.used
     }
 
     /// スキャンされたバーコード/OCR認識コード、または検索バーから入力されたコードを処理する。
@@ -112,9 +124,9 @@ final class SearchTabViewModel: ObservableObject {
                 historyStore.add(historyItem)
             }
 
-            // オファー一覧はSP-API連携時のみ表示する(第1段階に同梱)。
+            // オファー一覧はSP-API連携時のみ表示する(/api/searchに同梱)。
             // Keepa経路(SP-API未接続)は無料/Proとも実取得せずロック表示にする
-            // (Keepa第2段階=getProduct(offers)のトークン消費を避け、Amazon連携を促す)。
+            // (Keepaの個別オファー取得はトークン消費が大きいため行わず、Amazon連携を促す)。
             if let embedded = result.offers {
                 offersResult = embedded
                 isLoadingOffers = false
@@ -322,7 +334,7 @@ struct SearchTabView: View {
     @ViewBuilder
     private var destinationView: some View {
         if let selectedResult, let asin = selectedResult.asin {
-            // 検索時に取得済みのオファーをそのまま渡す(/api/offersの再取得はしない)。
+            // 検索時に取得済みのオファーをそのまま渡す(別リクエストでの再取得はしない)。
             ProductDetailView(
                 asin: asin,
                 title: selectedResult.title,
@@ -469,12 +481,19 @@ struct SearchTabView: View {
 
     // MARK: - オファーパネル
 
+    /// パネルタイトルを組み立てる。出品者数が取得できていれば併記し、無ければ人数部分を出さない
+    /// (0人と誤表示しないため。viewModel.newSellerCount/usedSellerCountがnilを返すケースに対応)。
+    private func offersPanelTitle(base: String, sellerCount: Int?) -> String {
+        guard let sellerCount else { return base }
+        return "\(base)(出品者数\(sellerCount)人)"
+    }
+
     @ViewBuilder
     private var offersPanels: some View {
         if viewModel.latestResult != nil {
             HStack(alignment: .top, spacing: 12) {
                 OffersPanelView(
-                    title: "新品(出品者数\(viewModel.offersResult?.newCount ?? viewModel.offersResult?.new?.count ?? 0)人)",
+                    title: offersPanelTitle(base: "新品", sellerCount: viewModel.newSellerCount),
                     color: Color(red: 0.13, green: 0.59, blue: 0.95),
                     offers: viewModel.offersResult?.new ?? [],
                     isLoading: viewModel.isLoadingOffers,
@@ -486,7 +505,7 @@ struct SearchTabView: View {
                 .onTapGesture { handlePanelTap() }
 
                 OffersPanelView(
-                    title: "中古(出品者数\(viewModel.offersResult?.usedCount ?? viewModel.offersResult?.used?.count ?? 0)人)",
+                    title: offersPanelTitle(base: "中古", sellerCount: viewModel.usedSellerCount),
                     color: Color(red: 1.0, green: 0.60, blue: 0.0),
                     offers: viewModel.offersResult?.used ?? [],
                     isLoading: viewModel.isLoadingOffers,
@@ -875,7 +894,7 @@ private struct OffersPanelView: View {
     /// フリーミアム: 無料&Keepa経路でオファーがPro限定ロック中か。trueなら実データを出さず
     /// ぼかしダミー+鍵を表示する(簡易価格は表示する)。
     let isLocked: Bool
-    /// 第1段階(/api/search)の簡易価格。オファー取得前(Keepa第2段階の読込中や取得0件)の
+    /// /api/search応答の簡易価格。オファー一覧(SP-API経路のみ)が無い/取得0件のときの
     /// 仮表示にのみ使う。オファーが取得できたら下のオファー一覧で上書きする。
     let simplePrice: Int?
     /// 簡易価格行のラベル("新品"/"中古")。
@@ -968,8 +987,8 @@ private struct OffersPanelView: View {
                     simplePriceRow
                     lockedOffersTeaser
                 } else if !offers.isEmpty {
-                    // オファー取得済み(SP-API一括 / Keepa第2段階): 送料込・最安値順・コンディション付きで
-                    // 上から並べる。第1段階の簡易価格はここで上書きされる。
+                    // オファー取得済み(SP-API経路。/api/searchに同梱): 送料込・最安値順・コンディション付きで
+                    // 上から並べる。簡易価格はここで上書きされる。
                     // 全件を出すとカードが縦に伸びてしまうため、5件分の高さに収めて中でスクロールさせる
                     // (6件目以降もパネル内スクロールで見られる)。
                     ScrollView(.vertical, showsIndicators: true) {
@@ -999,7 +1018,8 @@ private struct OffersPanelView: View {
                     // その分だけの高さに収まり余白は出ない。
                     .frame(maxHeight: CGFloat(min(sortedOffers.count, 5)) * 20)
                 } else if isLoading {
-                    // Keepa第2段階の読込中: 簡易価格を仮表示しつつスピナー(オファー到着で上書き)。
+                    // オファー読込中: 簡易価格を仮表示しつつスピナー(オファー到着で上書き)。
+                    // 現在は/api/searchが同期でオファーを返す(ロック時を除く)ため、実質到達しない。
                     simplePriceRow
                     HStack {
                         Spacer()

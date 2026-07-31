@@ -17,7 +17,7 @@ struct ScanHistoryItem: Codable, Equatable, Identifiable {
     var listPrice: Int?
     /// 発売日(ISO日付文字列)。旧形式で保存された履歴データにはこのキーが存在しないため、Optionalで後方互換を保つ。
     var releaseDate: String?
-    /// CHANGES-v6.1.md: 検索タブで第2段階(/api/offers)取得が完了した時点で保存されるオファー一覧。
+    /// 検索タブで/api/searchの応答に同梱されたオファー一覧(SP-API経路のみ)をそのまま保存する。
     /// 商品タブ(履歴)からの詳細表示はAPIを再度呼ばず、この保存済みデータのみで描画する。
     /// 旧形式で保存された履歴データにはこのキーが存在しないため、Optionalにして後方互換を保つ
     /// (自動合成のDecodableはOptionalプロパティのキー欠如を許容するため、旧データも履歴が消えずに読める)。

@@ -21,7 +21,6 @@ const spapiClient = require('./spapi/client');
 const FREE_DEVICE_DAILY_LIMIT = parseInt(process.env.FREE_DEVICE_DAILY_LIMIT, 10) || 150;
 
 const searchCache = new LruCache();
-const offersCache = new LruCache();
 const graphCache = new LruCache({ ttlMs: 60 * 60 * 1000, maxSize: 200 }); // グラフ画像: 1時間キャッシュ
 const graphDataCache = new LruCache({ ttlMs: 60 * 60 * 1000, maxSize: 200 }); // グラフ生データ: 画像と同じ1時間キャッシュ
 const adsConfigCache = new LruCache({ ttlMs: 60 * 1000, maxSize: 1 }); // 広告配信設定: 60秒キャッシュ(KV読み取り抑制)
@@ -303,7 +302,7 @@ function estimatePoints() {
 /**
  * Keepa Product本体の手数料情報からbreakEven(手数料控除後の売値)を計算する。
  * referralFeePercent/fbaFees.pickAndPackFeeはProduct本体の属性でoffersパラメータ不要なため、
- * 第1段階(/api/search)・第2段階(/api/offers)のどちらからも同じ引数形式で呼べる。
+ * handleSearchViaKeepaのprofitInputs算出にそのまま使える。
  * 取得できなければ書籍フォールバック(15%+80円、pricing.fallbackFeesと同一料率)で近似する。
  * @param {object|null} product Keepa Product Object
  * @param {number} landed 送料込み価格
@@ -437,8 +436,8 @@ async function handleSearchViaSpApi(req, res, code, credentials, cacheKey) {
     const newPrice = newSummary.lowestLandedPrice;
     const usedPrice = usedSummary.lowestLandedPrice;
 
-    // SP-APIは第1段階でオファーを取得済みのため、第2段階を待たずにオファー一覧も同梱する
-    // (アプリはsource=spapi時は/api/offersを呼ばない=2段階ロード廃止)。
+    // SP-APIは取得済みのオファーを/api/searchの応答へそのまま同梱する
+    // (別リクエストでの再取得は行わない設計。旧/api/offersエンドポイントは撤去済み)。
     const offers = buildSpApiOffersPayload(newSummary, usedSummary);
     const profitInputs = await buildProfitInputs(asin, newSummary, usedSummary, offers, listPrice, credentials);
 
@@ -543,7 +542,7 @@ async function handleSearchViaKeepa(req, res, code, cacheKey) {
       graphDataCache.set(graphDataCacheKey(mapped.asin), { series });
     }
 
-    // breakEvenはstats最安値(送料不明のためlandedとみなす。第2段階statsフォールバックと同じ扱い)。
+    // breakEvenはstats最安値(送料不明のためlandedとみなす)から算出する。
     const profitInputs = {
       listPrice: mapped.listPrice,
       sellerCounts: mapped.sellerCounts,
@@ -642,9 +641,8 @@ function subConditionToString(subCondition) {
 }
 
 /**
- * spapi: 取得済みのnew/used summaryから /api/offers 契約のオファー本体を組み立てる。
- * 第1段階完結(handleSearchViaSpApi)と/api/offersエンドポイント
- * (buildOffersResponseViaSpApi)の両方から使う共通ヘルパー。
+ * spapi: 取得済みのnew/used summaryからオファー本体(/api/searchのoffersフィールド)を組み立てる。
+ * handleSearchViaSpApiが呼ぶ唯一のヘルパー(旧/api/offersエンドポイントは撤去済み)。
  * @returns {{referencePrice: number|null, newCount: number, usedCount: number, new: object[], used: object[]}}
  */
 function buildSpApiOffersPayload(newSummary, usedSummary) {
@@ -752,131 +750,6 @@ async function buildProfitInputs(asin, newSummary, usedSummary, offersPayload, l
 
   return { listPrice: resolvedListPrice, sellerCounts, breakEven };
 }
-
-/**
- * spapi経路: /api/offersエンドポイント用。getItemOffersを取得して共通ヘルパーで組み立てる。
- */
-async function buildOffersResponseViaSpApi(asin, credentials) {
-  const [newOffersResp, usedOffersResp] = await Promise.all([
-    pricing.getItemOffers(asin, 'New', credentials).catch(() => null),
-    pricing.getItemOffers(asin, 'Used', credentials).catch(() => null),
-  ]);
-  const newSummary = pricing.extractOffersSummary(newOffersResp, 'New');
-  const usedSummary = pricing.extractOffersSummary(usedOffersResp, 'Used');
-  const payload = buildSpApiOffersPayload(newSummary, usedSummary);
-  return { source: 'spapi', ...payload };
-}
-
-/**
- * keepa経路: getProduct(offers=20)結果を /api/offers 統一契約にマッピングする。
- */
-async function buildOffersResponseViaKeepa(asin) {
-  const { product } = await keepa.getProduct({ asin, offers: 20 });
-  const { newOffers, usedOffers, referencePrice } = keepa.extractOffersFromProduct(product);
-
-  function toDto(o) {
-    return {
-      price: o.price,
-      shipping: o.shipping,
-      landed: o.landed,
-      condition: o.condition,
-      isBuyBox: o.isBuyBox,
-    };
-  }
-
-  // 価格(landed)の安い順に並べる(パネル表示を最安値から見せる)。
-  const byLandedAsc = (a, b) => (a.landed ?? Infinity) - (b.landed ?? Infinity);
-  const newDtos = newOffers.map(toDto).sort(byLandedAsc);
-  const usedDtos = usedOffers.map(toDto).sort(byLandedAsc);
-
-  // フォールバック: Keepaが個別オファーを返さない、または鮮度フィルタで全除外された場合でも、
-  // stats.current の新品/中古最安値でパネルに価格を表示する(価格が全く出ない事態を防ぐ)。
-  const current = (product && product.stats && product.stats.current) || [];
-  const statsNew = keepa.normalizePrice(current[keepa.CSV_TYPE.NEW]);
-  const statsUsed = keepa.normalizePrice(current[keepa.CSV_TYPE.USED]);
-  function statsOffer(price, condition) {
-    return {
-      price,
-      shipping: 0,
-      landed: price,
-      condition,
-      isBuyBox: false,
-    };
-  }
-  const finalNew = newDtos.length ? newDtos : statsNew != null ? [statsOffer(statsNew, 'new')] : [];
-  const finalUsed = usedDtos.length ? usedDtos : statsUsed != null ? [statsOffer(statsUsed, 'used')] : [];
-
-  return {
-    source: 'keepa',
-    referencePrice: referencePrice != null ? referencePrice : null,
-    newCount: finalNew.length,
-    usedCount: finalUsed.length,
-    new: finalNew,
-    used: finalUsed,
-  };
-}
-
-// GET /api/offers?asin=&source=spapi|keepa
-router.get('/api/offers', async (req, res) => {
-  const asin = String(req.query.asin || '').trim();
-  if (!asin) {
-    return res.status(400).json({ error: 'asin query parameter is required' });
-  }
-
-  const source = String(req.query.source || 'spapi').trim().toLowerCase();
-
-  // 無料プランはKeepa経路のオファー(第2段階=getProductのトークン消費が大きい)を制限する。
-  // SP-API経路のオファーは第1段階(/api/search)に同梱済みで、BYO(利用者自身の枠)のため制限しない。
-  if (!isProRequest(req.headers) && source === 'keepa') {
-    return res.status(403).json({ error: 'plan_required', message: PLAN_REQUIRED_MESSAGE });
-  }
-
-  if (source === 'keepa') {
-    if (!keepa.getApiKey()) {
-      return res.status(503).json({ error: 'spapi_credentials_missing', message: SPAPI_CREDENTIALS_MISSING_MESSAGE });
-    }
-
-    const cacheKey = `keepa:${asin}`;
-    const cached = offersCache.get(cacheKey);
-    if (cached) return res.json(cached);
-
-    try {
-      const responseBody = await buildOffersResponseViaKeepa(asin);
-      // Keepa結果は長め(30分)にキャッシュしトークン消費を抑える(共有コスト削減)。
-      offersCache.set(cacheKey, responseBody, KEEPA_CACHE_TTL_MS);
-      res.json(responseBody);
-    } catch (err) {
-      if (err.code === 'keepa_tokens_exhausted') {
-        return res.status(503).json({ error: 'keepa_tokens_exhausted', message: err.message });
-      }
-      console.error(`[offers:keepa] asin=${asin} failed:`, err.message);
-      res.status(502).json({ error: 'offers_failed', message: err.message });
-    }
-    return;
-  }
-
-  // デフォルト: spapi経路
-  const credentials = resolveSpApiCredentials(req.headers);
-  if (!credentials) {
-    return res.status(503).json({ error: 'spapi_credentials_missing', message: SPAPI_CREDENTIALS_MISSING_MESSAGE });
-  }
-
-  const cacheKey = `spapi:${credentialsHashPrefix(credentials)}:${asin}`;
-
-  const cached = offersCache.get(cacheKey);
-  if (cached) {
-    return res.json(cached);
-  }
-
-  try {
-    const responseBody = await buildOffersResponseViaSpApi(asin, credentials);
-    offersCache.set(cacheKey, responseBody);
-    res.json(responseBody);
-  } catch (err) {
-    console.error(`[offers] asin=${asin} failed:`, err.message);
-    res.status(502).json({ error: 'offers_failed', message: err.message });
-  }
-});
 
 // range クエリの許可値(CHANGES-v6.1.md)。それ以外・未指定は90扱い。
 const ALLOWED_GRAPH_RANGES = [90, 365, 1095];
@@ -1323,7 +1196,6 @@ router.get('/oauth/login', oauth.handleOAuthLogin);
 router.get('/oauth/callback', oauth.handleOAuthCallback);
 
 router.searchCache = searchCache;
-router.offersCache = offersCache;
 router.graphCache = graphCache;
 router.graphDataCache = graphDataCache;
 // テスト用途にプラン判定関数を公開する。

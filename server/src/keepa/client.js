@@ -26,17 +26,6 @@
  *   ※ COUNT_NEW/COUNT_USEDもisExtraData=false(offersパラメータ不要)であることを確認済み。
  *   価格はすべて日本円などその通貨の最小単位の整数。データなしは -1。
  *
- * 【offers配列 / Offer.offerCSV】
- *   各offerの offerCSV は [keepa時刻, price, shipping, keepa時刻, price, shipping, ...] のフラットな履歴配列。
- *   最新の価格・送料は配列の末尾2要素: offerCSV[len-2]=price, offerCSV[len-1]=shipping (公式Javadoc記載どおり)。
- *   price/shippingが-1の場合「不明」、-2の場合「取得不可」。当実装では -1/-2 を「データなし」として扱いnullにする。
- *
- * 【offer.condition (Offer.OfferCondition enum, 公式定義)】
- *   0 = Unknown, 1 = New, 2 = Used-LikeNew, 3 = Used-VeryGood, 4 = Used-Good, 5 = Used-Acceptable,
- *   6 = Refurbished, 7 = Collectible-LikeNew, 8 = Collectible-VeryGood, 9 = Collectible-Good, 10 = Collectible-Acceptable
- *   → CHANGES-v6.mdの記載(1=New,2=Used-LikeNew,3=Used-VeryGood,4=Used-Good,5=Used-Acceptable)と一致。
- *   本実装では 1 を "new" 系、2〜5(および6以降の中古相当)を "used" 系として扱う。
- *
  * 【画像URL】
  *   imagesCSV の先頭ファイル名を `https://images-na.ssl-images-amazon.com/images/I/{name}` に組み立てる
  *   (Keepa公式ドキュメント記載のCDNパターン。Product Objectの `imagesCSV` はカンマ区切りの画像ファイル名リスト)。
@@ -52,10 +41,6 @@ const { toTaxIncludedJpy } = require('../taxUtil');
 const KEEPA_BASE_URL = 'https://api.keepa.com';
 const JP_DOMAIN_ID = 5; // amazon.co.jp
 
-// Amazon.co.jp本体のセラーID。出品者一覧でAmazon自身の在庫を判別するために使う
-// (実データで確認: 販売元がAmazon.co.jpの商品ページにこのmerchantIdが出現する)。
-const AMAZON_JP_SELLER_ID = 'AN1VRQENFRJN5';
-
 // Product.CsvType インデックス(公式Java SDKソースより)
 const CSV_TYPE = {
   AMAZON: 0,
@@ -67,44 +52,6 @@ const CSV_TYPE = {
   COUNT_USED: 12,
   BUY_BOX_SHIPPING: 18,
 };
-
-// Offer.OfferCondition インデックス(公式Java SDKソースより)
-const OFFER_CONDITION = {
-  UNKNOWN: 0,
-  NEW: 1,
-  USED_LIKE_NEW: 2,
-  USED_VERY_GOOD: 3,
-  USED_GOOD: 4,
-  USED_ACCEPTABLE: 5,
-  REFURBISHED: 6,
-  COLLECTIBLE_LIKE_NEW: 7,
-  COLLECTIBLE_VERY_GOOD: 8,
-  COLLECTIBLE_GOOD: 9,
-  COLLECTIBLE_ACCEPTABLE: 10,
-};
-
-// Offer.condition(int) -> 契約上のcondition文字列 へのマッピング
-const CONDITION_STRING_MAP = {
-  [OFFER_CONDITION.NEW]: 'new',
-  [OFFER_CONDITION.USED_LIKE_NEW]: 'like_new',
-  [OFFER_CONDITION.USED_VERY_GOOD]: 'very_good',
-  [OFFER_CONDITION.USED_GOOD]: 'good',
-  [OFFER_CONDITION.USED_ACCEPTABLE]: 'acceptable',
-  // Refurbished/Collectible系は契約に該当文字列が無いため中古(good)寄せのフォールバックとする。
-  [OFFER_CONDITION.REFURBISHED]: 'good',
-  [OFFER_CONDITION.COLLECTIBLE_LIKE_NEW]: 'like_new',
-  [OFFER_CONDITION.COLLECTIBLE_VERY_GOOD]: 'very_good',
-  [OFFER_CONDITION.COLLECTIBLE_GOOD]: 'good',
-  [OFFER_CONDITION.COLLECTIBLE_ACCEPTABLE]: 'acceptable',
-};
-
-// 24時間(Keepa分単位ではなくミリ秒で扱う。lastSeenはKeepa時刻(分, 2010-01-01起点)なので変換して比較する)
-const KEEPA_EPOCH_MS = Date.UTC(2010, 0, 1);
-const ONE_DAY_MS = 24 * 60 * 60 * 1000;
-
-function keepaMinuteToUnixMs(keepaMinute) {
-  return KEEPA_EPOCH_MS + keepaMinute * 60 * 1000;
-}
 
 function getApiKey() {
   return process.env.KEEPA_API_KEY || null;
@@ -199,58 +146,15 @@ function resolveImageUrl(product) {
 }
 
 /**
- * offerCSVの末尾から最新の価格・送料を抽出する。
- * フォーマット: [keepa分, price, shipping, keepa分, price, shipping, ...]
- * 最新は末尾2要素 (offerCSV[len-2]=price, offerCSV[len-1]=shipping)。
- * @param {number[]|null|undefined} offerCsv
- * @returns {{price: number|null, shipping: number|null}}
- */
-function extractLatestOfferPrice(offerCsv) {
-  if (!Array.isArray(offerCsv) || offerCsv.length < 2) {
-    return { price: null, shipping: null };
-  }
-  const price = normalizePrice(offerCsv[offerCsv.length - 2]);
-  const shippingRaw = offerCsv[offerCsv.length - 1];
-  // 送料は0(送料無料)を許容しつつ、-1/-2(不明/取得不可)はnullではなく0扱いにはしない。
-  const shipping = typeof shippingRaw === 'number' && shippingRaw >= 0 ? shippingRaw : null;
-  return { price, shipping };
-}
-
-/**
- * offer.lastSeen (Keepa時刻・分) が24時間以内かどうか判定する。
- * @param {number|null|undefined} lastSeen
- */
-function isOfferFresh(lastSeen) {
-  if (typeof lastSeen !== 'number') return false;
-  const seenMs = keepaMinuteToUnixMs(lastSeen);
-  return Date.now() - seenMs <= ONE_DAY_MS;
-}
-
-/**
- * Offer.condition(int) を契約上のcondition文字列に変換する。
- * @param {number} conditionInt
- * @returns {string} "new"|"like_new"|"very_good"|"good"|"acceptable"
- */
-function conditionToString(conditionInt) {
-  return CONDITION_STRING_MAP[conditionInt] || 'acceptable';
-}
-
-/**
- * conditionIntが新品扱いかどうか。
- * @param {number} conditionInt
- */
-function isNewCondition(conditionInt) {
-  return conditionInt === OFFER_CONDITION.NEW;
-}
-
-/**
  * Keepa product リクエスト。
- * GET /product?key=&domain=5&(code=|asin=)&stats=90&history=0|1(&offers=20)
+ * GET /product?key=&domain=5&(code=|asin=)&stats=90&history=0|1
  * history=1にしてもトークン消費はhistory=0と同じ1個(実測済み)。
  * グラフ生データ(csv配列)が必要な呼び出し元のみ history:true を指定する。
- * @param {{code?: string, asin?: string, offers?: number, history?: boolean}} params
+ * offersパラメータ(個別オファー取得)は旧第2段階(/api/offers)専用でトークン消費が大きく、
+ * 現在は呼び出し元が存在しないため受け付けない(誤って大量トークンを消費する事故を防ぐ)。
+ * @param {{code?: string, asin?: string, history?: boolean}} params
  */
-async function getProduct({ code, asin, offers, history } = {}) {
+async function getProduct({ code, asin, history } = {}) {
   if (!code && !asin) {
     throw new Error('getProduct: code または asin が必要です');
   }
@@ -262,7 +166,6 @@ async function getProduct({ code, asin, offers, history } = {}) {
   };
   if (code) query.code = code;
   if (asin) query.asin = asin;
-  if (offers) query.offers = offers;
 
   const json = await keepaFetch('/product', query);
   const products = json && json.products;
@@ -295,8 +198,7 @@ const GRAPH_SERIES_BUCKETS = [
 
 /**
  * Keepa時刻(分)→unix秒 のオフセット(実測により確認済み)。
- * isOfferFresh等で使うkeepaMinuteToUnixMs(相対比較にのみ使用)とは起点が異なるため、
- * グラフ生データの絶対時刻変換専用に独立させている。
+ * グラフ生データの絶対時刻変換専用に使う。
  */
 const GRAPH_TIME_OFFSET_MINUTES = 21564000;
 
@@ -450,65 +352,6 @@ function mapProductToSearchResult(product) {
 }
 
 /**
- * getProduct(offers指定)の結果から /api/offers 統一契約向けのオファー配列を抽出する。
- * lastSeenが24時間超のオファーは除外する。
- * @param {object} product Keepa Product Object (offers配列を含む)
- */
-function extractOffersFromProduct(product) {
-  if (!product || !Array.isArray(product.offers)) {
-    return { newOffers: [], usedOffers: [], referencePrice: null };
-  }
-
-  const current = (product.stats && product.stats.current) || [];
-  const buyBoxPrice = normalizePrice(current[CSV_TYPE.BUY_BOX_SHIPPING]);
-  const referencePrice = buyBoxPrice != null ? buyBoxPrice : normalizePrice(current[CSV_TYPE.NEW]);
-
-  // 現在有効なオファーの選択。
-  // Keepaのoffers配列には過去(現在は存在しない)のオファーも含まれる。
-  // liveOffersOrder は「現在Amazon上で有効なオファーのindex順」を示す公式フィールドのため、これを最優先で使う。
-  // (以前の24時間 lastSeen フィルタは有効なオファーまで巻き込んで全除外していた)
-  // liveOffersOrder が無い古い応答向けに、lastSeen鮮度フィルタをフォールバックとして残す。
-  let selectedOffers;
-  if (Array.isArray(product.liveOffersOrder) && product.liveOffersOrder.length) {
-    selectedOffers = product.liveOffersOrder
-      .map((idx) => product.offers[idx])
-      .filter(Boolean);
-  } else {
-    selectedOffers = product.offers.filter((o) => isOfferFresh(o.lastSeen));
-  }
-
-  const newOffers = [];
-  const usedOffers = [];
-
-  for (const offer of selectedOffers) {
-    const { price, shipping } = extractLatestOfferPrice(offer.offerCSV);
-    if (price == null) continue;
-
-    const shippingValue = shipping != null ? shipping : 0;
-    const landed = Math.round((price + shippingValue) * 100) / 100;
-    const conditionStr = conditionToString(offer.condition);
-
-    const dto = {
-      price,
-      shipping: shippingValue,
-      landed,
-      condition: conditionStr,
-      isBuyBox: Boolean(buyBoxPrice != null && landed === buyBoxPrice),
-      // Amazon本体の在庫か(アプリで「新品(Ama)」と表示して区別する)。
-      isAmazon: offer.sellerId === AMAZON_JP_SELLER_ID,
-    };
-
-    if (isNewCondition(offer.condition)) {
-      newOffers.push(dto);
-    } else {
-      usedOffers.push(dto);
-    }
-  }
-
-  return { newOffers, usedOffers, referencePrice };
-}
-
-/**
  * Keepaグラフ画像を取得する(プロキシ用)。
  * GET /graphimage?key=&domain=5&asin=&salesrank=1&amazon=1&new=1&used=1&range=90&width=1000&height=400
  * @param {string} asin
@@ -575,21 +418,13 @@ async function getGraphImage(asin, range, options) {
 module.exports = {
   JP_DOMAIN_ID,
   CSV_TYPE,
-  OFFER_CONDITION,
-  CONDITION_STRING_MAP,
   getApiKey,
   normalizePrice,
   buildImageUrl,
   resolveImageUrl,
-  extractLatestOfferPrice,
-  isOfferFresh,
-  conditionToString,
-  isNewCondition,
   getProduct,
   mapKeepaReleaseDate,
   mapProductToSearchResult,
-  extractOffersFromProduct,
   getGraphImage,
-  keepaMinuteToUnixMs,
   extractGraphSeries,
 };

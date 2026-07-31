@@ -15,7 +15,7 @@ struct PurchaseListItem: Codable, Equatable, Identifiable {
     let isbn13: String?
     let salesRank: Int?
     /// 追加時点のオファー一覧スナップショット。出品フォームの初期価格(同コンディション最安landed)に使う。
-    /// 追加時点で未取得ならnil(フォーム表示時に/api/offersで再取得するため出品は可能)。
+    /// 追加時点で未取得ならnil(再取得はしないため、その場合は仕入れフォームで価格を手動入力する)。
     var offersResult: OffersResult?
     /// 出品済みフラグ(Phase 2)。putListingsItemがACCEPTEDで受理されたらtrueにする。
     var isListed: Bool

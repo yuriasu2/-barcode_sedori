@@ -39,22 +39,6 @@ function createMockRes() {
   };
 }
 
-test('ゲート: 無料(ヘッダーなし)は /api/offers?source=keepa を403 plan_required', async () => {
-  const res = createMockRes();
-  const route = routes.match('GET', '/api/offers');
-  await route.handler({ query: { asin: 'B000TEST', source: 'keepa' }, headers: {} }, res);
-  assert.equal(res.statusCode, 403);
-  assert.equal(res.body.error, 'plan_required');
-});
-
-test('ゲート: 無料でも /api/offers?source=spapi は403にしない(SP-APIはBYOで開放)', async () => {
-  // SP-API認証情報が無ければ別の理由(503等)になるが、少なくとも plan_required 403 にはならないことを確認。
-  const res = createMockRes();
-  const route = routes.match('GET', '/api/offers');
-  await route.handler({ query: { asin: 'B000TEST', source: 'spapi' }, headers: {} }, res);
-  assert.notEqual(res.body && res.body.error, 'plan_required');
-});
-
 test('ゲート: 無料は /api/graph を403 plan_required(グラフはPro限定)', async () => {
   const res = createMockRes();
   const route = routes.match('GET', '/api/graph');

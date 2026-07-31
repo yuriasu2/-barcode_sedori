@@ -3,7 +3,7 @@ import Foundation
 /// 仕入れタブの選択モードから複数商品をまとめて出品するためのViewModel(Phase 2b)。
 /// 選択商品を直列で1件ずつ処理し、1件の失敗で全体を止めない(PurchaseFormViewModelと同じ
 /// APIClient/SettingsStore/PurchaseListStoreの作法に合わせる)。
-/// 仕入れフローの再設計により、価格の再取得(/api/offers・suggestedPrice)は行わない。
+/// 仕入れフローの再設計により、価格の再取得(旧/api/offers・suggestedPrice)は行わない。
 /// 仕入れフォームで保存済みの price/quantity/conditionNote/sku をそのまま使い、
 /// priceが未保存の商品は失敗リストへ回して次の商品へ続行する。
 @MainActor

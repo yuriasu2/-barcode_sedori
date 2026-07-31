@@ -7,8 +7,8 @@ final class ProductDetailViewModel: ObservableObject {
     let asin: String
 
     /// 検索タブ・商品タブ(履歴)のどちらから開いても、取得済みのOffersResultのみで描画する。
-    /// 検索時に/api/searchへ同梱されたオファーが手元にあるため、/api/offersの再取得はしない
-    /// (2段階ロード時代の名残だった再取得を廃止。無駄なAmazonへのリクエストと待ち時間を無くす)。
+    /// 検索時に/api/searchへ同梱されたオファーが手元にあるため、別リクエストでの再取得はしない
+    /// (旧第2段階/api/offersエンドポイントは撤去済み。無駄なAmazonへのリクエストと待ち時間を無くす)。
     init(asin: String, cachedOffers: OffersResult?) {
         self.asin = asin
         self.offers = cachedOffers

@@ -1,6 +1,7 @@
 import Foundation
 
-/// GET /api/offers?asin=&source= の個別オファー(新品/中古共通)。CHANGES-v6.md新契約。
+/// GET /api/search?code= の offers フィールド(SP-API経路のみ同梱)に入る個別オファー(新品/中古共通)。
+/// 旧/api/offersエンドポイントの契約を踏襲したもの(現在は/api/searchへ同梱・撤去済み)。
 /// conditionは表示用文字列ではなく正規化コード("new"|"like_new"|"very_good"|"good"|"acceptable")が入る。
 struct Offer: Codable, Equatable, Identifiable {
     let condition: String?
@@ -30,7 +31,7 @@ struct Offer: Codable, Equatable, Identifiable {
     }
 }
 
-/// GET /api/offers?asin=&source= レスポンス(CHANGES-v6.md新契約)。
+/// GET /api/search?code= のoffersフィールド(SP-API経路のみ同梱)の型。旧/api/offersレスポンスと同じ形。
 /// 例:
 /// {
 ///   "source": "keepa",

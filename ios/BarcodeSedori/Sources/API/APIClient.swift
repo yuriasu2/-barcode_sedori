@@ -25,7 +25,8 @@ enum APIClientError: Error, LocalizedError {
 }
 
 /// サーバーとの通信を担うクライアント。
-/// API契約 (/api/search, /api/offers, /api/health) に対応する。
+/// API契約 (/api/search, /api/health 等) に対応する。旧/api/offers(第2段階のオファー再取得)は
+/// SP-API経路が/api/searchへオファーを同梱するようになったため撤去済み。
 /// CHANGES-v2.mdによりインストアコード学習機能(/api/learn)は廃止された。
 final class APIClient {
     static let shared = APIClient()
@@ -156,17 +157,6 @@ final class APIClient {
     func search(code: String) async throws -> SearchResult {
         let request = try makeRequest(path: "/api/search", queryItems: [URLQueryItem(name: "code", value: code)])
         return try await perform(request, as: SearchResult.self)
-    }
-
-    /// GET /api/offers?asin={ASIN}&source={source}
-    /// sourceが非nilならクエリに追加する。nilの場合はクエリ自体を付けない。
-    func offers(asin: String, source: String?) async throws -> OffersResult {
-        var queryItems = [URLQueryItem(name: "asin", value: asin)]
-        if let source {
-            queryItems.append(URLQueryItem(name: "source", value: source))
-        }
-        let request = try makeRequest(path: "/api/offers", queryItems: queryItems)
-        return try await perform(request, as: OffersResult.self)
     }
 
     /// GET /api/graph-data?asin={ASIN}
