@@ -45,11 +45,6 @@ enum SkuGenerator {
         return formatter.string(from: date)
     }
 
-    /// 旧形式との互換用。`AMLZ-YYYYMMDD-連番`(連番は3桁ゼロ埋め)を組み立てる。
-    static func make(dateString: String, sequence: Int) -> String {
-        String(format: "AMLZ-%@-%03d", dateString, sequence)
-    }
-
     /// 次の連番を計算する。日付が変わったら1にリセット、同日なら+1。
     static func nextSequence(lastDateString: String?, lastSequence: Int, todayString: String) -> Int {
         if lastDateString == todayString {
