@@ -38,11 +38,11 @@ struct RootTabView: View {
                 }
                 .tag(3)
         }
-        // タブバーの背景を透過率70%(不透明度30%)にし、裏のコンテンツが透けて見えるようにする。
+        // タブバーの背景を透過率90%(不透明度10%)にし、裏のコンテンツが透けて見えるようにする。
         // アイコン/ラベル自体は不透明のまま(.opacity()をTabViewへ直接かけると
         // タブの中身ごと薄くなってしまうため、背景だけをtoolbarBackgroundで差し替える)。
         // toolbarBackgroundVisibility(iOS18+)はデプロイターゲット(iOS16)で使えないため、
         // .toolbarBackground(color, for:)に不透明色以外を渡すだけで表示は有効になる。
-        .toolbarBackground(Color(.systemBackground).opacity(0.3), for: .tabBar)
+        .toolbarBackground(Color(.systemBackground).opacity(0.1), for: .tabBar)
     }
 }
