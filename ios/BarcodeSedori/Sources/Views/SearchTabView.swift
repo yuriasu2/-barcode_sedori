@@ -159,7 +159,8 @@ final class SearchTabViewModel: ObservableObject {
             rankEnabled: settings.profitAlertRankEnabled,
             rankThreshold: settings.profitAlertRankThreshold,
             sellerCountEnabled: settings.profitAlertSellerCountEnabled,
-            sellerCountThreshold: settings.profitAlertSellerCountThreshold,
+            sellerCountNewThreshold: settings.profitAlertSellerCountNewThreshold,
+            sellerCountUsedThreshold: settings.profitAlertSellerCountUsedThreshold,
             listPriceEnabled: settings.profitAlertListPriceEnabled
         )
     }

@@ -9,7 +9,7 @@ struct ProfitAlertSettingsView: View {
     /// numberPadキーボードの各TextFieldのフォーカス対象。キーボードツールバーの「完了」で
     /// nilにしてフォーカスを外す(numberPadにはReturnキーが無いため)。
     private enum Field: Hashable {
-        case marginThreshold, purchaseCost, rankThreshold, sellerCountThreshold
+        case rankThreshold, purchaseCost, marginThreshold, sellerCountNewThreshold, sellerCountUsedThreshold
     }
     @FocusState private var focusedField: Field?
 
@@ -22,24 +22,32 @@ struct ProfitAlertSettingsView: View {
                     .disabled(!settings.profitAlertEnabled)
             }
 
-            Section("利益アラート") {
-                Toggle("粗利", isOn: $settings.profitAlertMarginEnabled)
+            Section {
+                Toggle("ランキングを必要条件", isOn: $settings.profitAlertRankEnabled)
                     .disabled(!settings.profitAlertEnabled)
-                if settings.profitAlertMarginEnabled {
-                    HStack {
-                        Text("粗利がこの金額(円)以上")
-                        Spacer()
-                        TextField("300", value: $settings.profitAlertMarginThreshold, format: .number)
-                            .keyboardType(.numberPad)
-                            .multilineTextAlignment(.trailing)
-                            .frame(width: 100)
-                            .focused($focusedField, equals: .marginThreshold)
-                    }
-                    .disabled(!settings.profitAlertEnabled)
-                }
 
                 HStack {
-                    Text("仕入れ値(円)")
+                    Text("順位")
+                    Spacer()
+                    TextField("100000", value: $settings.profitAlertRankThreshold, format: .number)
+                        .keyboardType(.numberPad)
+                        .multilineTextAlignment(.trailing)
+                        .frame(width: 100)
+                        .focused($focusedField, equals: .rankThreshold)
+                }
+                .disabled(!settings.profitAlertEnabled)
+            } header: {
+                Text("ランキング")
+            } footer: {
+                Text("1位以上が有効値")
+            }
+
+            Section {
+                Toggle("粗利益を必要条件", isOn: $settings.profitAlertMarginEnabled)
+                    .disabled(!settings.profitAlertEnabled)
+
+                HStack {
+                    Text("仕入れ額(円)")
                     Spacer()
                     TextField("0", value: $settings.profitAlertPurchaseCost, format: .number)
                         .keyboardType(.numberPad)
@@ -49,48 +57,69 @@ struct ProfitAlertSettingsView: View {
                 }
                 .disabled(!settings.profitAlertEnabled)
 
-                Picker("対象コンディション", selection: $settings.profitAlertTargetCondition) {
-                    Text("新品").tag(ProfitAlertCondition.new)
-                    Text("中古").tag(ProfitAlertCondition.used)
+                HStack {
+                    Text("粗利額(円)")
+                    Spacer()
+                    TextField("300", value: $settings.profitAlertMarginThreshold, format: .number)
+                        .keyboardType(.numberPad)
+                        .multilineTextAlignment(.trailing)
+                        .frame(width: 100)
+                        .focused($focusedField, equals: .marginThreshold)
+                }
+                .disabled(!settings.profitAlertEnabled)
+            } header: {
+                Text("粗利益")
+            } footer: {
+                Text("1円以上が有効値")
+            }
+
+            Section {
+                Toggle("出品者数を必要条件", isOn: $settings.profitAlertSellerCountEnabled)
+                    .disabled(!settings.profitAlertEnabled)
+
+                HStack {
+                    Text("新品(人)")
+                    Spacer()
+                    TextField("10", value: $settings.profitAlertSellerCountNewThreshold, format: .number)
+                        .keyboardType(.numberPad)
+                        .multilineTextAlignment(.trailing)
+                        .frame(width: 100)
+                        .focused($focusedField, equals: .sellerCountNewThreshold)
                 }
                 .disabled(!settings.profitAlertEnabled)
 
-                Toggle("ランキング", isOn: $settings.profitAlertRankEnabled)
-                    .disabled(!settings.profitAlertEnabled)
-                if settings.profitAlertRankEnabled {
-                    HStack {
-                        Text("ランキングがこの順位以内")
-                        Spacer()
-                        TextField("100000", value: $settings.profitAlertRankThreshold, format: .number)
-                            .keyboardType(.numberPad)
-                            .multilineTextAlignment(.trailing)
-                            .frame(width: 100)
-                            .focused($focusedField, equals: .rankThreshold)
-                    }
-                    .disabled(!settings.profitAlertEnabled)
+                HStack {
+                    Text("中古(人)")
+                    Spacer()
+                    TextField("10", value: $settings.profitAlertSellerCountUsedThreshold, format: .number)
+                        .keyboardType(.numberPad)
+                        .multilineTextAlignment(.trailing)
+                        .frame(width: 100)
+                        .focused($focusedField, equals: .sellerCountUsedThreshold)
                 }
+                .disabled(!settings.profitAlertEnabled)
+            } header: {
+                Text("出品者数")
+            } footer: {
+                Text("指定した人数以下で成立。0を指定した側は判定しない")
+            }
 
-                Toggle("出品者数", isOn: $settings.profitAlertSellerCountEnabled)
-                    .disabled(!settings.profitAlertEnabled)
-                if settings.profitAlertSellerCountEnabled {
-                    HStack {
-                        Text("出品者数がこの人数以下")
-                        Spacer()
-                        TextField("10", value: $settings.profitAlertSellerCountThreshold, format: .number)
-                            .keyboardType(.numberPad)
-                            .multilineTextAlignment(.trailing)
-                            .frame(width: 100)
-                            .focused($focusedField, equals: .sellerCountThreshold)
-                    }
-                    .disabled(!settings.profitAlertEnabled)
+            Section {
+                Picker("対象コンディション", selection: $settings.profitAlertTargetCondition) {
+                    Text("新品").tag(ProfitAlertCondition.new)
+                    Text("中古").tag(ProfitAlertCondition.used)
+                    Text("両方").tag(ProfitAlertCondition.both)
                 }
+                .disabled(!settings.profitAlertEnabled)
+            } header: {
+                Text("対象コンディション")
+            } footer: {
+                Text("粗利益・定価超えの判定に使うコンディションです")
+            }
 
-                Toggle("売値が定価以上", isOn: $settings.profitAlertListPriceEnabled)
+            Section("プレミアム") {
+                Toggle("定価超えを必要条件", isOn: $settings.profitAlertListPriceEnabled)
                     .disabled(!settings.profitAlertEnabled)
-
-                Text("ONにした条件をすべて満たしたスキャン結果を緑色で強調表示します。粗利・出品者数は上で選んだコンディション(新品/中古)を参照します。定価は取得できない商品があり、その場合はこの条件のみスキップされます。")
-                    .font(.footnote)
-                    .foregroundColor(.secondary)
             }
         }
         .navigationTitle("アラート設定")

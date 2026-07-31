@@ -6,6 +6,8 @@ import Combine
 enum ProfitAlertCondition: String {
     case new
     case used
+    /// 新品・中古のうち有利な方(高い方)で判定する(旧データ互換のため既存rawValueは変更しない)。
+    case both
 }
 
 /// サーバーURLなどの設定値をUserDefaultsで永続化する。
@@ -30,7 +32,9 @@ final class SettingsStore: ObservableObject {
         static let profitAlertRankEnabled = "settings.profitAlert.rankEnabled"
         static let profitAlertRankThreshold = "settings.profitAlert.rankThreshold"
         static let profitAlertSellerCountEnabled = "settings.profitAlert.sellerCountEnabled"
-        static let profitAlertSellerCountThreshold = "settings.profitAlert.sellerCountThreshold"
+        /// 新品用の出品者数閾値。旧キーをそのまま流用する(既存ユーザーの設定を引き継ぐため)。
+        static let profitAlertSellerCountNewThreshold = "settings.profitAlert.sellerCountThreshold"
+        static let profitAlertSellerCountUsedThreshold = "settings.profitAlert.sellerCountUsedThreshold"
         static let profitAlertListPriceEnabled = "settings.profitAlert.listPriceEnabled"
         static let profitAlertHapticsEnabled = "settings.profitAlert.hapticsEnabled"
 
@@ -156,10 +160,17 @@ final class SettingsStore: ObservableObject {
         }
     }
 
-    /// 出品者数条件の閾値(人)
-    @Published var profitAlertSellerCountThreshold: Int {
+    /// 出品者数条件の閾値・新品(人)
+    @Published var profitAlertSellerCountNewThreshold: Int {
         didSet {
-            defaults.set(profitAlertSellerCountThreshold, forKey: Keys.profitAlertSellerCountThreshold)
+            defaults.set(profitAlertSellerCountNewThreshold, forKey: Keys.profitAlertSellerCountNewThreshold)
+        }
+    }
+
+    /// 出品者数条件の閾値・中古(人)
+    @Published var profitAlertSellerCountUsedThreshold: Int {
+        didSet {
+            defaults.set(profitAlertSellerCountUsedThreshold, forKey: Keys.profitAlertSellerCountUsedThreshold)
         }
     }
 
@@ -321,7 +332,8 @@ final class SettingsStore: ObservableObject {
         self.profitAlertRankEnabled = defaults.bool(forKey: Keys.profitAlertRankEnabled)
         self.profitAlertRankThreshold = (defaults.object(forKey: Keys.profitAlertRankThreshold) as? Int) ?? 100_000
         self.profitAlertSellerCountEnabled = defaults.bool(forKey: Keys.profitAlertSellerCountEnabled)
-        self.profitAlertSellerCountThreshold = (defaults.object(forKey: Keys.profitAlertSellerCountThreshold) as? Int) ?? 10
+        self.profitAlertSellerCountNewThreshold = (defaults.object(forKey: Keys.profitAlertSellerCountNewThreshold) as? Int) ?? 10
+        self.profitAlertSellerCountUsedThreshold = (defaults.object(forKey: Keys.profitAlertSellerCountUsedThreshold) as? Int) ?? 10
         self.profitAlertListPriceEnabled = defaults.bool(forKey: Keys.profitAlertListPriceEnabled)
         self.profitAlertHapticsEnabled = (defaults.object(forKey: Keys.profitAlertHapticsEnabled) as? Bool) ?? true
 
