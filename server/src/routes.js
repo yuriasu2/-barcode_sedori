@@ -1270,19 +1270,26 @@ router.post('/api/ads/event', async (req, res) => {
  * GETリクエストをここへ送ってくる。この署名を検証できて初めて無料枠+5を付与する
  * (クライアントの自己申告は一切信用しない)。
  *
- * 常に200を返す方針について:
- * Googleは2xx以外のレスポンスをコールバック失敗とみなし、同じ内容で再送してくる。
- * 「署名は正しく検証できたが、重複(リプレイ)や上限到達で付与しなかった」というのは
- * こちらにとって正常な処理結果であり、Google側にリトライさせる異常ではない。
- * ここで200以外を返すと、正常に処理済みのコールバックがいつまでも再送され続けてしまう。
- * 200以外を返すのは「署名検証自体が失敗した」場合のみ(再送されても結果は変わらないため
- * リトライされても実害はないが、そもそも不正の可能性がある入力なので受理しない)。
+ * 常にHTTP 200を返す方針について(重要):
+ * 「本当に広告を見たので枠を付与してよいか」という安全性の判断と、「HTTPで何を返すか」は
+ * 別の話として扱う。付与の可否は署名検証・タイムスタンプの鮮度・重複(リプレイ)判定が
+ * すべて通った場合のみ行い、ここは一切妥協しない。一方でHTTPステータスは、
+ * Google公式FAQが「SSVコールバックには200 OKを期待する」と明言している通り、
+ * 署名不正・パラメータ欠落・古いタイムスタンプなど「付与しない」結果も含めて常に200を返す。
+ * 理由は2つ:
+ *   1. Googleは2xx以外を「配送失敗」とみなし同じ内容で再送し続ける。不正な入力を
+ *      400で拒否しても再送を止める効果はなく、無駄なリトライが延々と続くだけ。
+ *   2. AdMobコンソールの「URLを確認」ボタンは、実際の広告視聴を伴わない疎通確認の
+ *      リクエストを送ってくる(正規の署名を持たない)。これを400で拒否すると
+ *      コンソール側の検証自体が失敗し、SSV設定を保存できなくなる。
+ * 拒否した理由は常にJSONボディの `granted:false` と `reason` で表現し、HTTPステータスでは
+ * 表現しない。
  */
 router.get('/api/admob/ssv', async (req, res) => {
   const rawUrl = String(req.url || '');
   const qIndex = rawUrl.indexOf('?');
   if (qIndex === -1) {
-    return res.status(400).json({ error: 'missing_query' });
+    return res.status(200).json({ ok: true, granted: false, reason: 'missing_query' });
   }
   const rawQuery = rawUrl.slice(qIndex + 1);
 
@@ -1290,8 +1297,7 @@ router.get('/api/admob/ssv', async (req, res) => {
   // signed contentのバイト列が変わってしまい検証に失敗し得るため)。
   const verification = await admobSsv.verifySsv(rawQuery);
   if (!verification.valid) {
-    // 署名不正はGoogleにリトライさせないよう400で返す(再送されても結果は変わらないため)。
-    return res.status(400).json({ error: 'invalid_signature', reason: verification.reason });
+    return res.status(200).json({ ok: true, granted: false, reason: `invalid_signature:${verification.reason}` });
   }
 
   // 署名検証済みなので、以降のパラメータ読み取りはパース済みのreq.queryを使ってよい。
@@ -1299,7 +1305,7 @@ router.get('/api/admob/ssv', async (req, res) => {
 
   const timestampMs = parseInt(query.timestamp, 10);
   if (!Number.isFinite(timestampMs)) {
-    return res.status(400).json({ error: 'stale_timestamp', message: 'timestampが不正です' });
+    return res.status(200).json({ ok: true, granted: false, reason: 'invalid_timestamp' });
   }
   const now = Date.now();
   const ONE_HOUR_MS = 60 * 60 * 1000;
@@ -1307,18 +1313,17 @@ router.get('/api/admob/ssv', async (req, res) => {
   // 古すぎる(1時間以上前)、または未来すぎる(5分以上先。時計ずれの許容範囲を超える)通知は
   // 拒否する。リプレイの疑いがある/クロックの改ざんを疑うべき入力のため。
   if (now - timestampMs > ONE_HOUR_MS || timestampMs - now > FIVE_MIN_MS) {
-    return res.status(400).json({ error: 'stale_timestamp' });
+    return res.status(200).json({ ok: true, granted: false, reason: 'stale_timestamp' });
   }
 
   const deviceId = String(query.custom_data || '').trim();
   if (!deviceId) {
-    return res.status(400).json({ error: 'missing_device' });
+    return res.status(200).json({ ok: true, granted: false, reason: 'missing_device' });
   }
 
   const transactionId = query.transaction_id ? String(query.transaction_id) : undefined;
   const grantResult = await deviceQuota.grantAd(deviceId, transactionId);
 
-  // 常に200(理由はこの関数の先頭コメント参照)。
   res.status(200).json({
     ok: true,
     granted: !!grantResult.granted,

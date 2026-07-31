@@ -291,7 +291,13 @@ test('ルート GET /api/admob/ssv: 同じtransaction_idの2回目はduplicate:t
   assert.equal(quota.adGrantsToday, 1); // 増えていない
 });
 
-test('ルート GET /api/admob/ssv: 署名が不正なら400', async (t) => {
+// 以下4件は「拒否されるが200を返す」ことを検証する。AdMobは2xx以外を配送失敗とみなし
+// 同じ内容を再送し続けるうえ、AdMobコンソールの「URLを確認」ボタンは実際の視聴を伴わない
+// 疎通確認リクエスト(正規の署名を持たない)を送ってくるため、これを4xxで拒否すると
+// コンソール側の検証自体が失敗しSSV設定を保存できなくなる。付与しない理由は
+// ステータスコードではなくJSONボディのgranted:false/reasonで表現する。
+
+test('ルート GET /api/admob/ssv: 署名が不正でも200を返す(granted:falseで表現)', async (t) => {
   routes.admobSsv._setKeysForTest([await getTestKeyEntry()]);
   t.after(() => routes.admobSsv._setKeysForTest(null));
 
@@ -301,11 +307,12 @@ test('ルート GET /api/admob/ssv: 署名が不正なら400', async (t) => {
   const res = createMockRes();
   await route.handler(reqFromRawQuery(tampered), res);
 
-  assert.equal(res.statusCode, 400);
-  assert.equal(res.body.error, 'invalid_signature');
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.granted, false);
+  assert.match(res.body.reason, /^invalid_signature:/);
 });
 
-test('ルート GET /api/admob/ssv: 古いtimestampは400(署名自体は正しくても)', async (t) => {
+test('ルート GET /api/admob/ssv: 古いtimestampでも200(署名自体は正しくても付与しない)', async (t) => {
   routes.admobSsv._setKeysForTest([await getTestKeyEntry()]);
   t.after(() => routes.admobSsv._setKeysForTest(null));
 
@@ -315,19 +322,21 @@ test('ルート GET /api/admob/ssv: 古いtimestampは400(署名自体は正し�
   const res = createMockRes();
   await route.handler(reqFromRawQuery(rawQuery), res);
 
-  assert.equal(res.statusCode, 400);
-  assert.equal(res.body.error, 'stale_timestamp');
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.granted, false);
+  assert.equal(res.body.reason, 'stale_timestamp');
 });
 
-test('ルート GET /api/admob/ssv: クエリ文字列が無いと400(missing_query)', async () => {
+test('ルート GET /api/admob/ssv: クエリ文字列が無くても200(missing_query)', async () => {
   const route = routes.match('GET', '/api/admob/ssv');
   const res = createMockRes();
   await route.handler({ query: {}, headers: {}, url: '/api/admob/ssv' }, res);
-  assert.equal(res.statusCode, 400);
-  assert.equal(res.body.error, 'missing_query');
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.granted, false);
+  assert.equal(res.body.reason, 'missing_query');
 });
 
-test('ルート GET /api/admob/ssv: custom_data(deviceId)が空なら400(missing_device)', async (t) => {
+test('ルート GET /api/admob/ssv: custom_data(deviceId)が空でも200(missing_device)', async (t) => {
   routes.admobSsv._setKeysForTest([await getTestKeyEntry()]);
   t.after(() => routes.admobSsv._setKeysForTest(null));
 
@@ -336,6 +345,7 @@ test('ルート GET /api/admob/ssv: custom_data(deviceId)が空なら400(missing
   const res = createMockRes();
   await route.handler(reqFromRawQuery(rawQuery), res);
 
-  assert.equal(res.statusCode, 400);
-  assert.equal(res.body.error, 'missing_device');
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.granted, false);
+  assert.equal(res.body.reason, 'missing_device');
 });
