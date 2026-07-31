@@ -10,6 +10,7 @@ const spapiAuth = require('./spapi/auth');
 const oauth = require('./oauth');
 const keepa = require('./keepa/client');
 const deviceQuota = require('./deviceQuota');
+const admobSsv = require('./admobSsv');
 const listings = require('./spapi/listings');
 const spapiClient = require('./spapi/client');
 
@@ -1263,6 +1264,68 @@ router.post('/api/ads/event', async (req, res) => {
   res.status(200).json({});
 });
 
+/**
+ * GET /api/admob/ssv — AdMobリワード広告のサーバーサイド検証(SSV)コールバック。
+ * Googleのサーバーが「ユーザーが広告を最後まで視聴した」と確認したときだけ、署名付きの
+ * GETリクエストをここへ送ってくる。この署名を検証できて初めて無料枠+5を付与する
+ * (クライアントの自己申告は一切信用しない)。
+ *
+ * 常に200を返す方針について:
+ * Googleは2xx以外のレスポンスをコールバック失敗とみなし、同じ内容で再送してくる。
+ * 「署名は正しく検証できたが、重複(リプレイ)や上限到達で付与しなかった」というのは
+ * こちらにとって正常な処理結果であり、Google側にリトライさせる異常ではない。
+ * ここで200以外を返すと、正常に処理済みのコールバックがいつまでも再送され続けてしまう。
+ * 200以外を返すのは「署名検証自体が失敗した」場合のみ(再送されても結果は変わらないため
+ * リトライされても実害はないが、そもそも不正の可能性がある入力なので受理しない)。
+ */
+router.get('/api/admob/ssv', async (req, res) => {
+  const rawUrl = String(req.url || '');
+  const qIndex = rawUrl.indexOf('?');
+  if (qIndex === -1) {
+    return res.status(400).json({ error: 'missing_query' });
+  }
+  const rawQuery = rawUrl.slice(qIndex + 1);
+
+  // 署名検証だけは生のクエリ文字列を要求する(パース済みreq.queryを使うと再エンコードで
+  // signed contentのバイト列が変わってしまい検証に失敗し得るため)。
+  const verification = await admobSsv.verifySsv(rawQuery);
+  if (!verification.valid) {
+    // 署名不正はGoogleにリトライさせないよう400で返す(再送されても結果は変わらないため)。
+    return res.status(400).json({ error: 'invalid_signature', reason: verification.reason });
+  }
+
+  // 署名検証済みなので、以降のパラメータ読み取りはパース済みのreq.queryを使ってよい。
+  const query = req.query || {};
+
+  const timestampMs = parseInt(query.timestamp, 10);
+  if (!Number.isFinite(timestampMs)) {
+    return res.status(400).json({ error: 'stale_timestamp', message: 'timestampが不正です' });
+  }
+  const now = Date.now();
+  const ONE_HOUR_MS = 60 * 60 * 1000;
+  const FIVE_MIN_MS = 5 * 60 * 1000;
+  // 古すぎる(1時間以上前)、または未来すぎる(5分以上先。時計ずれの許容範囲を超える)通知は
+  // 拒否する。リプレイの疑いがある/クロックの改ざんを疑うべき入力のため。
+  if (now - timestampMs > ONE_HOUR_MS || timestampMs - now > FIVE_MIN_MS) {
+    return res.status(400).json({ error: 'stale_timestamp' });
+  }
+
+  const deviceId = String(query.custom_data || '').trim();
+  if (!deviceId) {
+    return res.status(400).json({ error: 'missing_device' });
+  }
+
+  const transactionId = query.transaction_id ? String(query.transaction_id) : undefined;
+  const grantResult = await deviceQuota.grantAd(deviceId, transactionId);
+
+  // 常に200(理由はこの関数の先頭コメント参照)。
+  res.status(200).json({
+    ok: true,
+    granted: !!grantResult.granted,
+    duplicate: !!grantResult.duplicate,
+  });
+});
+
 router.get('/oauth/login', oauth.handleOAuthLogin);
 router.get('/oauth/callback', oauth.handleOAuthCallback);
 
@@ -1291,5 +1354,7 @@ router.buildFeesBreakdown = buildFeesBreakdown;
 router.adsConfigCache = adsConfigCache;
 router.loadAdsConfig = loadAdsConfig;
 router.validateAdEventInput = validateAdEventInput;
+// テスト用途にAdMob SSV検証モジュールを公開する(_setKeysForTestでの鍵注入用)。
+router.admobSsv = admobSsv;
 
 module.exports = router;

@@ -34,9 +34,18 @@ function readLimits(env) {
 }
 
 /**
+ * リプレイ対策(transaction_id冪等化)用に保持するseenTxの最大件数。
+ * 1日の広告視聴上限が19本(5 + 5*19 = 100でcap到達)のため、直近30件も保持すれば
+ * 1日分を確実にカバーできる。配列が際限なく伸びないよう先頭(古い方)から捨てる。
+ */
+const MAX_SEEN_TX = 30;
+
+/**
  * storageから読んだ生の値を安全に正規化する。
  * - 未保存/非オブジェクト/日付不一致(=日付が変わった)/数値が壊れている場合は
- *   すべて安全側(unitsUsed:0, adGrants:0)として扱う。
+ *   すべて安全側(unitsUsed:0, adGrants:0, seenTx:[])として扱う。
+ *   日付が変わったらseenTxも空にリセットされる(=同じtransaction_idが翌日再送されても
+ *   別物として扱われるが、そもそもtransaction_idは広告視聴ごとに一意なため実害はない)。
  * - dateは「呼び出し側(routes.js側のtodayString())が渡した値」をそのまま使う。
  *   DO内で new Date() を使うと日付判定ロジックが二重化するため、意図的に呼び出し側へ委ねる。
  * @param {*} stored state.storage.get(STORAGE_KEY) の結果
@@ -44,11 +53,12 @@ function readLimits(env) {
  */
 function normalizeEntry(stored, date) {
   if (!stored || typeof stored !== 'object' || stored.date !== date) {
-    return { date, unitsUsed: 0, adGrants: 0 };
+    return { date, unitsUsed: 0, adGrants: 0, seenTx: [] };
   }
   const unitsUsed = Number.isFinite(stored.unitsUsed) && stored.unitsUsed >= 0 ? stored.unitsUsed : 0;
   const adGrants = Number.isFinite(stored.adGrants) && stored.adGrants >= 0 ? stored.adGrants : 0;
-  return { date, unitsUsed, adGrants };
+  const seenTx = Array.isArray(stored.seenTx) ? stored.seenTx.filter((t) => typeof t === 'string') : [];
+  return { date, unitsUsed, adGrants, seenTx };
 }
 
 export class DeviceQuotaDO {
@@ -70,7 +80,7 @@ export class DeviceQuotaDO {
       return this.handleConsume(url, date);
     }
     if (request.method === 'POST' && url.pathname === '/grant-ad') {
-      return this.handleGrantAd(date);
+      return this.handleGrantAd(date, url.searchParams.get('tx') || null);
     }
     if (request.method === 'GET' && url.pathname === '/peek') {
       return this.handlePeek(date);
@@ -90,8 +100,10 @@ export class DeviceQuotaDO {
     const current = normalizeEntry(stored, date);
     const allowed = quotaMath.canConsume(current.unitsUsed, current.adGrants, units, this.limits);
 
+    // seenTxはconsumeでは変化しないが、常に引き継ぐ(落とすとgrant-adのリプレイ対策が
+    // consume呼び出しのたびに失われてしまう)。
     const next = allowed
-      ? { date, unitsUsed: current.unitsUsed + units, adGrants: current.adGrants }
+      ? { date, unitsUsed: current.unitsUsed + units, adGrants: current.adGrants, seenTx: current.seenTx }
       : current;
     // 値が変わるときだけ書く。上限に達したユーザーがスキャンを連打すると、
     // 毎回同じ値を書き戻すことになり無料枠の書き込み上限(1日10万行)を無駄に消費するため。
@@ -104,21 +116,37 @@ export class DeviceQuotaDO {
     return Response.json({ allowed, quota });
   }
 
-  async handleGrantAd(date) {
+  /**
+   * 広告視聴1本分の付与を記録する。
+   * txが指定されていて既にseenTxに含まれる場合は、リプレイ(同じコールバックの再送)と
+   * みなして付与せず {granted:false, duplicate:true} を返す(AdMobはコールバック先が
+   * 200を返さないと再送してくるため、成功後の再送でも二重付与しないためのガード)。
+   * @param {string} date
+   * @param {string|null} tx transaction_id(未指定ならリプレイ判定なし=従来どおり)
+   */
+  async handleGrantAd(date, tx) {
     const stored = await this.state.storage.get(STORAGE_KEY);
     const current = normalizeEntry(stored, date);
-    const granted = quotaMath.canGrantAd(current.adGrants, this.limits);
 
-    const next = granted
-      ? { date, unitsUsed: current.unitsUsed, adGrants: current.adGrants + 1 }
-      : current;
-    // handleConsumeと同じ理由で、値が変わるときだけ書く。
-    if (granted || !stored || stored.date !== date) {
+    if (tx && current.seenTx.includes(tx)) {
+      const quota = quotaMath.buildQuota(current.unitsUsed, current.adGrants, this.limits);
+      return Response.json({ granted: false, duplicate: true, quota });
+    }
+
+    const granted = quotaMath.canGrantAd(current.adGrants, this.limits);
+    const nextAdGrants = granted ? current.adGrants + 1 : current.adGrants;
+    // 直近MAX_SEEN_TX件だけ保持する(先頭=古い方から捨てる)。
+    const nextSeenTx = tx ? [...current.seenTx, tx].slice(-MAX_SEEN_TX) : current.seenTx;
+
+    const next = { date, unitsUsed: current.unitsUsed, adGrants: nextAdGrants, seenTx: nextSeenTx };
+    // handleConsumeと同じ理由(書き込み上限の節約)で、状態が変わるとき
+    // (付与された、またはtxを新規記録した)だけ書く。日付が変わった直後も書く。
+    if (granted || tx || !stored || stored.date !== date) {
       await this.state.storage.put(STORAGE_KEY, next);
     }
 
     const quota = quotaMath.buildQuota(next.unitsUsed, next.adGrants, this.limits);
-    return Response.json({ granted, quota });
+    return Response.json({ granted, duplicate: false, quota });
   }
 
   async handlePeek(date) {

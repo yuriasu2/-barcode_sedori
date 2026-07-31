@@ -53,6 +53,13 @@ const entries = new Map();
 /** メモリ肥大化防止のしきい値。超えたら当日以外のエントリを一括削除する(dateUtil.jsと同じ方式)。 */
 const MAX_ENTRIES = 50000;
 
+/**
+ * リプレイ対策(transaction_id冪等化)用に保持するseenTxの最大件数。
+ * quotaDurableObject.jsのMAX_SEEN_TXと同じ値・同じ理由(1日の広告視聴上限19本を
+ * 十分カバーできる件数)。DO経路とインメモリ経路で挙動を揃えるため独立に定義している。
+ */
+const MAX_SEEN_TX = 30;
+
 function pruneIfNeeded(today) {
   if (entries.size > MAX_ENTRIES) {
     for (const [key, value] of entries) {
@@ -120,33 +127,55 @@ function tryConsumeInMemory(deviceId, units) {
   pruneIfNeeded(today);
 
   const entry = entries.get(deviceId);
-  const current = entry && entry.date === today ? entry : { unitsUsed: 0, adGrants: 0 };
+  const current = entry && entry.date === today ? entry : { unitsUsed: 0, adGrants: 0, seenTx: [] };
   let { unitsUsed, adGrants } = current;
+  // grant-ad側が積んだseenTxを消費時に落とさないよう引き継ぐ。
+  const seenTx = Array.isArray(current.seenTx) ? current.seenTx : [];
 
   if (!quotaMath.canConsume(unitsUsed, adGrants, units, limits())) {
     return { allowed: false, quota: quotaMath.buildQuota(unitsUsed, adGrants, limits()) };
   }
 
   unitsUsed += units;
-  entries.set(deviceId, { date: today, unitsUsed, adGrants });
+  entries.set(deviceId, { date: today, unitsUsed, adGrants, seenTx });
   return { allowed: true, quota: quotaMath.buildQuota(unitsUsed, adGrants, limits()) };
 }
 
-function grantAdInMemory(deviceId) {
+/**
+ * インメモリ経路でのリプレイ対策付き広告付与。
+ * transactionIdが既にseenTx(直近MAX_SEEN_TX件)にあれば付与せず duplicate:true を返す
+ * (quotaDurableObject.jsのhandleGrantAdと同じ方針)。
+ */
+function grantAdInMemory(deviceId, transactionId) {
   const today = todayString();
   pruneIfNeeded(today);
 
   const entry = entries.get(deviceId);
-  const current = entry && entry.date === today ? entry : { unitsUsed: 0, adGrants: 0 };
+  const current = entry && entry.date === today ? entry : { unitsUsed: 0, adGrants: 0, seenTx: [] };
   const { unitsUsed, adGrants } = current;
+  const seenTx = Array.isArray(current.seenTx) ? current.seenTx : [];
+
+  if (transactionId && seenTx.includes(transactionId)) {
+    return {
+      granted: false,
+      duplicate: true,
+      quota: quotaMath.buildQuota(unitsUsed, adGrants, limits()),
+    };
+  }
 
   if (!quotaMath.canGrantAd(adGrants, limits())) {
-    return { granted: false, quota: quotaMath.buildQuota(unitsUsed, adGrants, limits()) };
+    // cap到達で付与できない場合も、txがあれば「見た」こと自体は記録しておく
+    // (どのみち再送されても同じ理由でgranted:falseになるだけだが、DO側の
+    // handleGrantAdと挙動を揃えるため一貫してseenTxへ積む)。
+    const nextSeenTx = transactionId ? [...seenTx, transactionId].slice(-MAX_SEEN_TX) : seenTx;
+    entries.set(deviceId, { date: today, unitsUsed, adGrants, seenTx: nextSeenTx });
+    return { granted: false, duplicate: false, quota: quotaMath.buildQuota(unitsUsed, adGrants, limits()) };
   }
 
   const nextAdGrants = adGrants + 1;
-  entries.set(deviceId, { date: today, unitsUsed, adGrants: nextAdGrants });
-  return { granted: true, quota: quotaMath.buildQuota(unitsUsed, nextAdGrants, limits()) };
+  const nextSeenTx = transactionId ? [...seenTx, transactionId].slice(-MAX_SEEN_TX) : seenTx;
+  entries.set(deviceId, { date: today, unitsUsed, adGrants: nextAdGrants, seenTx: nextSeenTx });
+  return { granted: true, duplicate: false, quota: quotaMath.buildQuota(unitsUsed, nextAdGrants, limits()) };
 }
 
 // ---------------------------------------------------------------------------
@@ -221,20 +250,30 @@ async function tryConsume(deviceId, units = 1) {
  * 既にcap(MAX_DAILY_UNITS)に到達していて、これ以上limitを引き上げられない場合は
  * granted=falseとしadGrantsは増やさない。
  * deviceIdが空/未指定ならgranted=false(広告視聴と紐付ける対象が無いため)。
+ *
+ * transactionId(AdMob SSVの transaction_id)を渡すと、同じtransactionIdでの
+ * 2回目以降の呼び出しは付与せず {granted:false, duplicate:true} を返す(冪等化)。
+ * これはGoogleのSSVコールバックが同じ通知を再送してくる場合に、再送のたびに
+ * 無料枠を水増しさせないためのリプレイ対策。省略時(既存呼び出し)は従来どおり
+ * 冪等化なしで動作する。
  * @param {string|null|undefined} deviceId
- * @returns {Promise<{granted: boolean, quota: object}>}
+ * @param {string} [transactionId] AdMob SSVのtransaction_id。指定時のみ重複判定する。
+ * @returns {Promise<{granted: boolean, duplicate?: boolean, quota: object}>}
  */
-async function grantAd(deviceId) {
+async function grantAd(deviceId, transactionId) {
   if (!deviceId) return { granted: false, quota: { unlimited: true } };
 
   const binding = getDurableBinding();
-  if (!binding) return grantAdInMemory(deviceId);
+  if (!binding) return grantAdInMemory(deviceId, transactionId);
 
   try {
-    return await callDurableObject(binding, deviceId, 'grant-ad', 'POST', { date: todayString() });
+    const params = { date: todayString() };
+    if (transactionId) params.tx = transactionId;
+    return await callDurableObject(binding, deviceId, 'grant-ad', 'POST', params);
   } catch (err) {
     // tryConsumeと同じ方針(可用性優先)。広告視聴の対価が失われないようgranted=trueで倒す。
-    // ただし付与後の残量は分からないためquotaは残量不明とする。
+    // ただし付与後の残量は分からないためquotaは残量不明とする。DO障害時は重複判定もできない
+    // (transactionIdの記録先そのものが不明なため)。
     console.error('[deviceQuota] DO grant-ad failed, granting as fallback:', err.message);
     return { granted: true, quota: { unknown: true } };
   }
