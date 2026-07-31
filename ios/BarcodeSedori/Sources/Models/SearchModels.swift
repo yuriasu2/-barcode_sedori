@@ -67,6 +67,24 @@ struct SearchResult: Codable, Equatable {
     let offers: OffersResult?
     /// 利益アラート判定用の素材(定価・出品者数・breakEven)。旧サーバーではキーごと無いためnil。
     let profitInputs: ProfitInputs?
+    /// 無料枠ユニットの残量。Pro・SP-API連携済みには付かない(nil)。
+    let quota: QuotaInfo?
+}
+
+/// 無料枠ユニットモデル(Phase B)の残量情報。/api/search・/api/graph-data・/api/quota が返す。
+/// サーバーが状況により形の異なるJSONを返し得るため、全フィールドをOptionalにしておく。
+struct QuotaInfo: Codable, Equatable {
+    let unitsRemaining: Int?
+    let baseRemaining: Int?
+    let unitsUsed: Int?
+    let adGrantsToday: Int?
+    let adAvailable: Bool?
+    let capReached: Bool?
+    let limit: Int?
+    /// Pro・deviceId無し等、無制限のとき true。
+    let unlimited: Bool?
+    /// サーバー障害等で残量が不明のとき true。この場合クライアントはローカルの残量を維持する。
+    let unknown: Bool?
 }
 
 /// サーバーエラーレスポンス(想定: {"error": "..."} 形式にも対応できるよう緩めに定義)

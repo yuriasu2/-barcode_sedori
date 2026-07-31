@@ -33,12 +33,13 @@ struct PaywallView: View {
     }
 
     private let proFeatures: [String] = [
+        "スキャン・検索が無制限(無料は1日5回まで)",
+        "OCR(ISBN/JAN文字認識)スキャンが無制限",
+        "Keepa価格推移グラフが無制限",
         "オファー一覧(送料込・最安順)をフル表示",
-        "Keepa価格推移グラフ",
-        "OCR(ISBN/JAN文字認識)スキャン",
         "広告なし",
         "スキャンのクールダウン短縮(5秒→1秒)",
-        "1日のスキャン上限なし(無料は100件/日)",
+        "仕入れリスト・利益アラートが使い放題",
     ]
 
     var body: some View {

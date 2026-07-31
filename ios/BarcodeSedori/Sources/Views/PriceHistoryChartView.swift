@@ -193,7 +193,15 @@ struct PriceHistoryChartView: View {
             let data = try await APIClient.shared.graphData(asin: asin)
             Self.dataCache[asin] = data
             graphData = data
+            // 無料枠ユニットの残量をローカルへ反映する(Pro・SP-API連携済みはquota==nilで何もしない)。
+            ScanQuotaStore.shared.apply(data.quota)
         } catch {
+            // 無料枠ユニット上限超過(429・quota_exceeded)も含め、失敗時は共通のfailureView
+            // (エラー表示+タップで再読込)にする。クラッシュや無限ローディングにはならない。
+            // quotaは反映しておき、検索タブのグラフ枠がfreeAdAreaへ即座に切り替わるようにする。
+            if case APIClientError.quotaExceeded(let quota, _) = error {
+                ScanQuotaStore.shared.apply(quota)
+            }
             loadFailed = true
         }
     }

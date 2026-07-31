@@ -7,6 +7,9 @@ enum APIClientError: Error, LocalizedError {
     case httpError(status: Int, body: String)
     case decodingError(Error)
     case underlying(Error)
+    /// 無料枠ユニットモデル(Phase B)の上限超過(HTTP 429, error=="quota_exceeded")。
+    /// quotaには超過時点の残量(通常unitsRemaining=0)が入る。
+    case quotaExceeded(quota: QuotaInfo?, message: String?)
 
     var errorDescription: String? {
         switch self {
@@ -20,8 +23,17 @@ enum APIClientError: Error, LocalizedError {
             return "応答の解析に失敗しました: \(error.localizedDescription)"
         case .underlying(let error):
             return error.localizedDescription
+        case .quotaExceeded(_, let message):
+            return message ?? "本日の無料スキャン上限に達しました。"
         }
     }
+}
+
+/// 429(quota_exceeded)時のエラーボディ。
+private struct QuotaExceededBody: Decodable {
+    let error: String?
+    let message: String?
+    let quota: QuotaInfo?
 }
 
 /// サーバーとの通信を担うクライアント。
@@ -142,6 +154,13 @@ final class APIClient {
         }
 
         guard (200...299).contains(httpResponse.statusCode) else {
+            // 無料枠ユニットモデルの上限超過は専用エラーへ変換する(UIが枠切れ状態を判別できるよう
+            // quotaを持ち回るため)。デコードに失敗した場合は従来のhttpErrorへフォールバックする。
+            if httpResponse.statusCode == 429,
+               let quotaBody = try? decoder.decode(QuotaExceededBody.self, from: data),
+               quotaBody.error == "quota_exceeded" {
+                throw APIClientError.quotaExceeded(quota: quotaBody.quota, message: quotaBody.message)
+            }
             let body = String(data: data, encoding: .utf8) ?? ""
             throw APIClientError.httpError(status: httpResponse.statusCode, body: body)
         }
@@ -165,6 +184,14 @@ final class APIClient {
     func graphData(asin: String) async throws -> GraphData {
         let request = try makeRequest(path: "/api/graph-data", queryItems: [URLQueryItem(name: "asin", value: asin)])
         return try await perform(request, as: GraphData.self)
+    }
+
+    /// GET /api/quota
+    /// 無料枠ユニットモデル(Phase B)の現在の残量。Proは {"unlimited":true,"reason":"pro"}、
+    /// 非Proはquotaオブジェクトを返す(いずれもQuotaInfoで受けられる)。
+    func quota() async throws -> QuotaInfo {
+        let request = try makeRequest(path: "/api/quota")
+        return try await perform(request, as: QuotaInfo.self)
     }
 
     /// GET /api/listings/restrictions?asin=&condition=

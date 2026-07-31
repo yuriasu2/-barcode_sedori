@@ -106,6 +106,8 @@ final class SearchTabViewModel: ObservableObject {
             let result = try await apiClient.search(code: code)
             latestResult = result
             isSearching = false
+            // 無料枠ユニットの残量をローカルへ反映する(Pro・SP-API連携済みはquota==nilで何もしない)。
+            ScanQuotaStore.shared.apply(result.quota)
 
             // 利益アラートはPro限定(無料は設定が残っていても発火しない二重ゲート)。
             if EntitlementStore.shared.isPro {
@@ -140,8 +142,12 @@ final class SearchTabViewModel: ObservableObject {
             }
         } catch {
             isSearching = false
-            // サーバー側デバイス日次バックストップに達した場合は分かりやすい案内にする。
-            if case APIClientError.httpError(let status, _) = error, status == 429 {
+            // 無料枠ユニット上限超過(429・quota_exceeded)。quotaを反映してUIを枠切れ状態にする。
+            if case APIClientError.quotaExceeded(let quota, let message) = error {
+                ScanQuotaStore.shared.apply(quota)
+                searchErrorMessage = message ?? "本日の無料スキャン上限に達しました。"
+            } else if case APIClientError.httpError(let status, _) = error, status == 429 {
+                // quota_exceeded形式でない429(旧サーバー互換)のフォールバック。
                 searchErrorMessage = "本日の無料スキャン上限に達しました。Proにアップグレードすると無制限に使えます。"
             } else {
                 searchErrorMessage = error.localizedDescription
@@ -185,11 +191,17 @@ struct SearchTabView: View {
     @ObservedObject private var entitlements = EntitlementStore.shared
     /// 仕入れリスト(Phase 1b)。「追加済み」表示の再描画のため監視する。
     @ObservedObject private var purchaseList = PurchaseListStore.shared
+    /// 無料枠ユニット(Phase B)のローカルミラー。サーバー応答のたびに是正される。
+    @ObservedObject private var quota = ScanQuotaStore.shared
+    /// SP-API連携状態(isSpApiLinkUsable)の変化でゲート判定を再評価するため監視する。
+    @ObservedObject private var settings = SettingsStore.shared
     @State private var selectedResult: SearchResult?
     @State private var searchBarText: String = ""
     @State private var showsInvalidCodeAlert = false
-    /// フリーミアム: 各ゲート(OCR/オファー/グラフ/日次上限)から提示するペイウォール。
+    /// フリーミアム: 各ゲート(オファー等)から提示するペイウォール。
     @State private var showPaywall = false
+    /// OCRのお試し枠(1日5回)を使い切った際のポップアップ(スキャン時・モード切替タップ時とも共通)。
+    @State private var showOcrLimitAlert = false
     /// 「仕入れリストへ追加」タップで開く仕入れフォーム(新規追加モード)の下書き。
     /// 保存(緑チェック)されるまでPurchaseListStoreへは登録しない。
     @State private var purchaseFormDraft: PurchaseListItem?
@@ -210,7 +222,9 @@ struct SearchTabView: View {
 
                     topContent
 
-                    if entitlements.isPro {
+                    // 非Proはユニット残があればグラフを表示する(サーバーが429を返せば次回検索で
+                    // quotaが是正され、この分岐がfreeAdAreaへ切り替わる)。
+                    if entitlements.isPro || quota.canScanToday {
                         keepaGraph
                     } else {
                         freeAdArea
@@ -223,6 +237,17 @@ struct SearchTabView: View {
             .toolbar(.hidden, for: .navigationBar)
             .alert("入力が間違っています。10桁or13桁で入力してください。", isPresented: $showsInvalidCodeAlert) {
                 Button("OK", role: .cancel) {}
+            }
+            .alert("OCR機能を無制限に使うにはProにアップグレードしてください。", isPresented: $showOcrLimitAlert) {
+                Button("アップグレード") { showPaywall = true }
+                Button("閉じる", role: .cancel) {}
+            }
+            // 無料枠を使い切った瞬間にOCRモードのままだと、カメラ停止後もOCRトグルが選択された
+            // 見た目のまま残ってしまうため、枠切れになったらバーコードモードへ強制的に戻す。
+            .onChange(of: isQuotaExhausted) { exhausted in
+                if exhausted && viewModel.scanMode == .ocr {
+                    viewModel.scanMode = .barcode
+                }
             }
             .sheet(isPresented: $showPaywall) {
                 PaywallView()
@@ -242,7 +267,7 @@ struct SearchTabView: View {
             #if DEBUG
             .onReceive(navigation.$pendingDebugSearchCode.compactMap { $0 }) { code in
                 navigation.pendingDebugSearchCode = nil
-                viewModel.handleScan(code)
+                startSearch(code)
             }
             #endif
             .background {
@@ -260,10 +285,15 @@ struct SearchTabView: View {
         .navigationViewStyle(.stack)
     }
 
+    /// 検索(=Keepa消費)が無制限か。Proと、SP-API連携済み(自分のAPI枠を使うためサーバーはユニットを消費しない)。
+    private var isSearchUnlimited: Bool { entitlements.isPro || settings.isSpApiLinkUsable }
+    /// 無料枠を使い切っており、これ以上スキャンできないか。
+    private var isQuotaExhausted: Bool { !isSearchUnlimited && !quota.canScanToday }
+
     /// Pro/無料で共通の中身(カメラ・モード切替・結果カード・オファーパネル)。
     /// 検索バーは固定ヘッダーとして body 側に置くためここには含めない。
     /// カメラセッションを動かすか。検索タブ表示中でも、前面にシートが出ている間や
-    /// 商品詳細へ遷移している間は止める
+    /// 商品詳細へ遷移している間、無料枠を使い切っている間は止める
     /// (カメラが見えていない時にバッテリーと発熱を消費しないため)。
     private var isScannerActive: Bool {
         isActive
@@ -271,24 +301,20 @@ struct SearchTabView: View {
             && browserTarget == nil
             && selectedResult == nil
             && !showPaywall
+            && !isQuotaExhausted
     }
 
     @ViewBuilder
     private var topContent: some View {
         ScannerView(
             onScan: { scanned in
-                // OCRモードの無料お試し枠(1日3回)。超過でペイウォール。
+                // OCRモードの無料お試し枠(1日5回)。超過でOCR専用ポップアップ。
                 if viewModel.scanMode.isOCRMode && !entitlements.isPro
                     && !ScanQuotaStore.shared.registerOcrUseIfAllowed() {
-                    showPaywall = true
+                    showOcrLimitAlert = true
                     return
                 }
-                // 無料プランは1日100件まで(OCR/バーコード共通)。上限超過でペイウォール。
-                if entitlements.isPro || ScanQuotaStore.shared.registerScanIfAllowed() {
-                    viewModel.handleScan(scanned.code)
-                } else {
-                    showPaywall = true
-                }
+                startSearch(scanned.code)
             },
             isOCRMode: viewModel.scanMode.isOCRMode,
             isActive: isScannerActive,
@@ -301,13 +327,43 @@ struct SearchTabView: View {
         .overlay(alignment: .bottom) {
             modeToggle
         }
+        // 無料枠切れのときはカメラ映像の上に枠切れオーバーレイを重ねる(カメラ自体はisScannerActiveで停止済み)。
+        .overlay {
+            if isQuotaExhausted {
+                QuotaPaywallOverlay(
+                    showsAdOption: FreemiumFlags.rewardedAdsEnabled && quota.adAvailable && !quota.capReached,
+                    showsSpApiOption: !settings.isSpApiLinkUsable,
+                    onUpgradeTap: { showPaywall = true },
+                    onWatchAdTap: { /* Phase C実装後: リワード広告視聴フローを開始する */ },
+                    onSpApiLinkTap: { AppNavigation.shared.selectedTab = AppNavigation.settingsTab }
+                )
+            }
+        }
 
         latestResultCard
 
         offersPanels
     }
 
-    /// 無料プラン用: 鍵アイコン+Pro案内 と、余白を埋める広告。上詰めでオファー直下に配置する。
+    /// スキャン(カメラ/OCR)・手入力検索の共通ゲート。無料枠ユニットの残量を確認し、
+    /// 残っていればローカルミラーを楽観的に1消費してから検索を実行する。
+    /// 枠切れのときはペイウォールを提示する。枠切れ中はカメラが止まる(isScannerActive)ため
+    /// ここに枠切れで到達するのは手入力検索の経路だが、黙って無反応にすると
+    /// 「検索できない理由」が分からないため必ず理由を示す。
+    private func startSearch(_ code: String) {
+        guard isSearchUnlimited || quota.canScanToday else {
+            showPaywall = true
+            return
+        }
+        if !isSearchUnlimited {
+            quota.consumeLocally()
+        }
+        viewModel.handleScan(code)
+    }
+
+    /// 無料プラン用: 状況に応じた案内 と、余白を埋める広告。上詰めでオファー直下に配置する。
+    /// Proではないがユニット残がある間はkeepaGraphを表示するため、ここに来るのは
+    /// 「非Pro・グラフ表示に使うユニットを使い切った」場合のみ。
     private var freeAdArea: some View {
         VStack(spacing: 8) {
             Button {
@@ -315,7 +371,7 @@ struct SearchTabView: View {
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "lock.fill")
-                    Text("広告削除とKeepaグラフ表示はProで")
+                    Text("本日のグラフ表示枠を使い切りました。Proなら無制限")
                         .font(.subheadline)
                         .fontWeight(.semibold)
                     Spacer()
@@ -326,6 +382,24 @@ struct SearchTabView: View {
                 .padding(.horizontal, 4)
             }
             .buttonStyle(.plain)
+
+            // Phase C: リワード広告実装後、ここに「動画を見てグラフを見る」ボタンを追加する。
+            if FreemiumFlags.rewardedAdsEnabled && quota.adAvailable && !quota.capReached {
+                Button {
+                    // Phase C実装後: リワード広告視聴フローを開始する
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "play.rectangle.fill")
+                        Text("動画を見てグラフを見る")
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                        Spacer()
+                    }
+                    .foregroundColor(.primary)
+                    .padding(.horizontal, 4)
+                }
+                .buttonStyle(.plain)
+            }
 
             AdSlotView(slotId: "search_ad")
         }
@@ -377,14 +451,14 @@ struct SearchTabView: View {
         guard !trimmed.isEmpty else { return }
 
         if trimmed.count == 13, trimmed.allSatisfy({ $0.isNumber }) {
-            viewModel.handleScan(trimmed)
+            startSearch(trimmed)
             return
         }
 
         // ISBN-10はチェック文字が"X"になり得るため大文字化してから検証する。
         let upper = trimmed.uppercased()
         if upper.count == 10, ISBN10Validator.isValid(upper) {
-            viewModel.handleScan(ISBN10Validator.toIsbn13(upper))
+            startSearch(ISBN10Validator.toIsbn13(upper))
             return
         }
 
@@ -395,11 +469,11 @@ struct SearchTabView: View {
         HStack(spacing: 0) {
             ForEach(ScanMode.allCases) { mode in
                 let isSelected = viewModel.scanMode == mode
-                // フリーミアム: OCRは無料でも1日3回まで試せる。使い切ると鍵表示→タップでペイウォール。
+                // フリーミアム: OCRは無料でも1日5回まで試せる。使い切ると鍵表示→タップでOCR専用ポップアップ。
                 let ocrExhausted = (mode == .ocr && !entitlements.isPro && !ScanQuotaStore.shared.canUseOcrToday)
                 Button {
                     if ocrExhausted {
-                        showPaywall = true
+                        showOcrLimitAlert = true
                     } else {
                         viewModel.scanMode = mode
                     }

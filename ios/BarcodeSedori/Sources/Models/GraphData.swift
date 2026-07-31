@@ -11,4 +11,6 @@ struct GraphData: Codable, Equatable {
         let rank: [[Double]]
     }
     let series: Series
+    /// 無料枠ユニットの残量。非Proに付く(キャッシュヒット時は消費なし)。Pro・SP-API連携済みには付かない。
+    let quota: QuotaInfo?
 }
