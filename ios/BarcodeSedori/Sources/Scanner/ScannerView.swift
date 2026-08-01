@@ -23,8 +23,17 @@ struct ScannerView: UIViewRepresentable {
     var isOCRMode: Bool
     /// true: 検索タブ表示中でカメラを動かす / false: 非表示なのでセッションを止めて電力節約
     var isActive: Bool
-    /// 読み取り確定から次の読み取りまでのクールダウン秒数(フリーミアム: 無料5秒 / Pro1秒)。
+    /// 読み取り確定から次の読み取りまでのクールダウン秒数(未連携7秒 / 連携済み1秒)。
     var emitCooldown: TimeInterval
+    /// 手入力検索がクールダウンで弾かれたときに、カメラ上の「あと◯秒」オーバーレイを
+    /// 出すための通知。スキャンと同じ見た目で伝えるため専用のポップアップは出さない。
+    var cooldownNotice: CooldownNotice?
+
+    /// 「あと◯秒」を出す指示。idが変わったときだけ表示する(同じ内容の再表示を防ぐ)。
+    struct CooldownNotice: Equatable {
+        let id: UUID
+        let remaining: Int
+    }
 
     func makeUIView(context: Context) -> ScannerContainerView {
         let view = ScannerContainerView()
@@ -41,6 +50,7 @@ struct ScannerView: UIViewRepresentable {
         uiView.isOCRMode = isOCRMode
         uiView.emitCooldown = emitCooldown
         uiView.setActive(isActive)
+        uiView.applyCooldownNotice(cooldownNotice)
     }
 
     static func dismantleUIView(_ uiView: ScannerContainerView, coordinator: ()) {
@@ -87,15 +97,17 @@ final class ScannerContainerView: UIView {
     /// デデュープ管理: 直前に読み取ったコード。別コードを読むまで同じコードは再通知しない。
     /// バーコード/OCR経由で共通の抑止とする。(メインスレッドからのみアクセス)
     private var lastCode: String?
-    /// 最後に読み取りを通知した時刻。次の読み取りまでクールダウンを設ける。
-    private var lastEmitTime: Date = .distantPast
-    /// クールダウン秒数。SwiftUI側(ScannerView)から注入する(無料5秒 / Pro1秒)。既定1秒。
+    /// クールダウン秒数。SwiftUI側(ScannerView)から注入する(未連携7秒 / 連携済み1秒)。既定1秒。
+    /// 最後に検索した時刻自体は手入力検索と共有するためSearchCooldownStoreが持つ。
     var emitCooldown: TimeInterval = 1.0
 
     /// クールダウン中に別コードを読み取ろうとしたとき「あと◯秒」を出す小さなオーバーレイ。
     private let cooldownLabel = UILabel()
     /// オーバーレイ自動非表示のワークアイテム(再スケジュール時にキャンセルする)。
     private var hideCooldownOverlayWork: DispatchWorkItem?
+    /// 手入力検索から渡された「あと◯秒」通知のうち、直近で表示済みのもののid。
+    /// updateUIViewは様々な理由で何度も呼ばれるため、新しいidのときだけ表示する。
+    private var lastShownCooldownNoticeId: UUID?
 
     /// スキャン枠(画面上部)。0..1の相対座標(表示座標系、y原点は上)
     /// この矩形はUIレイヤーでの枠描画にも、AVCaptureのrectOfInterest計算にも使う。
@@ -165,6 +177,14 @@ final class ScannerContainerView: UIView {
         }
         hideCooldownOverlayWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + Double(remaining) + 0.1, execute: work)
+    }
+
+    /// 手入力検索から渡された「あと◯秒」通知を反映する(SwiftUIのupdateUIViewから呼ばれる)。
+    /// updateUIViewは無関係な再描画でも呼ばれるため、未表示のidのときだけオーバーレイを出す。
+    func applyCooldownNotice(_ notice: ScannerView.CooldownNotice?) {
+        guard let notice, notice.id != lastShownCooldownNoticeId else { return }
+        lastShownCooldownNoticeId = notice.id
+        showCooldownOverlay(remaining: notice.remaining)
     }
 
     private func setupHighlightLayer() {
@@ -366,20 +386,24 @@ final class ScannerContainerView: UIView {
 
     /// デデュープを通過したコードをコールバックへ通知する(メインスレッドで呼ぶこと)。
     /// - 直前と同じコードは読まない(別のコードで解除、モード切替でもリセット)
-    /// - 1度読み込んだら次の読み込みまで1秒のクールダウン
+    /// - 1度読み込んだら次の読み込みまでクールダウン
+    ///
+    /// クールダウンの起点は手入力検索と共有する(SearchCooldownStore)。自前で最終時刻を
+    /// 持つと「スキャン直後に手入力」で制限をすり抜けられてしまうため。
+    /// ここでは判定だけを行い、時刻の記録(markSearched)は呼び出し先のstartSearchに任せる。
+    /// ここで記録してしまうと、直後に呼ぶonScan→startSearchの判定が自分の記録に引っかかり、
+    /// スキャンが必ず弾かれてしまう(記録はどの経路でも1箇所に集約する)。
     private func emit(code: String, symbology: AVMetadataObject.ObjectType) {
         if let lastCode, lastCode == code {
             return
         }
-        let now = Date()
-        let elapsed = now.timeIntervalSince(lastEmitTime)
-        if elapsed < emitCooldown {
+        let remaining = SearchCooldownStore.shared.remainingSeconds(cooldown: emitCooldown)
+        if remaining > 0 {
             // クールダウン中に別コードを読み取ろうとした → 残り秒数を表示(無反応で故障に見えるのを防ぐ)。
-            showCooldownOverlay(remaining: max(1, Int(ceil(emitCooldown - elapsed))))
+            showCooldownOverlay(remaining: remaining)
             return
         }
         lastCode = code
-        lastEmitTime = now
         // 読み取り成立時はオーバーレイを消す。
         cooldownLabel.isHidden = true
         hideCooldownOverlayWork?.cancel()
