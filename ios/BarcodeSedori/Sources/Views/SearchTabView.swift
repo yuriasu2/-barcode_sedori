@@ -360,7 +360,7 @@ struct SearchTabView: View {
             // クールダウンはプランではなく「連携の有無」で決める。未連携の検索はProでも
             // Keepaトークンを1回1個消費するため、高速連続スキャンを許すと数分でトークンが
             // 枯れてしまう。連携済み(SP-API経路=消費ゼロ)のみ高速スキャンを許可する。
-            emitCooldown: settings.isSpApiLinkUsable ? 1.0 : 5.0
+            emitCooldown: settings.isSpApiLinkUsable ? 1.0 : 7.0
         )
         .frame(maxWidth: .infinity)
         .frame(height: UIScreen.main.bounds.height * 0.35)
