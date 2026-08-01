@@ -364,7 +364,7 @@ final class SettingsStore: ObservableObject {
         self.profitAlertPurchaseCost = (defaults.object(forKey: Keys.profitAlertPurchaseCost) as? Int) ?? 0
         self.profitAlertTargetCondition = ProfitAlertCondition(
             rawValue: defaults.string(forKey: Keys.profitAlertTargetCondition) ?? ""
-        ) ?? .used
+        ) ?? .both
         self.profitAlertRankEnabled = defaults.bool(forKey: Keys.profitAlertRankEnabled)
         self.profitAlertRankThreshold = (defaults.object(forKey: Keys.profitAlertRankThreshold) as? Int) ?? 100_000
         self.profitAlertSellerCountEnabled = defaults.bool(forKey: Keys.profitAlertSellerCountEnabled)

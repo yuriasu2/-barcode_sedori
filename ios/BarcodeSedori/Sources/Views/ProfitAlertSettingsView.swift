@@ -73,17 +73,8 @@ struct ProfitAlertSettingsView: View {
                 }
                 .disabled(!settings.profitAlertEnabled)
 
-                // 対象コンディション(粗利益・定価超え判定の両方で使う)は粗利益セクションへ集約する。
-                Picker("対象コンディション", selection: $settings.profitAlertTargetCondition) {
-                    Text("新品").tag(ProfitAlertCondition.new)
-                    Text("中古").tag(ProfitAlertCondition.used)
-                    Text("両方").tag(ProfitAlertCondition.both)
-                }
-                .disabled(!settings.profitAlertEnabled)
             } header: {
                 Text("粗利益")
-            } footer: {
-                Text("対象コンディションは定価超え判定にも使われます")
             }
 
             Section {
@@ -122,7 +113,20 @@ struct ProfitAlertSettingsView: View {
                 Text("0を指定した側は判定しない")
             }
 
-            Section("プレミアム") {
+            Section {
+                Picker("対象コンディション", selection: $settings.profitAlertTargetCondition) {
+                    Text("新品").tag(ProfitAlertCondition.new)
+                    Text("中古").tag(ProfitAlertCondition.used)
+                    Text("両方").tag(ProfitAlertCondition.both)
+                }
+                .disabled(!settings.profitAlertEnabled)
+            } header: {
+                Text("対象コンディション")
+            } footer: {
+                Text("粗利益、プレミアム価格の対象コンディションを選べます")
+            }
+
+            Section("プレミアム価格") {
                 Toggle("定価超えを必要条件", isOn: $settings.profitAlertListPriceEnabled)
                     .disabled(!settings.profitAlertEnabled)
             }
