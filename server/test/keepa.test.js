@@ -252,6 +252,8 @@ test('/api/search: SP-API未設定・KEEPA_API_KEYありならKeepa経路にフ�
       assert.equal(res.body.prices.cart, null);
       assert.equal(res.body.profitInputs.listPrice, 2420); // current[4]=2200(税抜) * 1.10 = 2420
       assert.equal(res.body.releaseDate, '2015-04-09'); // product.releaseDate(20150409)をISO文字列化
+      // Keepa経路は型番を取得できないため常にnull(iOS側はタイトル検索へ自動フォールバックする)。
+      assert.equal(res.body.modelNumber, null);
       assert.ok(typeof res.body.profitInputs.breakEven.new === 'number');
       assert.ok(typeof res.body.profitInputs.breakEven.used === 'number');
 

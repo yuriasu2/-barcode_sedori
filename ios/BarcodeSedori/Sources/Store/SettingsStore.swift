@@ -54,6 +54,14 @@ final class SettingsStore: ObservableObject {
         // 仕入れフォーム(PurchaseFormView): 直近保存したコンディション(新規追加時の初期値に使う)。
         static let listingLastCondition = "settings.listing.lastCondition"
 
+        // リンクボタン(検索タブの結果カード。2026-08 拡張)。
+        /// 表示する4つのリンクボタン種別(順序も保持)。JSONエンコードして保存する。
+        static let linkButtons = "settings.linkButtons"
+        /// リンク検索を型番優先にするか。既定false(タイトル優先)。
+        static let linkSearchByModelNumber = "settings.linkSearchByModelNumber"
+        /// 楽天アフィリエイトID。空欄なら通常の検索リンクを開く。
+        static let rakutenAffiliateId = "settings.rakutenAffiliateId"
+
         // 仕入れ設定(PurchaseSettingsView): フォームのFBA・配送料デフォルトと仕入先リスト。
         static let purchaseUseFbaDefault = "purchase.useFbaDefault"
         /// 発送費用(自分が払う発送コスト)のデフォルト。キー名は導入時の「配送料」のまま流用する
@@ -101,6 +109,34 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+
+    // リンクボタン(検索タブの結果カード。2026-08 拡張)。
+
+    /// 結果カードに表示する4つのリンクボタン(順序も保持)。既定は仕入れ/Amazon/メルカリ/楽天市場。
+    @Published var linkButtons: [LinkButtonKind] {
+        didSet {
+            guard let data = try? JSONEncoder().encode(linkButtons) else { return }
+            defaults.set(data, forKey: Keys.linkButtons)
+        }
+    }
+
+    /// リンク検索のキーワードを型番優先にするか。既定false(タイトル優先)。
+    /// trueでも型番が無い商品(書籍など)は自動的にタイトルへフォールバックする。
+    @Published var linkSearchByModelNumber: Bool {
+        didSet {
+            defaults.set(linkSearchByModelNumber, forKey: Keys.linkSearchByModelNumber)
+        }
+    }
+
+    /// 楽天アフィリエイトID。空欄なら通常の楽天検索リンクをそのまま開く。
+    @Published var rakutenAffiliateId: String {
+        didSet {
+            defaults.set(rakutenAffiliateId, forKey: Keys.rakutenAffiliateId)
+        }
+    }
+
+    /// リンクボタンの既定表示4つ(仕入れ/Amazon/メルカリ/楽天市場)。
+    static let defaultLinkButtons: [LinkButtonKind] = [.purchase, .amazon, .mercari, .rakuten]
 
     // 利益アラート(Phase 1a)。既定は全てOFF。
 
@@ -320,6 +356,16 @@ final class SettingsStore: ObservableObject {
         self.serverURLString = defaults.string(forKey: Keys.serverURL) ?? Self.defaultServerURL
         self.spapiLinkEnabled = defaults.bool(forKey: Keys.spapiLinkEnabled)
         self.spapiSellerId = defaults.string(forKey: Keys.spapiSellerId) ?? ""
+
+        // リンクボタン。未設定/デコード失敗時は既定4つ(仕入れ/Amazon/メルカリ/楽天市場)で読み込む。
+        if let data = defaults.data(forKey: Keys.linkButtons),
+           let decoded = try? JSONDecoder().decode([LinkButtonKind].self, from: data) {
+            self.linkButtons = decoded
+        } else {
+            self.linkButtons = Self.defaultLinkButtons
+        }
+        self.linkSearchByModelNumber = defaults.bool(forKey: Keys.linkSearchByModelNumber)
+        self.rakutenAffiliateId = defaults.string(forKey: Keys.rakutenAffiliateId) ?? ""
 
         // 利益アラート(Phase 1a)。未設定時は全条件OFF・既定値で読み込む(既存ユーザーの挙動は不変)。
         self.profitAlertEnabled = defaults.bool(forKey: Keys.profitAlertEnabled)

@@ -275,7 +275,17 @@ function pickCatalogItem(catalogResponse) {
 }
 
 function extractCatalogFields(item) {
-  if (!item) return { asin: null, title: null, imageUrl: null, salesRank: null, listPrice: null, releaseDate: null };
+  if (!item) {
+    return {
+      asin: null,
+      title: null,
+      imageUrl: null,
+      salesRank: null,
+      listPrice: null,
+      releaseDate: null,
+      modelNumber: null,
+    };
+  }
   const asin = item.asin || null;
   const summary = (item.summaries && item.summaries[0]) || {};
   const title = summary.itemName || null;
@@ -290,7 +300,11 @@ function extractCatalogFields(item) {
   const listPrice = extractListPriceJpy(item);
   // summaries[0].releaseDateはISO日付文字列("2019-05-30"等)。整形はアプリ側で行うためそのまま渡す。
   const releaseDate = summary.releaseDate || null;
-  return { asin, title, imageUrl, salesRank, listPrice, releaseDate };
+  // 型番。summaries[0].modelNumberが基本だが、無ければpartNumberにフォールバックする
+  // (カテゴリによってどちらかしか入っていないことがあるため)。書籍にはそもそも型番の概念が無く
+  // 両方欠落するため、その場合はnullのまま返す(呼び出し側でタイトル検索へフォールバックする)。
+  const modelNumber = summary.modelNumber || summary.partNumber || null;
+  return { asin, title, imageUrl, salesRank, listPrice, releaseDate, modelNumber };
 }
 
 // SP-APIのCatalog Items API(2022-04-01)がattributes.list_priceで返す定価は税抜。
@@ -373,6 +387,7 @@ async function handleSearchViaSpApi(req, res, code, credentials, cacheKey) {
         imageUrl: null,
         salesRank: null,
         releaseDate: null,
+        modelNumber: null,
         prices: null,
         profitInputs: null,
         reason: converted.reason || 'unresolved',
@@ -390,6 +405,7 @@ async function handleSearchViaSpApi(req, res, code, credentials, cacheKey) {
     let isbn13 = converted.isbn13 || null;
     let listPrice = null;
     let releaseDate = null;
+    let modelNumber = null;
 
     if (!asin) {
       if (!identifier) {
@@ -401,6 +417,7 @@ async function handleSearchViaSpApi(req, res, code, credentials, cacheKey) {
           imageUrl: null,
           salesRank: null,
           releaseDate: null,
+          modelNumber: null,
           prices: null,
           profitInputs: null,
           reason: 'no_identifier',
@@ -418,6 +435,7 @@ async function handleSearchViaSpApi(req, res, code, credentials, cacheKey) {
           imageUrl: null,
           salesRank: null,
           releaseDate: null,
+          modelNumber: null,
           prices: null,
           profitInputs: null,
           reason: 'catalog_not_found',
@@ -431,6 +449,8 @@ async function handleSearchViaSpApi(req, res, code, credentials, cacheKey) {
       salesRank = fields.salesRank;
       listPrice = fields.listPrice;
       releaseDate = fields.releaseDate;
+      // 型番。書籍には型番が無くfields.modelNumberはnullのまま(想定どおり)。
+      modelNumber = fields.modelNumber;
     }
 
     if (!asin) {
@@ -442,6 +462,7 @@ async function handleSearchViaSpApi(req, res, code, credentials, cacheKey) {
         imageUrl,
         salesRank,
         releaseDate,
+        modelNumber,
         prices: null,
         profitInputs: null,
         reason: 'asin_not_resolved',
@@ -474,6 +495,8 @@ async function handleSearchViaSpApi(req, res, code, credentials, cacheKey) {
       imageUrl,
       salesRank,
       releaseDate,
+      // 型番。SP-API経路のみ取得できる(Keepa経路はnull固定)。書籍は型番自体が無いためnull。
+      modelNumber,
       prices: {
         cart: cart != null ? cart : null,
         new: newPrice != null ? newPrice : null,
@@ -514,6 +537,8 @@ async function handleSearchViaKeepa(req, res, code, cacheKey) {
         imageUrl: null,
         salesRank: null,
         releaseDate: null,
+        // Keepa経路は型番を取得できない(Keepa APIが型番情報を返さないため)ので常にnull。
+        modelNumber: null,
         prices: null,
         profitInputs: null,
         reason: converted.reason || 'unresolved',
@@ -533,6 +558,7 @@ async function handleSearchViaKeepa(req, res, code, cacheKey) {
         imageUrl: null,
         salesRank: null,
         releaseDate: null,
+        modelNumber: null,
         prices: null,
         profitInputs: null,
         reason: 'no_identifier',
@@ -555,6 +581,7 @@ async function handleSearchViaKeepa(req, res, code, cacheKey) {
         imageUrl: null,
         salesRank: null,
         releaseDate: null,
+        modelNumber: null,
         prices: null,
         profitInputs: null,
         reason: 'catalog_not_found',
@@ -585,6 +612,8 @@ async function handleSearchViaKeepa(req, res, code, cacheKey) {
       imageUrl: mapped.imageUrl,
       salesRank: mapped.salesRank,
       releaseDate: mapped.releaseDate,
+      // Keepa経路は型番を取得できないため常にnull(iOS側はタイトル検索へ自動フォールバックする)。
+      modelNumber: null,
       prices: mapped.prices,
       profitInputs,
       source: 'keepa',

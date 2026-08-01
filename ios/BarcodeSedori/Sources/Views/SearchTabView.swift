@@ -918,11 +918,12 @@ private struct LatestResultCardView: View {
     }
 }
 
-// MARK: - 結果カードのアクションボタングリッド(仕/a/m/価)
+// MARK: - 結果カードのアクションボタングリッド(設定で選んだ4種)
 
-/// カード右側に置くアクションボタン列(1列横並び)。
-/// 「仕」= 仕入れフォームを開く(Pro限定・ASINあり)。「a」= Amazon商品ページ、
-/// 「m」= メルカリ検索、「価」= 価格.com検索(いずれも無料でも使え、タイトルが必要)。
+/// カード右側に置くアクションボタン列(1列横並び)。表示する4種類は設定
+/// (SettingsStore.linkButtons)で選べる(既定: 仕入れ/Amazon/メルカリ/楽天市場)。
+/// 「仕入れ」= 仕入れフォームを開く(Pro限定・ASINあり)。それ以外は各サービスの検索/商品ページを
+/// アプリ内ブラウザで開く(いずれも無料でも使え、検索キーワードが必要)。
 /// unresolvedカードでは呼び出し元(LatestResultCardView)が非表示にする。
 private struct ResultCardActionButtons: View {
     let result: SearchResult
@@ -930,58 +931,68 @@ private struct ResultCardActionButtons: View {
     let isInPurchaseList: Bool
     let onAddToPurchaseList: () -> Void
     let onLockedPurchaseTap: () -> Void
-    /// 外部リンク(a/m/価)タップ時の処理。親側でアプリ内ブラウザ(SafariView)のシートを開く。
+    /// 外部リンクタップ時の処理。親側でアプリ内ブラウザ(SafariView)のシートを開く。
     let onOpenLink: (URL) -> Void
+
+    /// 表示ボタンの選択・型番検索設定・楽天アフィリエイトIDを直接参照する。
+    @ObservedObject private var settings = SettingsStore.shared
 
     // ISBN・ランキングの2行(テキスト列)と高さを揃え、オファーパネルとの間の余白を無くす。
     private let buttonSize: CGFloat = 34
 
-    /// 仕入れボタンを表示するか(ASINがあれば無料でも表示する。非Proは鍵バッジ付きにして
-    /// タップ時にペイウォールを開く。ボタン自体を隠すと機能の存在に気付けないため、
-    /// 「見えるが鍵がかかっている」形にする)。
-    private var showsPurchaseButton: Bool {
-        result.asin != nil
+    /// 設定で選ばれている4つのうち、実際に表示条件を満たすものだけを順序維持で並べる
+    /// (条件を満たさないボタンは並びから抜ける。既存の挙動と同じ)。
+    private var visibleButtons: [LinkButtonKind] {
+        settings.linkButtons.filter(showsButton)
     }
 
-    private var showsAmazonButton: Bool {
-        result.asin != nil
+    private func showsButton(_ kind: LinkButtonKind) -> Bool {
+        switch kind {
+        case .purchase, .amazon:
+            // ASINが無いと仕入れフォーム・Amazon商品ページのどちらも開けない。
+            return result.asin != nil
+        case .mercari, .kakaku, .rakuten, .yahooShopping, .yahooAuction, .rakuma:
+            // 検索キーワード(型番 or タイトル)が無ければ検索リンクを組み立てられない。
+            return searchKeyword != nil
+        }
     }
 
-    private var showsMercariButton: Bool {
-        result.title != nil
-    }
-
-    private var showsKakakuButton: Bool {
-        result.title != nil
+    /// 検索キーワードの決定ルール。型番優先設定がONかつ型番が非空ならそれを使い、
+    /// それ以外(OFF、または型番の無い商品=書籍など)はタイトルにフォールバックする。
+    /// 型番が無いカテゴリでリンクボタンごと使えなくなるのを避けるための自動フォールバック。
+    private var searchKeyword: String? {
+        if settings.linkSearchByModelNumber,
+           let modelNumber = result.modelNumber,
+           !modelNumber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return modelNumber
+        }
+        return result.title
     }
 
     var body: some View {
-        // ボタンを1列に横並びにする(ユーザー指示 2026-07-25)。無料ユーザーは「仕」だけ抜けて並ぶ。
+        // ボタンを1列に横並びにする(ユーザー指示 2026-07-25)。表示条件を満たさない種類は抜けて並ぶ。
         // 各ボタンは幅可変(maxWidth: .infinity)で全幅を等分するため、余白0でも見切れない。
         HStack(spacing: 6) {
-            if showsPurchaseButton {
-                actionButton(
-                    label: "仕",
-                    // 新品パネルと同系のモダンブルー(#3B82F6)。
-                    color: Color(red: 0.23, green: 0.51, blue: 0.96),
-                    isDisabled: isPro && isInPurchaseList,
-                    systemOverlayImage: isPro && isInPurchaseList ? "checkmark" : nil,
-                    showsLockBadge: !isPro,
-                    action: isPro ? onAddToPurchaseList : onLockedPurchaseTap
-                )
+            ForEach(visibleButtons) { kind in
+                buttonView(for: kind)
             }
-            if showsAmazonButton {
-                // Amazonブランドのオレンジ(#FF9900)。
-                actionButton(label: "a", color: Color(red: 1.0, green: 0.60, blue: 0.0), action: openAmazon)
-            }
-            if showsMercariButton {
-                // メルカリの赤に寄せたモダンレッド(#EF4444)。
-                actionButton(label: "m", color: Color(red: 0.94, green: 0.27, blue: 0.27), action: openMercari)
-            }
-            if showsKakakuButton {
-                // 価格.comの紺に寄せたモダンインディゴ(#6366F1)。
-                actionButton(label: "価", color: Color(red: 0.39, green: 0.40, blue: 0.95), action: openKakaku)
-            }
+        }
+    }
+
+    @ViewBuilder
+    private func buttonView(for kind: LinkButtonKind) -> some View {
+        switch kind {
+        case .purchase:
+            actionButton(
+                label: kind.label,
+                color: kind.color,
+                isDisabled: isPro && isInPurchaseList,
+                systemOverlayImage: isPro && isInPurchaseList ? "checkmark" : nil,
+                showsLockBadge: !isPro,
+                action: isPro ? onAddToPurchaseList : onLockedPurchaseTap
+            )
+        default:
+            actionButton(label: kind.label, color: kind.color, action: { open(kind) })
         }
     }
 
@@ -1021,12 +1032,11 @@ private struct ResultCardActionButtons: View {
                             .font(.headline)
                             .foregroundColor(.white)
                     } else {
-                        // 「仕」「価」(CJK)と「a」「m」(ラテン文字)は同じポイント数だと
-                        // ラテン文字が小さく見えるため、1バイト文字だけ大きめのサイズにして
-                        // 見かけの大きさを揃える。
                         Text(label)
-                            .font(.system(size: label.allSatisfy { $0.isASCII } ? 20 : 15, weight: .bold))
+                            .font(.system(size: fontSize(for: label), weight: .bold))
                             .foregroundColor(.white)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.6)
                     }
                 }
                 .overlay(alignment: .topTrailing) {
@@ -1040,26 +1050,74 @@ private struct ResultCardActionButtons: View {
         .disabled(isDisabled)
     }
 
-    /// 商品名をURLクエリ用にエンコードする(全文。副題・シリーズ括弧も含む)。
-    private func encodedTitle() -> String? {
-        guard let title = result.title else { return nil }
-        return title.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)
+    /// ラベルの文字種・文字数に応じてフォントサイズを調整する。
+    /// 「仕」「価」「楽」「ラ」等の1文字CJKと「a」「Y」等の1文字ASCIIは同じポイント数だと
+    /// ASCIIの方が小さく見えるため、ASCIIだけ大きめ(20pt)にして見かけの大きさを揃える
+    /// (既存の作法)。「オク」のような2文字CJKラベルはそのまま15ptだとボタン幅に収まらず
+    /// 見切れるおそれがあるため、さらに小さい11ptにしたうえでminimumScaleFactorも併用して
+    /// 狭い端末幅でも確実に収まるようにする。
+    private func fontSize(for label: String) -> CGFloat {
+        if label.allSatisfy({ $0.isASCII }) { return 20 }
+        if label.count >= 2 { return 11 }
+        return 15
     }
 
-    /// 商品名をShift_JISのパーセントエンコードに変換する(価格.com専用)。
+    /// 検索キーワードをURLクエリ用にエンコードする(全文)。
+    private func encodedKeyword() -> String? {
+        guard let keyword = searchKeyword else { return nil }
+        return keyword.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)
+    }
+
+    /// 検索キーワードをShift_JISのパーセントエンコードに変換する(価格.com専用)。
     /// 価格.comの検索URLはShift_JIS前提のためUTF-8エンコードだと文字化け/404になる
     /// (実リクエストで確認済み)。Shift_JISに無い文字は損失変換で近似する。
-    private func shiftJISEncodedTitle() -> String? {
-        guard let title = result.title,
-              let data = title.data(using: .shiftJIS, allowLossyConversion: true) else { return nil }
-        return data.map { byte -> String in
-            // RFC 3986のunreserved(英数字と-._~)のみ素通しし、他は%XXにする。
+    private func shiftJISEncodedKeyword() -> String? {
+        guard let keyword = searchKeyword,
+              let data = keyword.data(using: .shiftJIS, allowLossyConversion: true) else { return nil }
+        return Self.strictPercentEncoded(bytes: data)
+    }
+
+    /// RFC 3986のunreserved文字(英数字と-._~)のみ素通しし、他は%XXにする厳密なパーセントエンコード。
+    /// バイト列を直接エンコードするため、Shift_JIS(価格.com)にも楽天アフィリエイトURLの
+    /// 丸ごとエンコード(`:`や`/`も含める)にも共通で使える。
+    private static func strictPercentEncoded<S: Sequence>(bytes: S) -> String where S.Element == UInt8 {
+        bytes.map { byte -> String in
             let isUnreserved =
                 (0x30...0x39).contains(byte) || (0x41...0x5A).contains(byte)
                 || (0x61...0x7A).contains(byte) || byte == 0x2D || byte == 0x2E
                 || byte == 0x5F || byte == 0x7E
             return isUnreserved ? String(UnicodeScalar(byte)) : String(format: "%%%02X", byte)
         }.joined()
+    }
+
+    /// 文字列全体(URL全体など)をRFC3986 unreserved文字以外パーセントエンコードする。
+    /// `.urlHostAllowed`等のCharacterSetベースのエンコードは`:`や`/`を素通ししてしまい、
+    /// 楽天アフィリエイトのpc/mパラメータ(URL全体をエンコードして渡す仕様)には使えないため、
+    /// UTF-8バイト列を直接エンコードするこちらを使う。
+    private static func strictPercentEncoded(string: String) -> String {
+        strictPercentEncoded(bytes: Array(string.utf8))
+    }
+
+    private func open(_ kind: LinkButtonKind) {
+        switch kind {
+        case .purchase:
+            // buttonView側で個別処理するためここには来ない。
+            break
+        case .amazon:
+            openAmazon()
+        case .mercari:
+            openMercari()
+        case .kakaku:
+            openKakaku()
+        case .rakuten:
+            openRakuten()
+        case .yahooShopping:
+            openYahooShopping()
+        case .yahooAuction:
+            openYahooAuction()
+        case .rakuma:
+            openRakuma()
+        }
     }
 
     /// Amazonの出品者一覧(すべての出品を表示)を開く。商品ページではなく相場が一覧できる
@@ -1071,14 +1129,55 @@ private struct ResultCardActionButtons: View {
     }
 
     private func openMercari() {
-        guard let encoded = encodedTitle(),
+        guard let encoded = encodedKeyword(),
               let url = URL(string: "https://jp.mercari.com/search?keyword=\(encoded)") else { return }
         onOpenLink(url)
     }
 
     private func openKakaku() {
-        guard let encoded = shiftJISEncodedTitle(),
+        guard let encoded = shiftJISEncodedKeyword(),
               let url = URL(string: "https://kakaku.com/search_results/\(encoded)/") else { return }
+        onOpenLink(url)
+    }
+
+    /// 楽天市場検索を開く。アフィリエイトID設定済みなら楽天アフィリエイトリンクでラップする。
+    private func openRakuten() {
+        guard let encoded = encodedKeyword() else { return }
+        let searchURLString = "https://search.rakuten.co.jp/search/mall/\(encoded)/"
+
+        let affiliateId = settings.rakutenAffiliateId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let finalURLString: String
+        if affiliateId.isEmpty {
+            finalURLString = searchURLString
+        } else {
+            // 楽天アフィリエイトの仕様: pc=PC用遷移先URL、m=モバイル用遷移先URLをそれぞれ
+            // URLエンコードして渡す(PC/モバイル別々のURLを指定できる仕組みだが、ここでは
+            // 同じ楽天検索URLを両方に渡す)。値はURL全体(`:`や`/`含む)をエンコードする必要が
+            // あるため、.urlHostAllowed等ではなく上のstrictPercentEncoded(string:)を使う。
+            let encodedTarget = Self.strictPercentEncoded(string: searchURLString)
+            finalURLString = "https://hb.afl.rakuten.co.jp/hgc/\(affiliateId)/?pc=\(encodedTarget)&m=\(encodedTarget)"
+        }
+        guard let url = URL(string: finalURLString) else { return }
+        onOpenLink(url)
+    }
+
+    /// Yahoo!ショッピング検索を開く。アフィリエイトは利用者側にIDが無いため未対応
+    /// (将来対応する場合はここに楽天と同様のラップ処理を追加する)。
+    private func openYahooShopping() {
+        guard let encoded = encodedKeyword(),
+              let url = URL(string: "https://shopping.yahoo.co.jp/search?p=\(encoded)") else { return }
+        onOpenLink(url)
+    }
+
+    private func openYahooAuction() {
+        guard let encoded = encodedKeyword(),
+              let url = URL(string: "https://auctions.yahoo.co.jp/search/search?p=\(encoded)") else { return }
+        onOpenLink(url)
+    }
+
+    private func openRakuma() {
+        guard let encoded = encodedKeyword(),
+              let url = URL(string: "https://fril.jp/s?query=\(encoded)") else { return }
         onOpenLink(url)
     }
 }

@@ -138,6 +138,8 @@ struct SettingsView: View {
 
                 profitAlertSection
 
+                linkButtonSection
+
                 listingSection
 
                 Section("サーバー設定") {
@@ -276,6 +278,30 @@ struct SettingsView: View {
                 }
                 .buttonStyle(.plain)
             }
+        }
+    }
+
+    // MARK: - リンクボタン
+
+    /// リンクボタン設定セクション。無料でも使える機能のためPro限定にしない
+    /// (profitAlertSection/listingSectionと違い鍵行を出さない)。
+    private var linkButtonSection: some View {
+        Section("リンクボタン") {
+            NavigationLink("表示するボタンを選ぶ") {
+                LinkButtonSettingsView()
+            }
+
+            Toggle("型番で検索する", isOn: $settings.linkSearchByModelNumber)
+            Text("オフのときは商品名で検索します。型番が無い商品(書籍など)は自動的に商品名で検索します。")
+                .font(.footnote)
+                .foregroundColor(.secondary)
+
+            TextField("楽天アフィリエイトID", text: $settings.rakutenAffiliateId)
+                .textInputAutocapitalization(.never)
+                .disableAutocorrection(true)
+            Text("空欄なら通常の検索リンクを開きます。")
+                .font(.footnote)
+                .foregroundColor(.secondary)
         }
     }
 

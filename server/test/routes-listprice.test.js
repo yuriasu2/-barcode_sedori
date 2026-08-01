@@ -182,6 +182,111 @@ test('extractCatalogFields: releaseDate欠落/itemがnullはnullを返す', () =
   assert.equal(routes.extractCatalogFields(null).releaseDate, null);
 });
 
+// --- extractCatalogFields: modelNumber(型番)の抽出 ---
+
+test('extractCatalogFields: summaries[0].modelNumberをmodelNumberとして返す', () => {
+  const routes = freshRoutes();
+  const item = { asin: 'B000TEST11', summaries: [{ itemName: 'x', modelNumber: 'ABC-123' }] };
+  assert.equal(routes.extractCatalogFields(item).modelNumber, 'ABC-123');
+});
+
+test('extractCatalogFields: modelNumberが無い場合はpartNumberにフォールバックする', () => {
+  const routes = freshRoutes();
+  const item = { asin: 'B000TEST12', summaries: [{ itemName: 'x', partNumber: 'PN-999' }] };
+  assert.equal(routes.extractCatalogFields(item).modelNumber, 'PN-999');
+});
+
+test('extractCatalogFields: modelNumber/partNumberとも欠落(書籍等)はnullを返す', () => {
+  const routes = freshRoutes();
+  assert.equal(routes.extractCatalogFields({ asin: 'B000TEST13', summaries: [{ itemName: '書籍' }] }).modelNumber, null);
+  assert.equal(routes.extractCatalogFields(null).modelNumber, null);
+});
+
+// --- /api/search (spapi経路): レスポンスにmodelNumberが含まれること ---
+
+test('/api/search spapi経路: レスポンスにCatalogのmodelNumberが含まれる', async () => {
+  await withEnv(
+    {
+      LWA_CLIENT_ID: 'client-id',
+      LWA_CLIENT_SECRET: 'client-secret',
+      LWA_REFRESH_TOKEN: 'refresh-token',
+    },
+    async () => {
+      const routes = freshRoutes();
+      const pricing = require('../src/spapi/pricing');
+
+      pricing.searchCatalogItems = async () => ({
+        items: [
+          {
+            asin: 'B000TEST3',
+            summaries: [{ itemName: 'テスト商品', modelNumber: 'MODEL-001' }],
+            images: [],
+            salesRanks: [],
+          },
+        ],
+      });
+      pricing.getItemOffers = async () => ({
+        payload: {
+          Summary: { TotalOfferCount: 0, LowestPrices: [], BuyBoxPrices: [] },
+          Offers: [],
+        },
+      });
+      pricing.getMyFeesEstimatesBatch = async () => ({ payload: [] });
+
+      const route = routes.match('GET', '/api/search');
+      const res = createMockRes();
+      await route.handler(
+        { query: { code: '9784000000003' }, headers: { 'x-app-plan': 'pro' } },
+        res
+      );
+
+      assert.equal(res.body.modelNumber, 'MODEL-001');
+      assert.equal(res.body.source, 'spapi');
+    }
+  );
+});
+
+test('/api/search spapi経路: 型番の無い商品(書籍等)はmodelNumberがnull', async () => {
+  await withEnv(
+    {
+      LWA_CLIENT_ID: 'client-id',
+      LWA_CLIENT_SECRET: 'client-secret',
+      LWA_REFRESH_TOKEN: 'refresh-token',
+    },
+    async () => {
+      const routes = freshRoutes();
+      const pricing = require('../src/spapi/pricing');
+
+      pricing.searchCatalogItems = async () => ({
+        items: [
+          {
+            asin: 'B000TEST4',
+            summaries: [{ itemName: 'テスト書籍3' }],
+            images: [],
+            salesRanks: [],
+          },
+        ],
+      });
+      pricing.getItemOffers = async () => ({
+        payload: {
+          Summary: { TotalOfferCount: 0, LowestPrices: [], BuyBoxPrices: [] },
+          Offers: [],
+        },
+      });
+      pricing.getMyFeesEstimatesBatch = async () => ({ payload: [] });
+
+      const route = routes.match('GET', '/api/search');
+      const res = createMockRes();
+      await route.handler(
+        { query: { code: '9784000000002' }, headers: { 'x-app-plan': 'pro' } },
+        res
+      );
+
+      assert.equal(res.body.modelNumber, null);
+    }
+  );
+});
+
 // --- pricing.searchCatalogItems: includedDataにattributesが含まれること ---
 
 test('pricing.searchCatalogItems: includedDataにattributesを含めてリクエストする(fetchモック)', async (t) => {
