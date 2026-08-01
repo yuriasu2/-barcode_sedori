@@ -166,6 +166,16 @@ struct PriceHistoryChartView: View {
     /// ロード中/失敗時も同じ高さを確保してレイアウトが跳ねないようにする。
     private static let reservedHeight: CGFloat = 140
 
+    /// SP-API連携済みのとき、取得前に置く静止待ち時間(秒)。
+    /// 連携済みの検索はトークン消費ゼロだが、グラフは新商品1件につきKeepaトークンを
+    /// 1個消費する。高速連続スキャン中に商品ごとへ自動取得が走るとトークンが数分で
+    /// 枯れるため、「結果が5秒画面に留まった(=ユーザーが関心を持って手を止めた)」
+    /// 商品だけ取得する。次のスキャンでasinが変われば.task(id:)が待機中のタスクを
+    /// キャンセルするので、流し読みした商品では消費が発生しない。
+    /// 未連携はグラフデータが検索(history:1)に同梱されサーバーキャッシュ済み=追加消費
+    /// ゼロのため、待たせる意味がなく即時取得する。
+    private static let linkedFetchDelaySeconds: UInt64 = 5
+
     var body: some View {
         Group {
             if let graphData {
@@ -173,6 +183,7 @@ struct PriceHistoryChartView: View {
             } else if loadFailed {
                 failureView
             } else {
+                // 静止待ちの間もこの読み込み中表示(スピナー)が出る。
                 loadingView
             }
         }
@@ -189,6 +200,18 @@ struct PriceHistoryChartView: View {
         }
         graphData = nil
         loadFailed = false
+
+        // 連携済みは5秒静止するまで取得しない(理由はlinkedFetchDelaySecondsのコメント参照)。
+        // Task.sleepはビューが消えるか別asinへ切り替わるとCancellationErrorを投げるため、
+        // その場合はここで終了し取得は走らない(=トークン消費なし)。
+        if SettingsStore.shared.isSpApiLinkUsable {
+            do {
+                try await Task.sleep(nanoseconds: Self.linkedFetchDelaySeconds * 1_000_000_000)
+            } catch {
+                return
+            }
+        }
+
         do {
             let data = try await APIClient.shared.graphData(asin: asin)
             Self.dataCache[asin] = data
