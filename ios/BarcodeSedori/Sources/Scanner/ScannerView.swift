@@ -507,9 +507,15 @@ extension ScannerContainerView: AVCaptureVideoDataOutputSampleBufferDelegate {
 
     /// OCRテキストからISBN(13桁/10桁)/JANを抽出する。ハイフン・スペースは無視。
     ///
-    /// 13桁: バーコード直下の数字(ハイフンなしの連続13桁)は読まない —
+    /// ISBN-13: バーコード直下の裸の数字(ハイフンなしの連続13桁)は読まない —
     /// バーコード自体が読める状態のため、バーコードモードで読むべき。
-    /// 採用は「ISBN」表記を含む行、またはハイフン区切りで印字された番号のみ。
+    /// 採用は「ISBN」表記を含む行、またはハイフン区切りで印字された番号のみ
+    /// (誤読対策。EAN13チェックデジットだけでは1/10の確率で偶然一致するため、
+    /// 書籍は「ISBN」表記・ハイフンという追加の手がかりで絞り込む)。
+    ///
+    /// JAN: 裸の連続13桁でも採用する(ユーザー要望2026-08。バーコードが読み取りにくい
+    /// 場面でOCRが使えないと本来の代替手段の役目を果たせないため)。ISBNのような
+    /// 追加の手がかりが無い分、誤読対策はEAN13チェックデジットのみになる。
     ///
     /// 10桁(ISBN-10, 4始まり, 末尾X可): ISBN表記・ハイフンがなくても採用
     /// (バーコード下に10桁表記は存在しないため)。ISBN-13に変換して返す。
@@ -522,13 +528,17 @@ extension ScannerContainerView: AVCaptureVideoDataOutputSampleBufferDelegate {
         let hasIsbnPrefix = noSpace.contains("ISBN")
         let cleaned = noSpace.replacingOccurrences(of: "-", with: "")
 
-        // 13桁 (ISBN-13 / JAN)
-        if let code = firstMatch(regex: isbnRegex, in: cleaned) ?? firstMatch(regex: janRegex, in: cleaned),
+        // 13桁 (ISBN-13)。裸の連続13桁は不採用(理由は上のコメント参照)。
+        if let code = firstMatch(regex: isbnRegex, in: cleaned),
+           EAN13Validator.isValid(code),
+           hasIsbnPrefix || containsHyphenated(code: code, in: noSpace) {
+            return code
+        }
+
+        // 13桁 (JAN)。裸の連続13桁でも採用する(理由は上のコメント参照)。
+        if let code = firstMatch(regex: janRegex, in: cleaned),
            EAN13Validator.isValid(code) {
-            if hasIsbnPrefix || containsHyphenated(code: code, in: noSpace) {
-                return code
-            }
-            // 裸の連続13桁(=バーコード下の数字の可能性が高い)は不採用。ISBN-10判定へ進む
+            return code
         }
 
         // 10桁 (ISBN-10)
