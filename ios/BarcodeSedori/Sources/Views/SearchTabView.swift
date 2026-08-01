@@ -220,6 +220,18 @@ struct SearchTabView: View {
     @ObservedObject private var navigation = AppNavigation.shared
     /// 価格推移グラフの期間切替。初期値は3ヶ月。
     @State private var selectedGraphRange: GraphRange = .threeMonths
+    /// 手入力検索の直近実行時刻(未連携時のクールダウン判定用)。
+    @State private var lastUnlinkedSearchAt: Date?
+    /// クールダウン中の手入力検索をブロックした際に出すalert。
+    /// searchErrorMessage(赤文字)は既にlatestResultCardが表示されていると隠れて
+    /// 見えなくなる(latestResultが非nilの間はそちらが優先されるため)ため、
+    /// 常に表示されるalertで確実にユーザーへ理由を伝える。
+    @State private var cooldownAlert: CooldownAlert?
+
+    private struct CooldownAlert: Identifiable {
+        let id = UUID()
+        let message: String
+    }
     /// リワード広告(Phase C)。ロード/表示中フラグの変化でボタンを更新するため監視する。
     @ObservedObject private var rewardedAds = RewardedAdManager.shared
     /// リワード広告の表示〜枠の反映待ちが進行中か。二重起動を防ぎ、UIへ「反映中…」を出すために持つ。
@@ -256,6 +268,9 @@ struct SearchTabView: View {
             .alert("OCR機能を無制限に使うにはProにアップグレードしてください。", isPresented: $showOcrLimitAlert) {
                 Button("アップグレード") { showPaywall = true }
                 Button("閉じる", role: .cancel) {}
+            }
+            .alert(item: $cooldownAlert) { alert in
+                Alert(title: Text(alert.message))
             }
             // 無料枠を使い切った瞬間にOCRモードのままだと、カメラ停止後もOCRトグルが選択された
             // 見た目のまま残ってしまうため、枠切れになったらバーコードモードへ強制的に戻す。
@@ -388,15 +403,36 @@ struct SearchTabView: View {
         offersPanels
     }
 
+    /// 未連携時の手入力検索クールダウン(秒)。カメラのemitCooldown(未連携7秒)と揃える。
+    /// 手入力はカメラを経由しないため、これが無いとカメラのクールダウンを回避して
+    /// Keepaトークンを連続消費できてしまう抜け穴になっていた。
+    private static let unlinkedManualSearchCooldown: TimeInterval = 7.0
+
     /// スキャン(カメラ/OCR)・手入力検索の共通ゲート。無料枠ユニットの残量を確認し、
     /// 残っていればローカルミラーを楽観的に1消費してから検索を実行する。
     /// 枠切れのときはペイウォールを提示する。枠切れ中はカメラが止まる(isScannerActive)ため
     /// ここに枠切れで到達するのは手入力検索の経路だが、黙って無反応にすると
     /// 「検索できない理由」が分からないため必ず理由を示す。
+    ///
+    /// 未連携(=検索1回ごとにKeepaトークンを消費)はクールダウンも課す。カメラ経由の
+    /// スキャンにはScannerView側のemitCooldownで既に同じ制限があるが、手入力検索は
+    /// それを経由しないため、ここで独立にチェックする(連携済みは検索が無料なので課さない)。
     private func startSearch(_ code: String) {
         guard isSearchUnlimited || quota.canScanToday else {
             showPaywall = true
             return
+        }
+        if !settings.isSpApiLinkUsable {
+            let now = Date()
+            if let lastAt = lastUnlinkedSearchAt {
+                let elapsed = now.timeIntervalSince(lastAt)
+                if elapsed < Self.unlinkedManualSearchCooldown {
+                    let remaining = Int((Self.unlinkedManualSearchCooldown - elapsed).rounded(.up))
+                    cooldownAlert = CooldownAlert(message: "連続検索は\(remaining)秒後にお試しください。")
+                    return
+                }
+            }
+            lastUnlinkedSearchAt = now
         }
         if !isSearchUnlimited {
             quota.consumeLocally()
