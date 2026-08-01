@@ -111,6 +111,11 @@ struct PurchaseTabView: View {
             Button("削除", role: .destructive) {
                 store.remove(ids: selectedIds)
                 selectedIds.removeAll()
+                // 選択モードを終了する。これを忘れると、全件削除でリストが空になった際に
+                // emptyStateへ切り替わり、isSelecting=trueのままタブバーが隠れた
+                // (.toolbar(isSelecting ? .hidden : ...))状態で戻る手段が無くなり
+                // 操作不能になる不具合があった(商品タブと同じ原因)。
+                isSelecting = false
             }
             Button("キャンセル", role: .cancel) {}
         }
@@ -310,27 +315,35 @@ struct PurchaseTabView: View {
     }
 
     /// 未出品/出品済みの各セクションで共通の行組み立て。
-    /// 注意: セクション分割によりForEachのoffsetsは渡された配列(フィルタ後)基準になり、
-    /// store.items全体の添字とはずれる。そのためonDeleteはoffsetsをそのまま
-    /// store.remove(atOffsets:)へは渡さず、フィルタ後配列からidを引いてstore.remove(ids:)で消す。
+    ///
+    /// 削除は.onDeleteではなく行ごとの.swipeActionsで行う。.onDeleteをList(selection:)と
+    /// 併用すると、選択モード(editMode.active)時に選択用の丸に加えて.onDelete由来の
+    /// 赤い削除ボタンも自動表示され、UIが重複して煩雑になる(選択モードでの一括削除は
+    /// 既にselectionOptionsRowのゴミ箱ボタンで提供済みのため不要)。.swipeActionsなら
+    /// スワイプ操作自体は維持しつつ、選択モード中は(iOS標準の挙動で)自動的に無効になる。
     @ViewBuilder
     private func purchaseRows(for items: [PurchaseListItem]) -> some View {
         ForEach(items) { item in
             // 行タップでの編集は誰でも可(Pro/SP-API連携の状態やisListedに関わらず開ける)。
             // 選択モード中はタップが選択操作に使われるため遷移させない。
-            if !isSelecting {
-                NavigationLink {
-                    PurchaseFormView(mode: .edit(item: item))
-                } label: {
+            Group {
+                if !isSelecting {
+                    NavigationLink {
+                        PurchaseFormView(mode: .edit(item: item))
+                    } label: {
+                        PurchaseListRow(item: item)
+                    }
+                } else {
                     PurchaseListRow(item: item)
                 }
-            } else {
-                PurchaseListRow(item: item)
             }
-        }
-        .onDelete { offsets in
-            let ids = Set(offsets.map { items[$0].id })
-            store.remove(ids: ids)
+            .swipeActions(edge: .trailing) {
+                Button(role: .destructive) {
+                    store.remove(ids: [item.id])
+                } label: {
+                    Label("削除", systemImage: "trash")
+                }
+            }
         }
     }
 }

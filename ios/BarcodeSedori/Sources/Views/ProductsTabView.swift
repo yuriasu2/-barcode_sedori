@@ -105,6 +105,11 @@ struct ProductsTabView: View {
             Button("削除", role: .destructive) {
                 historyStore.remove(ids: selectedIds)
                 selectedIds.removeAll()
+                // 選択モードを終了する(addSelectedToPurchaseList()と同じ後処理)。
+                // これを忘れると、全件削除でリストが空になった際にemptyStateへ切り替わり、
+                // isSelecting=trueのままタブバーが隠れた(.toolbar(isSelecting ? .hidden : ...))
+                // 状態で戻る手段が無くなり操作不能になる不具合があった。
+                isSelecting = false
             }
             Button("キャンセル", role: .cancel) {}
         }
