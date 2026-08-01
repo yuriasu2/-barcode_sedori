@@ -6,6 +6,28 @@ import CoreGraphics
 struct AdsResponse: Codable, Equatable {
     let version: Int
     let slots: [String: AdSlot?]
+    /// サービス名 → アフィリエイトID(例: ["rakuten": "xxxx.xxxx..."])。
+    /// アプリ運営者(自分)の収益に結びつくIDであり利用者ごとの値ではないため、広告ユニットIDと
+    /// 同じくサーバー側で一元管理する(アプリに埋め込むとID変更のたびに更新・審査が要るため)。
+    /// 旧バージョンのサーバー応答にキー自体が無い場合に備えデフォルト空辞書を許容する。
+    let affiliates: [String: String]
+
+    private enum CodingKeys: String, CodingKey {
+        case version, slots, affiliates
+    }
+
+    init(version: Int, slots: [String: AdSlot?], affiliates: [String: String]) {
+        self.version = version
+        self.slots = slots
+        self.affiliates = affiliates
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        version = try container.decode(Int.self, forKey: .version)
+        slots = try container.decode([String: AdSlot?].self, forKey: .slots)
+        affiliates = try container.decodeIfPresent([String: String].self, forKey: .affiliates) ?? [:]
+    }
 }
 
 /// 広告のProへの表示可否。サーバー側で枠ごと・広告ごとに制御できる

@@ -934,8 +934,11 @@ private struct ResultCardActionButtons: View {
     /// 外部リンクタップ時の処理。親側でアプリ内ブラウザ(SafariView)のシートを開く。
     let onOpenLink: (URL) -> Void
 
-    /// 表示ボタンの選択・型番検索設定・楽天アフィリエイトIDを直接参照する。
+    /// 表示ボタンの選択・型番検索設定を直接参照する。
     @ObservedObject private var settings = SettingsStore.shared
+    /// 楽天アフィリエイトID等、サーバー管理のアフィリエイト設定を直接参照する
+    /// (利用者ごとの値ではなくアプリ運営者の収益設定のためSettingsStoreではなくこちら)。
+    @ObservedObject private var adsConfig = AdsConfigStore.shared
 
     // ISBN・ランキングの2行(テキスト列)と高さを揃え、オファーパネルとの間の余白を無くす。
     private let buttonSize: CGFloat = 34
@@ -1140,12 +1143,14 @@ private struct ResultCardActionButtons: View {
         onOpenLink(url)
     }
 
-    /// 楽天市場検索を開く。アフィリエイトID設定済みなら楽天アフィリエイトリンクでラップする。
+    /// 楽天市場検索を開く。サーバー配信のアフィリエイトID設定済みなら楽天アフィリエイトリンクで
+    /// ラップする(IDはアプリ運営者の収益設定のためAdsConfigStore=/api/adsから取得する。
+    /// 利用者が設定画面で入力する項目ではない)。
     private func openRakuten() {
         guard let encoded = encodedKeyword() else { return }
         let searchURLString = "https://search.rakuten.co.jp/search/mall/\(encoded)/"
 
-        let affiliateId = settings.rakutenAffiliateId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let affiliateId = (adsConfig.affiliates["rakuten"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let finalURLString: String
         if affiliateId.isEmpty {
             finalURLString = searchURLString

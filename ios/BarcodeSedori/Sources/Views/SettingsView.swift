@@ -295,13 +295,8 @@ struct SettingsView: View {
             Text("オフのときは商品名で検索します。型番が無い商品(書籍など)は自動的に商品名で検索します。")
                 .font(.footnote)
                 .foregroundColor(.secondary)
-
-            TextField("楽天アフィリエイトID", text: $settings.rakutenAffiliateId)
-                .textInputAutocapitalization(.never)
-                .disableAutocorrection(true)
-            Text("空欄なら通常の検索リンクを開きます。")
-                .font(.footnote)
-                .foregroundColor(.secondary)
+            // 楽天アフィリエイトIDはアプリ運営者の収益に結びつくものであり利用者が入力する項目
+            // ではないため、サーバー管理(AdsConfigStore経由)に一本化した。設定画面には出さない。
         }
     }
 

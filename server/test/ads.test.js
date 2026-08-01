@@ -58,19 +58,23 @@ function withAdsKv(kv, fn) {
 
 // --- GET /api/ads ---
 
-test('GET /api/ads: KV未設定は {version:0, slots:{}}', async () => {
+test('GET /api/ads: KV未設定は {version:0, slots:{}, affiliates:{}}', async () => {
   await withAdsKv(null, async () => {
     const routes = freshRoutes();
     const res = createMockRes();
     const route = routes.match('GET', '/api/ads');
     await route.handler({ query: {}, headers: {} }, res);
     assert.equal(res.statusCode, 200);
-    assert.deepEqual(res.body, { version: 0, slots: {} });
+    assert.deepEqual(res.body, { version: 0, slots: {}, affiliates: {} });
   });
 });
 
-test('GET /api/ads: KVありで設定がそのまま返る', async () => {
-  const config = { version: 3, slots: { search_ad: { type: 'admob', unitId: 'x', audience: 'free' } } };
+test('GET /api/ads: KVありで設定(affiliates込み)がそのまま返る', async () => {
+  const config = {
+    version: 3,
+    slots: { search_ad: { type: 'admob', unitId: 'x', audience: 'free' } },
+    affiliates: { rakuten: '06de2a6d.f8aad016.06de2a6e.ee8d6798' },
+  };
   const kv = createMockKv({ config: JSON.stringify(config) });
   await withAdsKv(kv, async () => {
     const routes = freshRoutes();
@@ -82,7 +86,19 @@ test('GET /api/ads: KVありで設定がそのまま返る', async () => {
   });
 });
 
-test('GET /api/ads: JSON破損時は空応答({version:0, slots:{}})を握りつぶして返す', async () => {
+test('GET /api/ads: affiliatesキーが無い旧形式KVでも空affiliatesで補完される', async () => {
+  const config = { version: 2, slots: {} };
+  const kv = createMockKv({ config: JSON.stringify(config) });
+  await withAdsKv(kv, async () => {
+    const routes = freshRoutes();
+    const res = createMockRes();
+    const route = routes.match('GET', '/api/ads');
+    await route.handler({ query: {}, headers: {} }, res);
+    assert.deepEqual(res.body, { version: 2, slots: {}, affiliates: {} });
+  });
+});
+
+test('GET /api/ads: JSON破損時は空応答({version:0, slots:{}, affiliates:{}})を握りつぶして返す', async () => {
   const kv = createMockKv({ config: '{invalid json' });
   await withAdsKv(kv, async () => {
     const routes = freshRoutes();
@@ -90,7 +106,7 @@ test('GET /api/ads: JSON破損時は空応答({version:0, slots:{}})を握りつ
     const route = routes.match('GET', '/api/ads');
     await route.handler({ query: {}, headers: {} }, res);
     assert.equal(res.statusCode, 200);
-    assert.deepEqual(res.body, { version: 0, slots: {} });
+    assert.deepEqual(res.body, { version: 0, slots: {}, affiliates: {} });
   });
 });
 
@@ -101,7 +117,7 @@ test('GET /api/ads: KVキー無し(get→null)も空応答', async () => {
     const res = createMockRes();
     const route = routes.match('GET', '/api/ads');
     await route.handler({ query: {}, headers: {} }, res);
-    assert.deepEqual(res.body, { version: 0, slots: {} });
+    assert.deepEqual(res.body, { version: 0, slots: {}, affiliates: {} });
   });
 });
 
@@ -118,8 +134,8 @@ test('GET /api/ads: 60秒キャッシュにより2回目はKV.getが呼ばれな
     await route.handler({ query: {}, headers: {} }, res2);
 
     assert.equal(kv.getCalls.length, 1);
-    assert.deepEqual(res1.body, config);
-    assert.deepEqual(res2.body, config);
+    assert.deepEqual(res1.body, { ...config, affiliates: {} });
+    assert.deepEqual(res2.body, { ...config, affiliates: {} });
   });
 });
 

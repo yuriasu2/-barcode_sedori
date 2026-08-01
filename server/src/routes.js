@@ -1177,8 +1177,8 @@ router.get('/api/spapi/test', async (req, res) => {
 
 const ADS_CONFIG_KV_KEY = 'config';
 const ADS_CONFIG_CACHE_KEY = 'ads_config';
-// KV未設定・キー無し・JSON破損時の安全側デフォルト(=全スロット非表示)。
-const ADS_DEFAULT_CONFIG = { version: 0, slots: {} };
+// KV未設定・キー無し・JSON破損時の安全側デフォルト(=全スロット非表示・アフィリエイトなし)。
+const ADS_DEFAULT_CONFIG = { version: 0, slots: {}, affiliates: {} };
 
 /**
  * worker.js が env.ADS_CONFIG(KVバインディング)を橋渡しした globalThis.__adsKv を取得する。
@@ -1189,10 +1189,15 @@ function getAdsKv() {
 }
 
 /**
- * GET /api/ads の本体(広告配信設定)をKVから読み込む。
+ * GET /api/ads の本体(広告配信設定+アフィリエイトID)をKVから読み込む。
  * Workerメモリで60秒キャッシュしKV読み取り回数を抑える。
  * KV未設定・キー無し・JSON破損はすべて安全側(ADS_DEFAULT_CONFIG)にフォールバックする
  * (配信者=自分自身のためスロット値の検証はしないが、パース失敗だけは握りつぶす)。
+ *
+ * affiliates: サービス名 → アフィリエイトID(例: {"rakuten":"xxxx.xxxx..."})の文字列マップ。
+ * 楽天アフィリエイトIDはアプリ運営者(自分)の収益に結びつくものであり、アプリを使う各利用者が
+ * 持つものではないため、広告ユニットIDと同じくサーバー側で一元管理する
+ * (アプリ本体に埋め込むとID変更のたびにアプリ更新・審査が必要になるため)。
  */
 async function loadAdsConfig() {
   const cached = adsConfigCache.get(ADS_CONFIG_CACHE_KEY);
@@ -1213,6 +1218,8 @@ async function loadAdsConfig() {
         config = {
           version: typeof parsed.version === 'number' ? parsed.version : 0,
           slots: parsed.slots && typeof parsed.slots === 'object' ? parsed.slots : {},
+          affiliates:
+            parsed.affiliates && typeof parsed.affiliates === 'object' ? parsed.affiliates : {},
         };
       }
     }

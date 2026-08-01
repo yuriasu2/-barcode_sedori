@@ -9,6 +9,9 @@ final class AdsConfigStore: ObservableObject {
 
     /// slot id → 設定。取得前/失敗時かつキャッシュも無い場合は空(広告なし。安全側)。
     @Published private(set) var slots: [String: AdSlot] = [:]
+    /// サービス名 → アフィリエイトID。取得前/失敗時かつキャッシュも無い場合は空
+    /// (=通常URLを開く。アフィリエイトなしでも機能自体は動く安全側)。
+    @Published private(set) var affiliates: [String: String] = [:]
 
     private static let cacheKey = "ads.configCache"
 
@@ -51,6 +54,7 @@ final class AdsConfigStore: ObservableObject {
 
     private func apply(_ response: AdsResponse) {
         slots = response.slots.compactMapValues { $0 }
+        affiliates = response.affiliates
     }
 
     /// 広告の表示/クリックを計測送信する(fire-and-forget、失敗は無視)。

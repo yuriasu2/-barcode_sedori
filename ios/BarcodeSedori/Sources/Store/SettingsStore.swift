@@ -59,8 +59,6 @@ final class SettingsStore: ObservableObject {
         static let linkButtons = "settings.linkButtons"
         /// リンク検索を型番優先にするか。既定false(タイトル優先)。
         static let linkSearchByModelNumber = "settings.linkSearchByModelNumber"
-        /// 楽天アフィリエイトID。空欄なら通常の検索リンクを開く。
-        static let rakutenAffiliateId = "settings.rakutenAffiliateId"
 
         // 仕入れ設定(PurchaseSettingsView): フォームのFBA・配送料デフォルトと仕入先リスト。
         static let purchaseUseFbaDefault = "purchase.useFbaDefault"
@@ -125,13 +123,6 @@ final class SettingsStore: ObservableObject {
     @Published var linkSearchByModelNumber: Bool {
         didSet {
             defaults.set(linkSearchByModelNumber, forKey: Keys.linkSearchByModelNumber)
-        }
-    }
-
-    /// 楽天アフィリエイトID。空欄なら通常の楽天検索リンクをそのまま開く。
-    @Published var rakutenAffiliateId: String {
-        didSet {
-            defaults.set(rakutenAffiliateId, forKey: Keys.rakutenAffiliateId)
         }
     }
 
@@ -365,7 +356,6 @@ final class SettingsStore: ObservableObject {
             self.linkButtons = Self.defaultLinkButtons
         }
         self.linkSearchByModelNumber = defaults.bool(forKey: Keys.linkSearchByModelNumber)
-        self.rakutenAffiliateId = defaults.string(forKey: Keys.rakutenAffiliateId) ?? ""
 
         // 利益アラート(Phase 1a)。未設定時は全条件OFF・既定値で読み込む(既存ユーザーの挙動は不変)。
         self.profitAlertEnabled = defaults.bool(forKey: Keys.profitAlertEnabled)
