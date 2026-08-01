@@ -39,7 +39,7 @@ struct ProfitAlertSettingsView: View {
             } header: {
                 Text("ランキング")
             } footer: {
-                Text("1位以上が有効値")
+                Text("指定した順位以下で成立(1位以上を入力)")
             }
 
             Section {
@@ -70,7 +70,7 @@ struct ProfitAlertSettingsView: View {
             } header: {
                 Text("粗利益")
             } footer: {
-                Text("1円以上が有効値")
+                Text("指定した粗利額以上で成立(1円以上を入力)")
             }
 
             Section {

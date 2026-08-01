@@ -256,9 +256,12 @@ struct SettingsView: View {
     // MARK: - 利益アラート
 
     /// 利益アラート設定セクション。無料は鍵行のみでタップでペイウォール、Proは専用画面への導線1行のみ。
+    /// セクション見出しは付けない(旧「利益アラート」だと、中の行/画面自体の名称
+    /// 「アラート設定」と表記が混在していた。見出しをそちらに揃えると行と同じ文字が
+    /// 二重表示されるため、見出し自体を無くしリンクの文言だけで示す)。
     @ViewBuilder
     private var profitAlertSection: some View {
-        Section("利益アラート") {
+        Section {
             if entitlements.isPro {
                 NavigationLink("アラート設定") {
                     ProfitAlertSettingsView()
