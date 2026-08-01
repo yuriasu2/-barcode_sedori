@@ -655,7 +655,8 @@ struct SearchTabView: View {
             HStack(alignment: .top, spacing: 12) {
                 OffersPanelView(
                     title: offersPanelTitle(base: "新品", sellerCount: viewModel.newSellerCount),
-                    color: Color(red: 0.13, green: 0.59, blue: 0.95),
+                    // モダンなブルー(#3B82F6)。「新品=青」の意味は従来から維持。
+                    color: Color(red: 0.23, green: 0.51, blue: 0.96),
                     offers: viewModel.offersResult?.new ?? [],
                     isLoading: viewModel.isLoadingOffers,
                     isLocked: viewModel.offersLocked,
@@ -667,7 +668,8 @@ struct SearchTabView: View {
 
                 OffersPanelView(
                     title: offersPanelTitle(base: "中古", sellerCount: viewModel.usedSellerCount),
-                    color: Color(red: 1.0, green: 0.60, blue: 0.0),
+                    // モダンなオレンジ(#F97316)。「中古=オレンジ」の意味は従来から維持。
+                    color: Color(red: 0.98, green: 0.45, blue: 0.09),
                     offers: viewModel.offersResult?.used ?? [],
                     isLoading: viewModel.isLoadingOffers,
                     isLocked: viewModel.offersLocked,
@@ -957,7 +959,8 @@ private struct ResultCardActionButtons: View {
             if showsPurchaseButton {
                 actionButton(
                     label: "仕",
-                    color: .accentColor,
+                    // 新品パネルと同系のモダンブルー(#3B82F6)。
+                    color: Color(red: 0.23, green: 0.51, blue: 0.96),
                     isDisabled: isPro && isInPurchaseList,
                     systemOverlayImage: isPro && isInPurchaseList ? "checkmark" : nil,
                     showsLockBadge: !isPro,
@@ -965,13 +968,16 @@ private struct ResultCardActionButtons: View {
                 )
             }
             if showsAmazonButton {
-                actionButton(label: "a", color: Color(red: 1.0, green: 0.55, blue: 0.0), action: openAmazon)
+                // Amazonブランドのオレンジ(#FF9900)。
+                actionButton(label: "a", color: Color(red: 1.0, green: 0.60, blue: 0.0), action: openAmazon)
             }
             if showsMercariButton {
-                actionButton(label: "m", color: Color(red: 0.86, green: 0.15, blue: 0.15), action: openMercari)
+                // メルカリの赤に寄せたモダンレッド(#EF4444)。
+                actionButton(label: "m", color: Color(red: 0.94, green: 0.27, blue: 0.27), action: openMercari)
             }
             if showsKakakuButton {
-                actionButton(label: "価", color: Color(red: 0.29, green: 0.29, blue: 0.72), action: openKakaku)
+                // 価格.comの紺に寄せたモダンインディゴ(#6366F1)。
+                actionButton(label: "価", color: Color(red: 0.39, green: 0.40, blue: 0.95), action: openKakaku)
             }
         }
     }
@@ -989,8 +995,20 @@ private struct ResultCardActionButtons: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            RoundedRectangle(cornerRadius: 10)
-                .fill(isDisabled ? Color.secondary : color)
+            RoundedRectangle(cornerRadius: 12)
+                // ベタ塗りから同系色の斜めグラデーション+淡い色付きシャドウへ(パネルと同じ作法)。
+                .fill(
+                    isDisabled
+                        ? AnyShapeStyle(Color.secondary)
+                        : AnyShapeStyle(
+                            LinearGradient(
+                                colors: [color, color.darkened(0.15)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                )
+                .shadow(color: isDisabled ? .clear : color.opacity(0.35), radius: 4, x: 0, y: 2)
                 // 幅は全幅を等分(maxWidth: .infinity)、高さのみ固定して正方形風に見せる。
                 .frame(maxWidth: .infinity)
                 .frame(height: buttonSize)
@@ -1156,7 +1174,9 @@ private struct OffersPanelView: View {
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(color)
+                // ヘッダー帯はベタ塗りをやめ、グラデーション背景の上に半透明白を重ねて
+                // 本体との区切りを柔らかく見せる。
+                .background(Color.white.opacity(0.16))
 
             VStack(alignment: .leading, spacing: 4) {
                 if isLocked {
@@ -1217,9 +1237,30 @@ private struct OffersPanelView: View {
             }
             .padding(8)
         }
-        .background(color.opacity(0.85))
-        .cornerRadius(10)
+        // ベタ塗り(opacity 0.85)から、同系色の斜めグラデーション+淡い色付きシャドウへ。
+        // 白文字はそのままなのでライト/ダークどちらのモードでも成立する。
+        .background(
+            LinearGradient(
+                colors: [color, color.darkened(0.18)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
+        .cornerRadius(14)
+        .shadow(color: color.opacity(0.35), radius: 8, x: 0, y: 4)
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
+    }
+}
+
+// MARK: - モダン配色ヘルパー
+
+private extension Color {
+    /// 明度を下げた色を返す(グラデーションの終端用)。
+    /// iOS16対応のためColor.mix(iOS18+)は使わず、HSB分解で明度のみ落とす。
+    func darkened(_ amount: CGFloat) -> Color {
+        var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        guard UIColor(self).getHue(&h, saturation: &s, brightness: &b, alpha: &a) else { return self }
+        return Color(hue: h, saturation: s, brightness: max(0, b - amount), opacity: a)
     }
 }
