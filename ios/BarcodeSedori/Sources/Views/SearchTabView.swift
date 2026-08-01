@@ -455,7 +455,7 @@ struct SearchTabView: View {
                     showPaywall = true
                 } label: {
                     HStack(spacing: 6) {
-                        Image(systemName: "lock.fill")
+                        LockIconView(size: 16)
                         Text("本日のグラフ表示枠を使い切りました。Proなら無制限")
                             .font(.subheadline)
                             .fontWeight(.semibold)
@@ -566,8 +566,7 @@ struct SearchTabView: View {
                     HStack(spacing: 4) {
                         Text(mode.rawValue)
                         if ocrExhausted {
-                            Image(systemName: "lock.fill")
-                                .font(.caption2)
+                            LockIconView(size: 11)
                         }
                     }
                     .font(.subheadline)
@@ -621,6 +620,9 @@ struct SearchTabView: View {
                         scannedCode: viewModel.latestScannedCode,
                         offersResult: viewModel.offersResult
                     )
+                },
+                onLockedPurchaseTap: {
+                    showPaywall = true
                 },
                 onOpenLink: { url in
                     browserTarget = BrowserTarget(url: url)
@@ -773,8 +775,10 @@ private struct LatestResultCardView: View {
     let isPro: Bool
     /// 仕入れリストに追加済みか(追加済みならボタンを無効化して「追加済み」表示)。
     let isInPurchaseList: Bool
-    /// 「仕入れリストへ追加」タップ時の処理。Pro限定表示のため非Proでは使われない。
+    /// 「仕入れリストへ追加」タップ時の処理(Pro)。
     let onAddToPurchaseList: () -> Void
+    /// 「仕」ボタンタップ時の処理(非Pro。鍵バッジ付きボタンからペイウォールを開く)。
+    let onLockedPurchaseTap: () -> Void
     /// 外部リンク(a/m/価)タップ時の処理。親側でアプリ内ブラウザ(SafariView)のシートを開く。
     let onOpenLink: (URL) -> Void
 
@@ -895,6 +899,7 @@ private struct LatestResultCardView: View {
                             isPro: isPro,
                             isInPurchaseList: isInPurchaseList,
                             onAddToPurchaseList: onAddToPurchaseList,
+                            onLockedPurchaseTap: onLockedPurchaseTap,
                             onOpenLink: onOpenLink
                         )
                     }
@@ -919,15 +924,18 @@ private struct ResultCardActionButtons: View {
     let isPro: Bool
     let isInPurchaseList: Bool
     let onAddToPurchaseList: () -> Void
+    let onLockedPurchaseTap: () -> Void
     /// 外部リンク(a/m/価)タップ時の処理。親側でアプリ内ブラウザ(SafariView)のシートを開く。
     let onOpenLink: (URL) -> Void
 
     // ISBN・ランキングの2行(テキスト列)と高さを揃え、オファーパネルとの間の余白を無くす。
     private let buttonSize: CGFloat = 34
 
-    /// 仕入れボタンを表示するか(Pro限定・ASINあり)。現行の「仕入れリストへ追加」ボタンと同じゲート。
+    /// 仕入れボタンを表示するか(ASINがあれば無料でも表示する。非Proは鍵バッジ付きにして
+    /// タップ時にペイウォールを開く。ボタン自体を隠すと機能の存在に気付けないため、
+    /// 「見えるが鍵がかかっている」形にする)。
     private var showsPurchaseButton: Bool {
-        isPro && result.asin != nil
+        result.asin != nil
     }
 
     private var showsAmazonButton: Bool {
@@ -950,9 +958,10 @@ private struct ResultCardActionButtons: View {
                 actionButton(
                     label: "仕",
                     color: .accentColor,
-                    isDisabled: isInPurchaseList,
-                    systemOverlayImage: isInPurchaseList ? "checkmark" : nil,
-                    action: onAddToPurchaseList
+                    isDisabled: isPro && isInPurchaseList,
+                    systemOverlayImage: isPro && isInPurchaseList ? "checkmark" : nil,
+                    showsLockBadge: !isPro,
+                    action: isPro ? onAddToPurchaseList : onLockedPurchaseTap
                 )
             }
             if showsAmazonButton {
@@ -968,12 +977,15 @@ private struct ResultCardActionButtons: View {
     }
 
     /// 1個のボタンを描画する。追加済み(isInPurchaseList)のときはチェックマークに差し替えて無効化する。
+    /// showsLockBadge:trueのときは右上に小さな鍵アイコンを重ね、Pro限定であることを示す
+    /// (ボタン自体は隠さず押せる状態のまま。タップ時の遷移先はaction側で切り替える)。
     @ViewBuilder
     private func actionButton(
         label: String,
         color: Color,
         isDisabled: Bool = false,
         systemOverlayImage: String? = nil,
+        showsLockBadge: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
@@ -994,6 +1006,12 @@ private struct ResultCardActionButtons: View {
                         Text(label)
                             .font(.system(size: label.allSatisfy { $0.isASCII } ? 20 : 15, weight: .bold))
                             .foregroundColor(.white)
+                    }
+                }
+                .overlay(alignment: .topTrailing) {
+                    if showsLockBadge {
+                        LockIconView(size: 13)
+                            .offset(x: 4, y: -4)
                     }
                 }
         }
@@ -1117,8 +1135,7 @@ private struct OffersPanelView: View {
             .accessibilityHidden(true)
 
             VStack(spacing: 2) {
-                Image(systemName: "lock.fill")
-                    .foregroundColor(.white)
+                LockIconView(size: 18)
                 Text("設定→Amazon連携で表示")
                     .font(.caption2)
                     .fontWeight(.bold)

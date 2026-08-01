@@ -6,7 +6,10 @@ import SwiftUI
 struct ProductsTabView: View {
     @ObservedObject private var historyStore = ScanHistoryStore.shared
     @ObservedObject private var purchaseListStore = PurchaseListStore.shared
+    @ObservedObject private var entitlements = EntitlementStore.shared
     @State private var selectedItem: ScanHistoryItem?
+    /// 非Proが仕入れへの一括追加(鍵バッジ付き)をタップしたときに表示するペイウォール。
+    @State private var showPaywall = false
 
     // 注意: @Environment(\.editMode)はList(selection:)の実際の編集状態と同期しない事象を確認したため
     // (EditButtonの見た目・Listの選択UIは変化するのに環境値の読み取りがfalseのままになる)、
@@ -112,6 +115,9 @@ struct ProductsTabView: View {
                 dismissButton: .default(Text("OK"))
             )
         }
+        .sheet(isPresented: $showPaywall) {
+            PaywallView()
+        }
     }
 
     /// 通常モードは検索BOX+選択ボタン、選択モードはオプション行に切り替わる。
@@ -188,13 +194,25 @@ struct ProductsTabView: View {
             .foregroundColor(selectedIds.isEmpty ? .gray : .red)
             .disabled(selectedIds.isEmpty)
 
+            // 仕入れへの一括追加(Pro限定)。無料はボタンを隠さず、鍵バッジを重ねて
+            // タップ時にペイウォールを開く(選択済み件数はある前提で機能の存在を知らせる)。
             Button {
-                addSelectedToPurchaseList()
+                if entitlements.isPro {
+                    addSelectedToPurchaseList()
+                } else {
+                    showPaywall = true
+                }
             } label: {
                 Image(systemName: "cart.badge.plus")
+                    .overlay(alignment: .topTrailing) {
+                        if !entitlements.isPro {
+                            LockIconView(size: 12)
+                                .offset(x: 8, y: -6)
+                        }
+                    }
             }
             .foregroundColor(selectedIds.isEmpty ? .gray : .blue)
-            .disabled(selectedIds.isEmpty)
+            .disabled(entitlements.isPro && selectedIds.isEmpty)
         }
         .padding(.horizontal)
         .padding(.vertical, 8)

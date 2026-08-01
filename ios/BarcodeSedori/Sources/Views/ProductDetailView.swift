@@ -29,6 +29,8 @@ struct ProductDetailView: View {
     /// 「仕入れリストへ追加」タップで開く仕入れフォーム(新規追加モード)の下書き。
     /// 保存(緑チェック)されるまでPurchaseListStoreへは登録しない。
     @State private var purchaseFormDraft: PurchaseListItem?
+    /// 非Proが「仕入れリストへ追加」(鍵バッジ付き)をタップしたときに表示するペイウォール。
+    @State private var showPaywall = false
 
     /// 発売日のパース用(サーバーはSP-APIの"2019-05-30"等のISO日付文字列をそのまま返す)。
     private static let releaseDateInputFormatter: DateFormatter = {
@@ -86,6 +88,9 @@ struct ProductDetailView: View {
                 PurchaseFormView(mode: .add(draft: draft))
             }
         }
+        .sheet(isPresented: $showPaywall) {
+            PaywallView()
+        }
     }
 
     private var productInfoSection: some View {
@@ -114,10 +119,11 @@ struct ProductDetailView: View {
                     .foregroundColor(.secondary)
             }
 
-            // 仕入れリストへ追加(Pro限定)。
+            // 仕入れリストへ追加。無料でもボタンは表示し、非Proは鍵バッジ付きでタップ時に
+            // ペイウォールを開く(ボタンごと隠すと機能の存在に気付けないため)。
             // 商品詳細は画像URLを保持していないためimageUrlはnil(仕入れタブではプレースホルダ表示)。
-            if entitlements.isPro {
-                Button {
+            Button {
+                if entitlements.isPro {
                     // まだ仕入れリストへは登録せず、仕入れフォームの下書きとしてシート表示する。
                     // 保存(緑チェック)で初めてPurchaseListStoreへ追加される。
                     purchaseFormDraft = PurchaseListItem(
@@ -129,14 +135,19 @@ struct ProductDetailView: View {
                         salesRank: nil,
                         offersResult: viewModel.offers
                     )
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: purchaseList.contains(asin: viewModel.asin) ? "checkmark.circle.fill" : "cart.badge.plus")
-                        Text(purchaseList.contains(asin: viewModel.asin) ? "仕入れリストに追加済み" : "仕入れリストへ追加")
+                } else {
+                    showPaywall = true
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: purchaseList.contains(asin: viewModel.asin) ? "checkmark.circle.fill" : "cart.badge.plus")
+                    Text(purchaseList.contains(asin: viewModel.asin) ? "仕入れリストに追加済み" : "仕入れリストへ追加")
+                    if !entitlements.isPro {
+                        LockIconView(size: 14)
                     }
                 }
-                .disabled(purchaseList.contains(asin: viewModel.asin))
             }
+            .disabled(entitlements.isPro && purchaseList.contains(asin: viewModel.asin))
         }
     }
 

@@ -266,7 +266,7 @@ struct SettingsView: View {
                     showPaywall = true
                 } label: {
                     HStack(spacing: 6) {
-                        Image(systemName: "lock.fill")
+                        LockIconView(size: 16)
                         Text("利益アラートはProで")
                         Spacer()
                         Image(systemName: "chevron.right")
@@ -305,7 +305,7 @@ struct SettingsView: View {
                     showPaywall = true
                 } label: {
                     HStack(spacing: 6) {
-                        Image(systemName: "lock.fill")
+                        LockIconView(size: 16)
                         Text("アプリ内出品はProで")
                         Spacer()
                         Image(systemName: "chevron.right")
