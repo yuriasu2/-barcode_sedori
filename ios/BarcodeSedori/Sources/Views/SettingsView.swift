@@ -282,7 +282,7 @@ struct SettingsView: View {
                             .foregroundColor(.secondary)
                     }
 
-                    Text("デモ専用の隔離されたインスタンスに値を注入します。本番の共有Keepaキーを使う他の利用者には一切影響しません。デモインスタンスを使うにはこのトグルと上のデバッグ表示を両方ONにしてください。")
+                    Text("デモ専用の隔離されたインスタンスに値を注入します。本番の共有Keepaキーを使う他の利用者には一切影響しません。注入した値やブレーキ・キューの挙動を確認するには、上の「デバッグ表示」も合わせてONにしてください。")
                         .font(.footnote)
                         .foregroundColor(.secondary)
                 }
