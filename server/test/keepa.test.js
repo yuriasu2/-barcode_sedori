@@ -1130,3 +1130,231 @@ test('/api/search(keepa経路): history:1でgetProductを呼び、graphDataCache
     }
   );
 });
+
+// ---------------------------------------------------------------------------
+// resolveKeepaApiKey: 利用者自身のKeepa APIキー(BYO)の解決
+// ---------------------------------------------------------------------------
+
+test('resolveKeepaApiKey: ヘッダー(X-Keepa-Key)があれば環境変数より優先される', async () => {
+  await withEnv({ KEEPA_API_KEY: 'env-keepa-key' }, async () => {
+    const routes = freshRoutes();
+    const resolved = routes.resolveKeepaApiKey({ 'x-keepa-key': 'header-keepa-key' });
+    assert.equal(resolved, 'header-keepa-key');
+  });
+});
+
+test('resolveKeepaApiKey: ヘッダーが無ければ環境変数(KEEPA_API_KEY)にフォールバックする', async () => {
+  await withEnv({ KEEPA_API_KEY: 'env-keepa-key' }, async () => {
+    const routes = freshRoutes();
+    assert.equal(routes.resolveKeepaApiKey({}), 'env-keepa-key');
+    assert.equal(routes.resolveKeepaApiKey(undefined), 'env-keepa-key');
+  });
+});
+
+test('resolveKeepaApiKey: ヘッダーが空白のみ(trim後に空)なら環境変数にフォールバックする', async () => {
+  await withEnv({ KEEPA_API_KEY: 'env-keepa-key' }, async () => {
+    const routes = freshRoutes();
+    assert.equal(routes.resolveKeepaApiKey({ 'x-keepa-key': '   ' }), 'env-keepa-key');
+  });
+});
+
+test('resolveKeepaApiKey: ヘッダー・環境変数ともに無ければnull', async () => {
+  await withEnv({ KEEPA_API_KEY: undefined }, async () => {
+    const routes = freshRoutes();
+    assert.equal(routes.resolveKeepaApiKey({}), null);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// /api/graph-data: BYOキー(X-Keepa-Key)対応
+// ---------------------------------------------------------------------------
+
+test('/api/graph-data: BYOキーヘッダー付きのとき、環境変数が未設定でもそのキーでKeepaが呼ばれる', async (t) => {
+  await withEnv({ KEEPA_API_KEY: undefined }, async () => {
+    const routes = freshRoutes();
+    const keepa = require('../src/keepa/client');
+
+    let receivedApiKey;
+    keepa.getProduct = async ({ asin, apiKey }) => {
+      receivedApiKey = apiKey;
+      return { product: { asin, csv: [] } };
+    };
+
+    const req = {
+      query: { asin: 'B000BYOGRAPH' },
+      headers: { ...PRO, 'x-keepa-key': 'user-own-keepa-key' },
+    };
+    const res = createMockRes();
+    const route = routes.match('GET', '/api/graph-data');
+    await route.handler(req, res);
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(receivedApiKey, 'user-own-keepa-key');
+
+    t.after(() => {
+      routes.graphDataCache.clear();
+    });
+  });
+});
+
+test('/api/graph-data: BYOキーヘッダーが無く環境変数もKEEPA_API_KEY未設定なら404 keepa_not_configured', async () => {
+  await withEnv({ KEEPA_API_KEY: undefined }, async () => {
+    const routes = freshRoutes();
+    const req = { query: { asin: 'B000NOKEY' }, headers: PRO };
+    const res = createMockRes();
+    const route = routes.match('GET', '/api/graph-data');
+    await route.handler(req, res);
+
+    assert.equal(res.statusCode, 404);
+    assert.equal(res.body.error, 'keepa_not_configured');
+  });
+});
+
+test('/api/search: BYOキーヘッダー付きのとき、環境変数KEEPA_API_KEY未設定でもKeepa経路が動きそのキーが使われる', async (t) => {
+  await withEnv(
+    {
+      LWA_CLIENT_ID: undefined,
+      LWA_CLIENT_SECRET: undefined,
+      LWA_REFRESH_TOKEN: undefined,
+      KEEPA_API_KEY: undefined,
+    },
+    async () => {
+      const routes = freshRoutes();
+      const keepa = require('../src/keepa/client');
+
+      let receivedApiKey;
+      keepa.getProduct = async ({ code, apiKey }) => {
+        receivedApiKey = apiKey;
+        return {
+          product: {
+            asin: 'B00BYOSEARCH',
+            title: 'BYOキー検索テスト',
+            imagesCSV: 'sample.jpg',
+            stats: { current: [2000, 1000, 800, 5000, 2200] },
+          },
+        };
+      };
+
+      const req = {
+        query: { code: '9784471103644' },
+        headers: { 'x-keepa-key': 'user-search-key' },
+      };
+      const res = createMockRes();
+      const route = routes.match('GET', '/api/search');
+      await route.handler(req, res);
+
+      assert.equal(res.body.source, 'keepa');
+      assert.equal(res.body.asin, 'B00BYOSEARCH');
+      assert.equal(receivedApiKey, 'user-search-key');
+
+      t.after(() => {
+        routes.searchCache.clear();
+      });
+    }
+  );
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/keepa-test — 利用者自身のKeepa APIキーの疎通確認
+// ---------------------------------------------------------------------------
+
+test('/api/keepa-test: キー未指定(ヘッダー無し・環境変数も未設定)は400', async () => {
+  await withEnv({ KEEPA_API_KEY: undefined }, async () => {
+    const routes = freshRoutes();
+    const req = { query: {}, headers: {} };
+    const res = createMockRes();
+    const route = routes.match('GET', '/api/keepa-test');
+    await route.handler(req, res);
+
+    assert.equal(res.statusCode, 400);
+    assert.equal(res.body.error, 'keepa_api_key_missing');
+  });
+});
+
+test('/api/keepa-test: キーが有効なら{ok:true, tokensLeft}を返す', async (t) => {
+  await withEnv({ KEEPA_API_KEY: undefined }, async () => {
+    const routes = freshRoutes();
+    const keepa = require('../src/keepa/client');
+
+    const originalGetTokenStatus = keepa.getTokenStatus;
+    let receivedApiKey;
+    keepa.getTokenStatus = async ({ apiKey }) => {
+      receivedApiKey = apiKey;
+      return { tokensLeft: 42, refillRate: 5, refillIn: 1000 };
+    };
+    t.after(() => {
+      keepa.getTokenStatus = originalGetTokenStatus;
+    });
+
+    const req = { query: {}, headers: { 'x-keepa-key': 'valid-user-key' } };
+    const res = createMockRes();
+    const route = routes.match('GET', '/api/keepa-test');
+    await route.handler(req, res);
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.ok, true);
+    assert.equal(res.body.tokensLeft, 42);
+    assert.equal(receivedApiKey, 'valid-user-key');
+  });
+});
+
+test('/api/keepa-test: キーが不正でgetTokenStatusが失敗したら{ok:false, message}を返す(200のまま)', async (t) => {
+  await withEnv({ KEEPA_API_KEY: undefined }, async () => {
+    const routes = freshRoutes();
+    const keepa = require('../src/keepa/client');
+
+    const originalGetTokenStatus = keepa.getTokenStatus;
+    keepa.getTokenStatus = async () => {
+      const err = new Error('keepa_request_failed: 401 Unauthorized');
+      err.code = 'keepa_request_failed';
+      throw err;
+    };
+    t.after(() => {
+      keepa.getTokenStatus = originalGetTokenStatus;
+    });
+
+    const req = { query: {}, headers: { 'x-keepa-key': 'invalid-user-key' } };
+    const res = createMockRes();
+    const route = routes.match('GET', '/api/keepa-test');
+    await route.handler(req, res);
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.ok, false);
+    assert.match(res.body.message, /401/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// keepa client: getTokenStatus
+// ---------------------------------------------------------------------------
+
+test('keepa client: getTokenStatusはapiKey未指定ならkeepa_api_key_missingを投げる', async () => {
+  const keepa = require('../src/keepa/client');
+  await assert.rejects(
+    async () => keepa.getTokenStatus({}),
+    (err) => err.code === 'keepa_api_key_missing'
+  );
+});
+
+test('keepa client: getTokenStatusはGET /tokenを叩きtokensLeft/refillRate/refillInを返す(fetchモック)', async (t) => {
+  const keepa = require('../src/keepa/client');
+  const originalFetch = global.fetch;
+  let requestedUrl;
+  global.fetch = async (url) => {
+    requestedUrl = url;
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ tokensLeft: 77, refillRate: 5, refillIn: 2000 }),
+      text: async () => '',
+    };
+  };
+  t.after(() => {
+    global.fetch = originalFetch;
+  });
+
+  const status = await keepa.getTokenStatus({ apiKey: 'test-key-for-token' });
+  assert.deepEqual(status, { tokensLeft: 77, refillRate: 5, refillIn: 2000 });
+  assert.match(requestedUrl, /^https:\/\/api\.keepa\.com\/token\?/);
+  assert.match(requestedUrl, /key=test-key-for-token/);
+});

@@ -71,16 +71,18 @@ function normalizePrice(value) {
  * Keepa APIへGETリクエストを送る共通関数。
  * @param {string} path 例: '/product'
  * @param {object} params クエリパラメータ(keyは自動付与)
+ * @param {string} [apiKey] 呼び出し元が明示した場合はこちらを使う(利用者自身のKeepaキー=BYO)。
+ *   省略時は従来どおり環境変数(getApiKey())を使う。
  */
-async function keepaFetch(path, params) {
-  const apiKey = getApiKey();
-  if (!apiKey) {
+async function keepaFetch(path, params, apiKey) {
+  const resolvedApiKey = apiKey || getApiKey();
+  if (!resolvedApiKey) {
     const err = new Error('keepa_api_key_missing');
     err.code = 'keepa_api_key_missing';
     throw err;
   }
 
-  const query = new URLSearchParams({ key: apiKey, ...params });
+  const query = new URLSearchParams({ key: resolvedApiKey, ...params });
   const url = `${KEEPA_BASE_URL}${path}?${query.toString()}`;
 
   let res;
@@ -154,9 +156,10 @@ function resolveImageUrl(product) {
  * グラフ生データ(csv配列)が必要な呼び出し元のみ history:true を指定する。
  * offersパラメータ(個別オファー取得)は旧第2段階(/api/offers)専用でトークン消費が大きく、
  * 現在は呼び出し元が存在しないため受け付けない(誤って大量トークンを消費する事故を防ぐ)。
- * @param {{code?: string, asin?: string, history?: boolean}} params
+ * @param {{code?: string, asin?: string, history?: boolean, apiKey?: string}} params
+ *   apiKeyを渡すと利用者自身のKeepaキー(BYO)で呼び出す。省略時は従来どおり環境変数を使う。
  */
-async function getProduct({ code, asin, history } = {}) {
+async function getProduct({ code, asin, history, apiKey } = {}) {
   if (!code && !asin) {
     throw new Error('getProduct: code または asin が必要です');
   }
@@ -169,10 +172,32 @@ async function getProduct({ code, asin, history } = {}) {
   if (code) query.code = code;
   if (asin) query.asin = asin;
 
-  const json = await keepaFetch('/product', query);
+  const json = await keepaFetch('/product', query, apiKey);
   const products = json && json.products;
   const product = Array.isArray(products) && products.length ? products[0] : null;
   return { product, tokensLeft: json ? json.tokensLeft : undefined };
+}
+
+/**
+ * Keepaキーの疎通確認・トークン残量取得。
+ * GET /token?key=XXX (公式ドキュメント記載のトークン残量確認用エンドポイント)。
+ * BYOキー(利用者自身のKeepa APIキー)の検証用。キー不正時はkeepaFetchと同じ流儀
+ * (code付きError)でエラーを投げる(401等はkeepaFetch内の!res.okでkeepa_request_failedになる)。
+ * @param {{apiKey: string}} params
+ * @returns {Promise<{tokensLeft: number, refillRate: number, refillIn: number}>}
+ */
+async function getTokenStatus({ apiKey } = {}) {
+  if (!apiKey) {
+    const err = new Error('keepa_api_key_missing');
+    err.code = 'keepa_api_key_missing';
+    throw err;
+  }
+  const json = await keepaFetch('/token', {}, apiKey);
+  return {
+    tokensLeft: typeof json.tokensLeft === 'number' ? json.tokensLeft : null,
+    refillRate: typeof json.refillRate === 'number' ? json.refillRate : null,
+    refillIn: typeof json.refillIn === 'number' ? json.refillIn : null,
+  };
 }
 
 // グラフ生データとして抽出する系列とcsvインデックスの対応(Product.CsvType)。
@@ -429,6 +454,7 @@ module.exports = {
   buildImageUrl,
   resolveImageUrl,
   getProduct,
+  getTokenStatus,
   mapKeepaReleaseDate,
   mapProductToSearchResult,
   getGraphImage,

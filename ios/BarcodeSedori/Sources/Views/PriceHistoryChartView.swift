@@ -172,7 +172,7 @@ struct PriceHistoryChartView: View {
     /// コレクター出品者数の色(薄い水色)。中古(.primary)・新品(.blue)と見分けやすいよう専用定数にする。
     private static let collectibleColor = Color(red: 0.53, green: 0.78, blue: 0.98)
 
-    /// SP-API連携済みのとき、取得前に置く静止待ち時間(秒)。
+    /// SP-API連携済み・かつ自前Keepaキー未設定のとき、取得前に置く静止待ち時間(秒)。
     /// 連携済みの検索はトークン消費ゼロだが、グラフは新商品1件につきKeepaトークンを
     /// 1個消費する。高速連続スキャン中に商品ごとへ自動取得が走るとトークンが数分で
     /// 枯れるため、「結果が5秒画面に留まった(=ユーザーが関心を持って手を止めた)」
@@ -180,6 +180,9 @@ struct PriceHistoryChartView: View {
     /// キャンセルするので、流し読みした商品では消費が発生しない。
     /// 未連携はグラフデータが検索(history:1)に同梱されサーバーキャッシュ済み=追加消費
     /// ゼロのため、待たせる意味がなく即時取得する。
+    /// 自前のKeepa APIキー(SettingsStore.isKeepaKeyUsable)を設定している場合も待たない。
+    /// 消費先がサーバー共有のトークンではなく本人のKeepa枠になるため、連続スキャンで
+    /// 枯れるのは自分の枠のみ(=待たせて守る理由が無くなる)。
     private static let linkedFetchDelaySeconds: UInt64 = 5
 
     var body: some View {
@@ -207,10 +210,12 @@ struct PriceHistoryChartView: View {
         graphData = nil
         loadFailed = false
 
-        // 連携済みは5秒静止するまで取得しない(理由はlinkedFetchDelaySecondsのコメント参照)。
+        // 連携済み・かつ自前Keepaキー未設定のときだけ5秒静止するまで取得しない
+        // (理由はlinkedFetchDelaySecondsのコメント参照)。自前キーがあれば消費先が
+        // 本人の枠になるため待たずに即時取得する。
         // Task.sleepはビューが消えるか別asinへ切り替わるとCancellationErrorを投げるため、
         // その場合はここで終了し取得は走らない(=トークン消費なし)。
-        if SettingsStore.shared.isSpApiLinkUsable {
+        if SettingsStore.shared.isSpApiLinkUsable && !SettingsStore.shared.isKeepaKeyUsable {
             do {
                 try await Task.sleep(nanoseconds: Self.linkedFetchDelaySeconds * 1_000_000_000)
             } catch {

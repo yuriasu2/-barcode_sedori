@@ -23,6 +23,9 @@ final class SettingsStore: ObservableObject {
         /// リフレッシュトークンと異なり機密度が低いためKeychainではなくUserDefaultsに保存する。
         static let spapiSellerId = "settings.spapiSellerId"
 
+        /// 利用者自身のKeepa APIキー(BYO)。Pro限定(2026-08 追加)。
+        static let keepaApiKey = "settings.keepaApiKey"
+
         // 利益アラート(Phase 1a)。既定は全条件OFFで既存ユーザーの挙動を変えない。
         static let profitAlertEnabled = "settings.profitAlert.enabled"
         static let profitAlertMarginEnabled = "settings.profitAlert.marginEnabled"
@@ -104,6 +107,15 @@ final class SettingsStore: ObservableObject {
     @Published var spapiSellerId: String {
         didSet {
             defaults.set(spapiSellerId, forKey: Keys.spapiSellerId)
+        }
+    }
+
+    /// 利用者自身のKeepa APIキー(BYO)。設定するとグラフ取得の消費先が自分の枠になり、
+    /// SP-API連携済み時のグラフ表示待ち(PriceHistoryChartView.linkedFetchDelaySeconds)が不要になる。
+    /// Pro限定(設定画面SettingsViewのKeepa連携セクション参照)。
+    @Published var keepaApiKey: String {
+        didSet {
+            defaults.set(keepaApiKey, forKey: Keys.keepaApiKey)
         }
     }
 
@@ -347,6 +359,7 @@ final class SettingsStore: ObservableObject {
         self.serverURLString = defaults.string(forKey: Keys.serverURL) ?? Self.defaultServerURL
         self.spapiLinkEnabled = defaults.bool(forKey: Keys.spapiLinkEnabled)
         self.spapiSellerId = defaults.string(forKey: Keys.spapiSellerId) ?? ""
+        self.keepaApiKey = defaults.string(forKey: Keys.keepaApiKey) ?? ""
 
         // リンクボタン。未設定/デコード失敗時は既定4つ(仕入れ/Amazon/メルカリ/楽天市場)で読み込む。
         if let data = defaults.data(forKey: Keys.linkButtons),
@@ -427,6 +440,12 @@ final class SettingsStore: ObservableObject {
     var isSpApiLinkUsable: Bool {
         spapiLinkEnabled
             && !spapiRefreshToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// 利用者自身のKeepa APIキーが設定済みか(非空)。Pro限定機能のためisPro判定は
+    /// 呼び出し側(APIClient/PriceHistoryChartView/SettingsView)で行う。
+    var isKeepaKeyUsable: Bool {
+        !keepaApiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     /// 出品導線を表示してよいか(SP-API連携が利用可能、かつsellerIdも取得済み)。

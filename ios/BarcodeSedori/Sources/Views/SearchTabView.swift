@@ -996,8 +996,8 @@ private struct ResultCardActionButtons: View {
 
     private func showsButton(_ kind: LinkButtonKind) -> Bool {
         switch kind {
-        case .purchase, .amazon:
-            // ASINが無いと仕入れフォーム・Amazon商品ページのどちらも開けない。
+        case .purchase, .amazon, .keepa:
+            // ASINが無いと仕入れフォーム・Amazon商品ページ・Keepa商品ページのどれも開けない。
             return result.asin != nil
         case .mercari, .kakaku, .rakuten, .yahooShopping, .yahooAuction, .rakuma:
             // 検索キーワード(型番 or タイトル)が無ければ検索リンクを組み立てられない。
@@ -1188,6 +1188,8 @@ private struct ResultCardActionButtons: View {
             openYahooAuction()
         case .rakuma:
             openRakuma()
+        case .keepa:
+            openKeepa()
         }
     }
 
@@ -1251,6 +1253,15 @@ private struct ResultCardActionButtons: View {
     private func openRakuma() {
         guard let encoded = encodedKeyword(),
               let url = URL(string: "https://fril.jp/s?query=\(encoded)") else { return }
+        onOpenLink(url)
+    }
+
+    /// Keepaの該当商品ページを開く。domain=5はamazon.co.jpのロケールID
+    /// (server/src/keepa/client.js の JP_DOMAIN_ID と同じ値。Keepa公式のURL規約
+    /// `https://keepa.com/#!product/{domain}-{ASIN}` に準拠)。
+    private func openKeepa() {
+        guard let asin = result.asin,
+              let url = URL(string: "https://keepa.com/#!product/5-\(asin)") else { return }
         onOpenLink(url)
     }
 }

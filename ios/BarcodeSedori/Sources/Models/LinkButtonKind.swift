@@ -11,6 +11,8 @@ enum LinkButtonKind: String, CaseIterable, Identifiable, Codable {
     case yahooShopping
     case yahooAuction
     case rakuma
+    /// Keepaの該当商品ページへのリンク(2026-08 追加)。
+    case keepa
 
     var id: String { rawValue }
 
@@ -28,6 +30,7 @@ enum LinkButtonKind: String, CaseIterable, Identifiable, Codable {
         case .yahooShopping: return "Y!"
         case .yahooAuction: return "ヤ"
         case .rakuma: return "R"
+        case .keepa: return "K"
         }
     }
 
@@ -78,6 +81,7 @@ enum LinkButtonKind: String, CaseIterable, Identifiable, Codable {
         case .yahooShopping: return "Yahoo!ショッピング"
         case .yahooAuction: return "ヤフオク"
         case .rakuma: return "ラクマ"
+        case .keepa: return "Keepa"
         }
     }
 
@@ -103,6 +107,10 @@ enum LinkButtonKind: String, CaseIterable, Identifiable, Codable {
             // 価格.com/Yahoo!ショッピング/ラクマは共通のグレー地に、
             // ブランド色の文字を載せて区別する(ユーザー指示 2026-08-02)。
             return Self.neutralGray
+        case .keepa:
+            // Keepa公式ロゴのオレンジはAmazonボタンと紛らわしいため使わず、
+            // 既存のどのボタン色とも被らない濃紺寄りのスレート色(#2C3E50相当)にする。
+            return Color(red: 0.17, green: 0.24, blue: 0.31)
         }
     }
 
@@ -115,7 +123,7 @@ enum LinkButtonKind: String, CaseIterable, Identifiable, Codable {
     /// 濃い地色のボタンは白、グレー地のボタンはブランド色を載せる。
     var labelColor: Color {
         switch self {
-        case .purchase, .amazon, .mercari, .rakuten:
+        case .purchase, .amazon, .mercari, .rakuten, .keepa:
             return .white
         case .kakaku, .rakuma:
             // 価格.com・ラクマは青文字(#1D4ED8)。

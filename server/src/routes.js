@@ -251,6 +251,20 @@ function resolveSpApiCredentials(headers) {
 }
 
 /**
+ * リクエストヘッダーから利用者自身のKeepa APIキー(BYO)を解決する。
+ * ヘッダー(X-Keepa-Key、trim後に非空)があればそれを優先し、無ければサーバーの
+ * .env(KEEPA_API_KEY、keepa.getApiKey())にフォールバックする。どちらも無ければnull。
+ * BYOキーを使う目的は、Keepaグラフ取得の消費先を「サーバー共有のトークン」から
+ * 「利用者自身のトークン」へ切り替えること(PriceHistoryChartViewの5秒待ちが不要になる)。
+ */
+function resolveKeepaApiKey(headers) {
+  const headerKey = headers && (headers['x-keepa-key'] || headers['X-Keepa-Key']);
+  const trimmed = headerKey ? String(headerKey).trim() : '';
+  if (trimmed) return trimmed;
+  return keepa.getApiKey();
+}
+
+/**
  * 認証情報から、キャッシュキーに混ぜて使うためのハッシュ(先頭8文字)を生成する。
  * 異なるアカウント間でキャッシュ結果が混ざらないようにする目的であり、
  * 機密情報そのものをキーに含めない。
@@ -522,9 +536,10 @@ async function handleSearchViaSpApi(req, res, code, credentials, cacheKey) {
 
 /**
  * Keepa経路での/api/search処理(第1段階・offersなし=1トークン)。source:"keepa"を付与する。
- * SP-API認証情報が無い場合のフォールバック(KEEPA_API_KEYが必要)。
+ * SP-API認証情報が無い場合のフォールバック(KEEPA_API_KEYまたはBYOキーが必要)。
+ * @param {string} apiKey resolveKeepaApiKeyで解決済みのKeepaキー(ヘッダーのBYOキー、または環境変数)。
  */
-async function handleSearchViaKeepa(req, res, code, cacheKey) {
+async function handleSearchViaKeepa(req, res, code, cacheKey, apiKey) {
   try {
     const converted = convertCode(code);
 
@@ -569,7 +584,7 @@ async function handleSearchViaKeepa(req, res, code, cacheKey) {
     // history:1で取得してもトークン消費はhistory:0と同じ1個(実測済み)。
     // ここで取得したproductからグラフ生データも抽出しgraphDataCacheへ先入れすることで、
     // Keepa経路で検索した商品のグラフ(/api/graph-data)はトークン追加消費ゼロで返せる。
-    const { product } = await keepa.getProduct({ code: janOrIsbn, history: 1 });
+    const { product } = await keepa.getProduct({ code: janOrIsbn, history: 1, apiKey });
     const mapped = keepa.mapProductToSearchResult(product);
 
     if (!mapped) {
@@ -654,7 +669,13 @@ router.get('/api/search', async (req, res) => {
     return handleSearchViaSpApi(req, res, code, credentials, cacheKey);
   }
 
-  if (keepa.getApiKey()) {
+  // BYOキー(X-Keepa-Key)があればそれを、無ければサーバーの環境変数にフォールバックする。
+  const keepaApiKey = resolveKeepaApiKey(req.headers);
+  if (keepaApiKey) {
+    // キャッシュキーはBYOキーの有無で分けない(共有キー: `keepa:${code}`)。
+    // キャッシュヒットはヒットさせた側・元々取得した側のどちらのKeepaトークンも消費しないため、
+    // 「誰のキーで引いたか」を区別する必要が無い(むしろ分けるとBYOユーザー同士・共有ユーザー間で
+    // 同じ商品を無駄に再取得することになりコスト面で不利)。
     const cacheKey = `keepa:${code}`;
     const cached = searchCache.get(cacheKey);
 
@@ -687,11 +708,11 @@ router.get('/api/search', async (req, res) => {
         // Keepaを呼ばない(unresolved)場合でも、quotaは返す(消費はしない)。
         attachQuota(res, await deviceQuota.computeQuota(deviceId));
       }
-      return handleSearchViaKeepa(req, res, code, cacheKey);
+      return handleSearchViaKeepa(req, res, code, cacheKey, keepaApiKey);
     }
 
     if (cached) return res.json(cached);
-    return handleSearchViaKeepa(req, res, code, cacheKey);
+    return handleSearchViaKeepa(req, res, code, cacheKey, keepaApiKey);
   }
 
   return res.status(503).json({ error: 'spapi_credentials_missing', message: SPAPI_CREDENTIALS_MISSING_MESSAGE });
@@ -895,7 +916,10 @@ router.get('/api/graph-data', async (req, res) => {
     return res.status(400).json({ error: 'asin query parameter is required' });
   }
 
-  if (!keepa.getApiKey()) {
+  // BYOキー(X-Keepa-Key)があればそれを、無ければサーバーの環境変数にフォールバックする。
+  // BYOキーがあれば環境変数が未設定でも動く(利用者が自分のKeepaキーだけで使える)。
+  const keepaApiKey = resolveKeepaApiKey(req.headers);
+  if (!keepaApiKey) {
     return res.status(404).json({ error: 'keepa_not_configured' });
   }
 
@@ -906,11 +930,15 @@ router.get('/api/graph-data', async (req, res) => {
   const cached = graphDataCache.get(cacheKey);
   if (cached) {
     // キャッシュヒットはPro判定より前に返す(誰であっても消費なし)。非Proにはquotaを同梱する。
+    // BYOキーの有無に関わらずキャッシュキー(graphDataCacheKey)は共通のまま
+    // (キャッシュヒット時は誰のKeepaトークンも消費しないため、キーを分ける必要がない)。
     if (!isPro) attachQuota(res, await deviceQuota.computeQuota(deviceId));
     return res.json(cached);
   }
 
   if (!isPro) {
+    // 無料枠ユニットの消費ロジックは変更しない(Keepa連携はPro限定機能のため実質影響しないが、
+    // 無料ユーザーがBYOキーを送ってきた場合も従来どおり消費する。安全側の判断)。
     const consumeResult = await deviceQuota.tryConsume(deviceId, 1);
     if (!consumeResult.allowed) {
       return res.status(429).json({
@@ -924,7 +952,7 @@ router.get('/api/graph-data', async (req, res) => {
   }
 
   try {
-    const { product } = await keepa.getProduct({ asin, history: 1 });
+    const { product } = await keepa.getProduct({ asin, history: 1, apiKey: keepaApiKey });
     const responseBody = { series: keepa.extractGraphSeries(product) };
     graphDataCache.set(cacheKey, responseBody);
     res.json(responseBody);
@@ -1170,6 +1198,26 @@ router.get('/api/spapi/test', async (req, res) => {
   }
 });
 
+// GET /api/keepa-test
+// 利用者自身のKeepa APIキー(BYO)の疎通確認。resolveKeepaApiKeyでキーを解決し、
+// (ヘッダー優先・環境変数フォールバック)、キーが無ければ400を返す
+// (/api/spapi/testと違い「未設定」は入力エラーとして扱う。BYOキーは設定画面の接続テスト
+// ボタンからのみ呼ばれ、未入力状態でボタンを押すこと自体が想定外のためこちらの方が分かりやすい)。
+// キーがあればKeepaの /token を1回叩いてトークン残量を取得する。
+router.get('/api/keepa-test', async (req, res) => {
+  const apiKey = resolveKeepaApiKey(req.headers);
+  if (!apiKey) {
+    return res.status(400).json({ error: 'keepa_api_key_missing', message: 'Keepa APIキーが未設定です' });
+  }
+
+  try {
+    const status = await keepa.getTokenStatus({ apiKey });
+    return res.json({ ok: true, tokensLeft: status.tokensLeft });
+  } catch (err) {
+    return res.json({ ok: false, message: err.message });
+  }
+});
+
 // ============================================================
 // 広告配信(ads) — サーバー管理型広告。アプリ更新・サーバーデプロイなしで
 // KVの内容を差し替えるだけで広告の追加・停止ができる(設計書参照)。
@@ -1375,6 +1423,8 @@ router.graphCache = graphCache;
 router.graphDataCache = graphDataCache;
 // テスト用途にプラン判定関数を公開する。
 router.isProRequest = isProRequest;
+// テスト用途にKeepa BYOキー解決関数を公開する。
+router.resolveKeepaApiKey = resolveKeepaApiKey;
 // テスト用途にデバイスID抽出関数、deviceQuotaモジュール本体を公開する。
 router.deviceIdOf = deviceIdOf;
 router.deviceQuota = deviceQuota;

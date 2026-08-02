@@ -30,10 +30,21 @@ final class SettingsViewModel: ObservableObject {
         set { settingsStore.spapiRefreshToken = newValue }
     }
 
+    /// 利用者自身のKeepa APIキー(BYO)。
+    var keepaApiKey: String {
+        get { settingsStore.keepaApiKey }
+        set { settingsStore.keepaApiKey = newValue }
+    }
 
-    @Published var spapiTestAlert: SpApiTestAlert?
 
-    struct SpApiTestAlert: Identifiable {
+    @Published var spapiTestAlert: ConnectionTestAlert?
+    /// Keepa接続テストの結果アラート。SP-APIと同じ汎用アラート型(ConnectionTestAlert)を使い回す
+    /// (見た目・作法が完全に同じなため型を分ける理由が無い)。
+    @Published var keepaTestAlert: ConnectionTestAlert?
+
+    /// 接続テスト結果アラート(タイトル+本文)。旧SpApiTestAlertから汎用化し、
+    /// SP-API/Keepaの両方の接続テストで使い回す。
+    struct ConnectionTestAlert: Identifiable {
         let id = UUID()
         let title: String
         let message: String
@@ -81,17 +92,51 @@ final class SettingsViewModel: ObservableObject {
         do {
             let result = try await apiClient.spapiTest()
             if result.ok {
-                spapiTestAlert = SpApiTestAlert(title: "接続成功", message: "SP-APIに接続できました。")
+                spapiTestAlert = ConnectionTestAlert(title: "接続成功", message: "SP-APIに接続できました。")
             } else {
-                spapiTestAlert = SpApiTestAlert(
+                spapiTestAlert = ConnectionTestAlert(
                     title: "接続失敗",
                     message: result.message ?? "SP-APIへの接続に失敗しました。"
                 )
             }
         } catch {
-            spapiTestAlert = SpApiTestAlert(title: "接続失敗", message: error.localizedDescription)
+            spapiTestAlert = ConnectionTestAlert(title: "接続失敗", message: error.localizedDescription)
         }
         spapiTestState = .idle
+    }
+
+    // MARK: Keepa連携
+
+    var isKeepaTesting: Bool {
+        if case .testingKeepa = keepaTestState { return true }
+        return false
+    }
+
+    @Published var keepaTestState: KeepaConnectionState = .idle
+
+    enum KeepaConnectionState: Equatable {
+        case idle
+        case testingKeepa
+    }
+
+    /// Keepa APIキーの接続テスト。testSpApiConnectionと同じ作法(state切替→API呼び出し→結果アラート)。
+    func testKeepaConnection() async {
+        keepaTestState = .testingKeepa
+        do {
+            let result = try await apiClient.keepaTest()
+            if result.ok {
+                let tokensMessage = result.tokensLeft.map { "残トークン数: \($0)" } ?? "Keepaに接続できました。"
+                keepaTestAlert = ConnectionTestAlert(title: "接続成功", message: tokensMessage)
+            } else {
+                keepaTestAlert = ConnectionTestAlert(
+                    title: "接続失敗",
+                    message: result.message ?? "Keepaへの接続に失敗しました。"
+                )
+            }
+        } catch {
+            keepaTestAlert = ConnectionTestAlert(title: "接続失敗", message: error.localizedDescription)
+        }
+        keepaTestState = .idle
     }
 }
 
@@ -185,6 +230,8 @@ struct SettingsView: View {
                 }
                 #endif
 
+                keepaLinkSection
+
                 Section("SP-API連携") {
                     Toggle("自分のSP-APIを使用する", isOn: $viewModel.spapiLinkEnabled)
 
@@ -246,6 +293,13 @@ struct SettingsView: View {
                     dismissButton: .default(Text("OK"))
                 )
             }
+            .alert(item: $viewModel.keepaTestAlert) { alert in
+                Alert(
+                    title: Text(alert.title),
+                    message: Text(alert.message),
+                    dismissButton: .default(Text("OK"))
+                )
+            }
             .sheet(isPresented: $showPaywall) {
                 PaywallView()
             }
@@ -273,6 +327,52 @@ struct SettingsView: View {
                     HStack(spacing: 6) {
                         LockIconView(size: 16)
                         Text("利益アラートはProで")
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption)
+                    }
+                    .foregroundColor(.primary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    // MARK: - Keepa連携
+
+    /// 利用者自身のKeepa APIキー(BYO)設定セクション。無料は鍵行のみでタップでペイウォール
+    /// (profitAlertSectionと全く同じ作法)。Proではグラフ取得の消費先を自分の枠に切り替えられる。
+    @ViewBuilder
+    private var keepaLinkSection: some View {
+        Section("Keepa連携") {
+            if entitlements.isPro {
+                SecureField("Keepa APIキー", text: $viewModel.keepaApiKey)
+                    .textInputAutocapitalization(.never)
+                    .disableAutocorrection(true)
+
+                Button {
+                    Task { await viewModel.testKeepaConnection() }
+                } label: {
+                    HStack {
+                        Text("接続テスト")
+                        Spacer()
+                        if viewModel.isKeepaTesting {
+                            ProgressView()
+                        }
+                    }
+                }
+                .disabled(viewModel.isKeepaTesting || settings.keepaApiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                Text("自分のKeepa APIキーを設定すると、グラフ取得が自分の枠で行われます。Amazon連携時のグラフ表示待ち時間(5秒)も無くなります。")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+            } else {
+                Button {
+                    showPaywall = true
+                } label: {
+                    HStack(spacing: 6) {
+                        LockIconView(size: 16)
+                        Text("Keepa連携はProで")
                         Spacer()
                         Image(systemName: "chevron.right")
                             .font(.caption)

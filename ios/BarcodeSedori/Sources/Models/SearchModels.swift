@@ -101,3 +101,10 @@ struct SpApiTestResult: Codable, Equatable {
     let ok: Bool
     let message: String?
 }
+
+/// GET /api/keepa-test レスポンス(利用者自身のKeepa APIキーの疎通確認)。
+struct KeepaTestResult: Codable, Equatable {
+    let ok: Bool
+    let tokensLeft: Int?
+    let message: String?
+}

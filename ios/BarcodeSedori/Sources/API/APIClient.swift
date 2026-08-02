@@ -89,6 +89,7 @@ final class APIClient {
         addPlanHeader(to: &request)
         addDeviceHeader(to: &request)
         addSpApiHeadersIfNeeded(to: &request)
+        addKeepaKeyHeaderIfNeeded(to: &request)
         return request
     }
 
@@ -138,6 +139,19 @@ final class APIClient {
         if !sellerId.isEmpty {
             request.setValue(sellerId, forHTTPHeaderField: "X-Spapi-Seller-Id")
         }
+    }
+
+    /// 利用者自身のKeepa APIキー(BYO)が設定されていれば、リクエストにX-Keepa-Keyヘッダーを付与する。
+    /// Proかつキーが非空のときだけ付ける(Keepaキー入力欄自体がPro限定のため、無料プランでは
+    /// 送っても意味が無い)。Pro状態はaddPlanHeaderと同じくEntitlementStoreがミラーした
+    /// UserDefaultsを同期で読む(EntitlementStore.shared.isProはメインアクター隔離のため、
+    /// 非メインアクターのAPIClientから直接は参照できない)。
+    private func addKeepaKeyHeaderIfNeeded(to request: inout URLRequest) {
+        let isPro = UserDefaults.standard.bool(forKey: EntitlementStore.isProCachedKey)
+        guard isPro else { return }
+        let settings = SettingsStore.shared
+        guard settings.isKeepaKeyUsable else { return }
+        request.setValue(settings.keepaApiKey, forHTTPHeaderField: "X-Keepa-Key")
     }
 
     private func perform<T: Decodable>(_ request: URLRequest, as type: T.Type) async throws -> T {
@@ -257,6 +271,14 @@ final class APIClient {
     func spapiTest() async throws -> SpApiTestResult {
         let request = try makeRequest(path: "/api/spapi/test")
         return try await perform(request, as: SpApiTestResult.self)
+    }
+
+    /// GET /api/keepa-test
+    /// 設定画面のKeepa連携セクションの「接続テスト」ボタンから呼ばれる。
+    /// ヘッダー(X-Keepa-Key、addKeepaKeyHeaderIfNeeded経由)のキーでサーバーが疎通確認を行う。
+    func keepaTest() async throws -> KeepaTestResult {
+        let request = try makeRequest(path: "/api/keepa-test")
+        return try await perform(request, as: KeepaTestResult.self)
     }
 
     /// 接続テスト用。GET /api/health があれば利用し、失敗した場合は /api/search を軽く叩いて疎通確認する。
