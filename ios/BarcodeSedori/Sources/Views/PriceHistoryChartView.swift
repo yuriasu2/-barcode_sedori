@@ -157,6 +157,8 @@ struct PriceHistoryChartView: View {
     @State private var loadFailed = false
     /// タップでの再読込を`.task(id:)`に伝えるためのカウンタ(idに含めて再実行させる)。
     @State private var retryToken = 0
+    /// 失敗理由がKeepa混雑(keepa_busy)のときのサーバー文言。nilなら汎用の失敗文言を出す。
+    @State private var busyMessage: String?
 
     /// asinをキーにしたセッション内キャッシュ。期間切替は通信を伴わずこのデータをフィルタするだけ
     /// (Keepaトークンの追加消費ゼロ)。同じasinの再取得も避ける(アプリ終了で破棄)。
@@ -209,6 +211,7 @@ struct PriceHistoryChartView: View {
         }
         graphData = nil
         loadFailed = false
+        busyMessage = nil
 
         // 連携済み・かつ自前Keepaキー未設定のときだけ5秒静止するまで取得しない
         // (理由はlinkedFetchDelaySecondsのコメント参照)。自前キーがあれば消費先が
@@ -236,6 +239,9 @@ struct PriceHistoryChartView: View {
             if case APIClientError.quotaExceeded(let quota, _) = error {
                 ScanQuotaStore.shared.apply(quota)
             }
+            if case APIClientError.keepaBusy(let message) = error {
+                busyMessage = message ?? "混み合っているので時間を空けてお試しください。"
+            }
             loadFailed = true
         }
     }
@@ -251,7 +257,7 @@ struct PriceHistoryChartView: View {
 
     private var failureView: some View {
         VStack(spacing: 4) {
-            Text("グラフを一時的に取得できません")
+            Text(busyMessage ?? "グラフを一時的に取得できません")
                 .font(.caption)
                 .foregroundColor(.secondary)
             Text("タップして再読み込み")
