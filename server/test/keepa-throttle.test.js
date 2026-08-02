@@ -188,6 +188,35 @@ test('keepaThrottle: 適応ブレーキ後も残量があれば許可される({
   assert.deepEqual(result, { allowed: true });
 });
 
+test('keepaThrottle: 適応ブレーキ - 既定値5/分ではfloorMs(12000ms)がtimeoutMs-1秒でクランプされる', async (t) => {
+  // 現行本番値のrefillPerMin=5だと素のfloorMs(60000/5=12000ms)は、既定timeoutMs(8000ms)は
+  // おろかこのテスト用timeoutMs=2000msも大きく超える。cap=min(floorMs, timeoutMs-1000)に
+  // よってブレーキが最大でも(timeoutMs-1000)=1000ms近辺でクランプされることを確認する。
+  //
+  // ThrottleCoreを直接操作するホワイトボックステスト(高消費状態を作るのに実際に
+  // acquireをループで70回以上回すと、rateがrefillPerMin=5を超えた時点からループ自体にも
+  // ブレーキが掛かり始め、cap=1000ms級の遅延が数十回積み重なって検証に何十秒もかかって
+  // しまう。既存の「残量補正直後の新参acquire」テストと同じ作法でgrantTimestamps/tokensを
+  // 直接セットし、高消費状態を一瞬で再現する)。
+  const { ThrottleCore } = keepaThrottle;
+  const core = new ThrottleCore({ refillPerMin: 5, capacity: 100, depth: 50, timeoutMs: 2000 });
+  t.after(() => core.destroy());
+
+  // 直近60秒に55回grantされ、残量5という高消費状態を再現(rate=55, net=50, tte=5/50=0.1分)。
+  const now = Date.now();
+  core.tokens = 5;
+  core.lastRefillAt = now;
+  for (let i = 0; i < 55; i += 1) core.grantTimestamps.push(now);
+
+  const started = Date.now();
+  const result = await core.acquire('free');
+  const elapsed = Date.now() - started;
+
+  assert.deepEqual(result, { allowed: true });
+  assert.ok(elapsed >= 500, `クランプが効きすぎて即時許可された(${elapsed}ms)`);
+  assert.ok(elapsed < 2000, `テスト用timeoutMs(2000ms)未満で返っていない(${elapsed}ms)`);
+});
+
 test('keepaThrottle: 残量補正直後の新参acquireは、キュー内の待機者を追い越して即時許可されない', async (t) => {
   // ThrottleCoreを直接操作するホワイトボックステスト。
   // refillPerMin=1・待機者を積んでから外部要因(reportTokensLeft等)でトークンが1個

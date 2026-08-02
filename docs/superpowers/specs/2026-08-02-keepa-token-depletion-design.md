@@ -125,9 +125,15 @@ App Attest前倒しの判断材料にする。
   consumeRatePerMin を求める（このアプリのKeepa呼び出しは全て1トークンのため件数=トークン数）
 - **正味減少率** net = consumeRatePerMin − refillPerMin。**net ≤ 0 ならブレーキ0**
   （補充が勝っている＝空いている時は残量が少なくても即応答）
-- **枯渇予測時間** TTE(分) = 残量 ÷ net。TTEが安全圏を切ったら、0から
-  「補充と同速の間隔」(60000/refillPerMin ms)まで**線形で**遅延を増やす:
-  `delay = floorMs × (1 − TTE/SAFE)`（floorMs=補充間隔、capはfloorMs）
+- **枯渇予測時間** TTE(分) = 残量 ÷ net。TTEが安全圏を切ったら、0からcapまで
+  **線形で**遅延を増やす: `delay = cap × (1 − TTE/SAFE)`
+  （floorMs=補充と同速の間隔=60000/refillPerMin ms。
+  **cap = min(floorMs, KEEPA_QUEUE_TIMEOUT_MS − 1秒)**。
+  低速プラン（現行本番=5トークン/分ではfloorMs=12,000ms）だとfloorMsだけで
+  `KEEPA_QUEUE_TIMEOUT_MS`（既定8,000ms）を超え、ブレーキ単体でiOSの通信
+  タイムアウトに抵触しかねないため、キュー経路に最低1秒分の予算を残す形でクランプする。
+  20トークン/分ならfloorMs=3,000msで`timeoutMs − 1秒`（既定7,000ms）を十分下回るため、
+  Phase 0後は挙動が変わらない）
 - **Pro優先の維持**: 安全圏は無料 SAFE=10分 / Pro SAFE=2分。無料が先にブレーキを受け、
   Proは枯渇間際までノーブレーキ（§1のPro優先と一貫させる）
 - **自動均衡**: 遅延の上限が補充間隔なので、ブレーキ最大時は消費≦補充となりTTEの悪化が

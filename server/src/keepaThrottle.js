@@ -83,6 +83,9 @@ class ThrottleCore {
       shedTimeout: 0,
       braked: 0,
       lastTokensLeft: null,
+      // 直近のconsumeRatePerMin(設計書§2.6)。logShed時に計算した値を格納するのみ
+      // (判定には使わない。ログ・観測用)。
+      consumeRatePerMin: 0,
     };
   }
 
@@ -127,7 +130,7 @@ class ThrottleCore {
   /**
    * 適応ブレーキ(設計書§2.6)の遅延時間(ms)を計算する。
    * 消費レートが補充レートを上回り(net>0)、かつ枯渇予測時間(TTE)が安全圏を
-   * 切っている場合のみ、0〜補充間隔(floorMs)の範囲で線形に遅延を返す。
+   * 切っている場合のみ、0〜cap(下記)の範囲で線形に遅延を返す。
    * 補充が消費に勝っている(net<=0)間は常に0(空いている時は残量が少なくても即応答)。
    * @param {'pro'|'free'} priority
    * @param {number} now
@@ -142,8 +145,14 @@ class ThrottleCore {
     if (tteMin >= safeMin) return 0;
 
     // floorMs=補充間隔(補充と同速まで遅延させれば、そこで消費≦補充となり均衡する)。
+    // ただし低速プラン(現行本番=5トークン/分ではfloorMs=12000ms)ではfloorMsだけで
+    // 既に config.timeoutMs(既定8000ms)を超えてしまい、ブレーキ単体でiOSの通信
+    // タイムアウトに抵触しかねない。そのためcapは「floorMsとtimeoutMs-1秒(=キュー
+    // 経路に最低1秒分の予算を残す)の小さい方」にクランプする。20/分ならfloor=3000msで
+    // timeoutMs-1000(既定7000ms)より十分小さいため挙動は変わらない。
     const floorMs = 60000 / this.config.refillPerMin;
-    return Math.round(Math.min(floorMs, floorMs * (1 - tteMin / safeMin)));
+    const cap = Math.min(floorMs, Math.max(0, this.config.timeoutMs - 1000));
+    return Math.round(Math.min(cap, cap * (1 - tteMin / safeMin)));
   }
 
   /**
@@ -306,6 +315,7 @@ class ThrottleCore {
   /** shedding発生時の構造化ログ(wrangler tailで確認する。設計書§2.4)。直近消費レートも出す(§2.6)。 */
   logShed(kind) {
     const rate = this.consumeRatePerMin(Date.now());
+    this.stats.consumeRatePerMin = rate;
     console.log(
       `[keepaThrottle] shed kind=${kind} rate=${rate} stats=${JSON.stringify(this.stats)} queue=${this.queueLength()}`
     );
