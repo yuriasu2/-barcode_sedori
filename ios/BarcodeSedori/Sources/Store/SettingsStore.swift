@@ -64,6 +64,9 @@ final class SettingsStore: ObservableObject {
         /// リンク検索を型番優先にするか。既定false(タイトル優先)。
         static let linkSearchByModelNumber = "settings.linkSearchByModelNumber"
 
+        /// Keepaスロットルのデバッグ表示(開発者向け。DEBUGビルド専用)。既定false。
+        static let keepaThrottleDebugEnabled = "settings.keepaThrottleDebugEnabled"
+
         // 仕入れ設定(PurchaseSettingsView): フォームのFBA・配送料デフォルトと仕入先リスト。
         static let purchaseUseFbaDefault = "purchase.useFbaDefault"
         /// 発送費用(自分が払う発送コスト)のデフォルト。キー名は導入時の「配送料」のまま流用する
@@ -142,6 +145,14 @@ final class SettingsStore: ObservableObject {
     @Published var linkSearchByModelNumber: Bool {
         didSet {
             defaults.set(linkSearchByModelNumber, forKey: Keys.linkSearchByModelNumber)
+        }
+    }
+
+    /// Keepaスロットルの内部状態(待ち時間・推定残量など)をアプリ上で確認するデバッグ表示。
+    /// 開発者向けでDEBUGビルドのみ意味を持つ(トグル自体もDEBUG専用UI)。既定false。
+    @Published var keepaThrottleDebugEnabled: Bool {
+        didSet {
+            defaults.set(keepaThrottleDebugEnabled, forKey: Keys.keepaThrottleDebugEnabled)
         }
     }
 
@@ -375,6 +386,7 @@ final class SettingsStore: ObservableObject {
             self.linkButtons = Self.defaultLinkButtons
         }
         self.linkSearchByModelNumber = defaults.bool(forKey: Keys.linkSearchByModelNumber)
+        self.keepaThrottleDebugEnabled = defaults.bool(forKey: Keys.keepaThrottleDebugEnabled)
 
         // 利益アラート(Phase 1a)。未設定時は全条件OFF・既定値で読み込む(既存ユーザーの挙動は不変)。
         self.profitAlertEnabled = defaults.bool(forKey: Keys.profitAlertEnabled)

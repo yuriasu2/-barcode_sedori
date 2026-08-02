@@ -312,6 +312,19 @@ class ThrottleCore {
     if (this.queueLength() > 0) this.grantTick();
   }
 
+  /** デバッグ用: 現在の推定状態のスナップショット(観測のみ、副作用なし)。 */
+  debugSnapshot(now = Date.now()) {
+    this.refill(now);
+    return {
+      tokensEstimate: Math.round(this.tokens * 10) / 10,
+      capacity: this.config.capacity,
+      consumeRatePerMin: this.consumeRatePerMin(now),
+      refillPerMin: this.config.refillPerMin,
+      queueLength: this.queueLength(),
+      depth: this.config.depth,
+    };
+  }
+
   /** shedding発生時の構造化ログ(wrangler tailで確認する。設計書§2.4)。直近消費レートも出す(§2.6)。 */
   logShed(kind) {
     const rate = this.consumeRatePerMin(Date.now());
@@ -429,6 +442,22 @@ async function reportExhausted() {
   }
 }
 
+/**
+ * デバッグ表示用: 現在の推定状態のスナップショット(観測のみ、副作用なし)。
+ * DO障害時はnullを返す(可用性優先のacquireと違い、デバッグ情報が取れないだけで
+ * 実害が無いため、reportTokensLeftと同じ「失敗を無視」の作法。ただし戻り値はnull)。
+ */
+async function debugSnapshot() {
+  const binding = getDurableBinding();
+  if (!binding) return getCore().debugSnapshot();
+  try {
+    return await callDurableObject(binding, 'debug', {});
+  } catch (err) {
+    console.error('[keepaThrottle] DO debug snapshot failed (ignored):', err.message);
+    return null;
+  }
+}
+
 /** テスト用: 環境変数を読み直してインメモリコアを作り直す。 */
 function _resetForTest() {
   if (core) core.destroy();
@@ -439,6 +468,7 @@ module.exports = {
   acquire,
   reportTokensLeft,
   reportExhausted,
+  debugSnapshot,
   ThrottleCore,
   readThrottleConfig,
   _setDurableBinding,

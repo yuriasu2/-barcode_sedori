@@ -288,6 +288,52 @@ async function acquireKeepaSlot(headers) {
 }
 
 /**
+ * X-Keepa-Debugヘッダー(非空)が付いたリクエストか。開発者が実行時にスロットルの
+ * 内部状態(待ち時間・推定残量など)をアプリ上で見るためのデバッグ機能を有効化する
+ * (hasByoKeepaKeyと同じ形)。
+ */
+function hasKeepaDebugHeader(headers) {
+  const headerValue = headers && (headers['x-keepa-debug'] || headers['X-Keepa-Debug']);
+  return Boolean(headerValue && String(headerValue).trim());
+}
+
+/** キャッシュヒットで即返す経路での_keepaDebug(消費なし・待ちなし)。 */
+function cacheBypassKeepaDebug() {
+  return { bypass: 'cache', waitedMs: 0, allowed: true, reason: null, snapshot: null };
+}
+
+/** debugがあれば_keepaDebugを混ぜたコピーを、無ければ元のオブジェクトをそのまま返す。 */
+function attachKeepaDebug(body, debug) {
+  return debug ? { ...body, _keepaDebug: debug } : body;
+}
+
+/**
+ * デバッグヘッダーが無いときは通常のacquireKeepaSlotと完全に同じ(挙動もレスポンスも変えない)。
+ * ヘッダーがある場合のみ、acquire呼び出しの前後で実測してdebug情報を組み立てる。
+ * BYOキー経路はスロットルを一切呼ばない(bypass:'byo')ので、実測もスナップショットも無し。
+ */
+async function acquireKeepaSlotWithDebug(headers) {
+  if (!hasKeepaDebugHeader(headers)) {
+    return { slot: await acquireKeepaSlot(headers), debug: null };
+  }
+  if (hasByoKeepaKey(headers)) {
+    return {
+      slot: { allowed: true },
+      debug: { bypass: 'byo', waitedMs: 0, allowed: true, reason: null, snapshot: null },
+    };
+  }
+  // 判定直前(=acquireが見る状態そのもの)のスナップショットを取ってから実測する。
+  const snapshot = await keepaThrottle.debugSnapshot();
+  const startedAt = Date.now();
+  const slot = await acquireKeepaSlot(headers);
+  const waitedMs = Date.now() - startedAt;
+  return {
+    slot,
+    debug: { bypass: null, waitedMs, allowed: slot.allowed, reason: slot.reason || null, snapshot },
+  };
+}
+
+/**
  * 認証情報から、キャッシュキーに混ぜて使うためのハッシュ(先頭8文字)を生成する。
  * 異なるアカウント間でキャッシュ結果が混ざらないようにする目的であり、
  * 機密情報そのものをキーに含めない。
@@ -561,13 +607,14 @@ async function handleSearchViaSpApi(req, res, code, credentials, cacheKey) {
  * Keepa経路での/api/search処理(第1段階・offersなし=1トークン)。source:"keepa"を付与する。
  * SP-API認証情報が無い場合のフォールバック(KEEPA_API_KEYまたはBYOキーが必要)。
  * @param {string} apiKey resolveKeepaApiKeyで解決済みのKeepaキー(ヘッダーのBYOキー、または環境変数)。
+ * @param {object|null} [keepaDebug] X-Keepa-Debug有効時のみ非null。レスポンスの_keepaDebugへ混ぜる。
  */
-async function handleSearchViaKeepa(req, res, code, cacheKey, apiKey) {
+async function handleSearchViaKeepa(req, res, code, cacheKey, apiKey, keepaDebug) {
   try {
     const converted = convertCode(code);
 
     if (converted.codeType === CODE_TYPES.UNRESOLVED) {
-      return res.json({
+      return res.json(attachKeepaDebug({
         codeType: CODE_TYPES.UNRESOLVED,
         asin: null,
         title: null,
@@ -581,14 +628,14 @@ async function handleSearchViaKeepa(req, res, code, cacheKey, apiKey) {
         profitInputs: null,
         reason: converted.reason || 'unresolved',
         source: 'keepa',
-      });
+      }, keepaDebug));
     }
 
     const isbn13 = converted.isbn13 || null;
     const janOrIsbn = converted.isbn13 || converted.jan;
 
     if (!janOrIsbn) {
-      return res.json({
+      return res.json(attachKeepaDebug({
         codeType: CODE_TYPES.UNRESOLVED,
         asin: null,
         title: null,
@@ -601,7 +648,7 @@ async function handleSearchViaKeepa(req, res, code, cacheKey, apiKey) {
         profitInputs: null,
         reason: 'no_identifier',
         source: 'keepa',
-      });
+      }, keepaDebug));
     }
 
     // history:1で取得してもトークン消費はhistory:0と同じ1個(実測済み)。
@@ -616,7 +663,7 @@ async function handleSearchViaKeepa(req, res, code, cacheKey, apiKey) {
     const mapped = keepa.mapProductToSearchResult(product);
 
     if (!mapped) {
-      return res.json({
+      return res.json(attachKeepaDebug({
         codeType: converted.codeType,
         asin: null,
         title: null,
@@ -629,7 +676,7 @@ async function handleSearchViaKeepa(req, res, code, cacheKey, apiKey) {
         profitInputs: null,
         reason: 'catalog_not_found',
         source: 'keepa',
-      });
+      }, keepaDebug));
     }
 
     if (mapped.asin) {
@@ -663,8 +710,11 @@ async function handleSearchViaKeepa(req, res, code, cacheKey, apiKey) {
     };
 
     // Keepa結果は長め(30分)にキャッシュしトークン消費を抑える(共有コスト削減)。
+    // _keepaDebugはこの1回のレスポンスにだけ付けるため、キャッシュへ入れる前(=素の
+    // responseBody)にsetし、レスポンス送出はattachKeepaDebugしたコピーで行う
+    // (キャッシュに混ぜると、後続のデバッグ無効リクエストにまで古いdebug値が漏れてしまう)。
     searchCache.set(cacheKey, responseBody, KEEPA_CACHE_TTL_MS);
-    res.json(responseBody);
+    res.json(attachKeepaDebug(responseBody, keepaDebug));
   } catch (err) {
     if (err.code === 'keepa_tokens_exhausted') {
       // 推定より実残量が少なかった稀なケース。残量0へ補正し、ユーザーには
@@ -715,7 +765,9 @@ router.get('/api/search', async (req, res) => {
       if (cached) {
         // キャッシュヒットは消費なし。ただし最新のquotaはクライアントへ返す。
         attachQuota(res, await deviceQuota.computeQuota(deviceId));
-        return res.json(cached);
+        return res.json(
+          hasKeepaDebugHeader(req.headers) ? attachKeepaDebug(cached, cacheBypassKeepaDebug()) : cached
+        );
       }
       // handleSearchViaKeepaはコードを識別子へ変換できない場合、Keepaを呼ばずに
       // unresolved/no_identifierを返す。基本枠は5しかないため、その空振りで1枠失うと
@@ -724,11 +776,13 @@ router.get('/api/search', async (req, res) => {
       const converted = convertCode(code);
       const willCallKeepa =
         converted.codeType !== CODE_TYPES.UNRESOLVED && Boolean(converted.isbn13 || converted.jan);
+      let keepaDebug = null;
       if (willCallKeepa) {
         // 共有Keepaキーの通行許可を先に取る。拒否時にユニットを消費しない順序が重要
         // (設計書§2.2: 「エラーになったのに枠だけ減った」を作らない)。
-        const slot = await acquireKeepaSlot(req.headers);
-        if (!slot.allowed) return sendKeepaBusy(res);
+        const acquired = await acquireKeepaSlotWithDebug(req.headers);
+        if (!acquired.slot.allowed) return sendKeepaBusy(res);
+        keepaDebug = acquired.debug;
 
         const consumeResult = await deviceQuota.tryConsume(deviceId, 1);
         if (!consumeResult.allowed) {
@@ -744,13 +798,17 @@ router.get('/api/search', async (req, res) => {
         // Keepaを呼ばない(unresolved)場合でも、quotaは返す(消費はしない)。
         attachQuota(res, await deviceQuota.computeQuota(deviceId));
       }
-      return handleSearchViaKeepa(req, res, code, cacheKey, keepaApiKey);
+      return handleSearchViaKeepa(req, res, code, cacheKey, keepaApiKey, keepaDebug);
     }
 
-    if (cached) return res.json(cached);
-    const slot = await acquireKeepaSlot(req.headers);
-    if (!slot.allowed) return sendKeepaBusy(res);
-    return handleSearchViaKeepa(req, res, code, cacheKey, keepaApiKey);
+    if (cached) {
+      return res.json(
+        hasKeepaDebugHeader(req.headers) ? attachKeepaDebug(cached, cacheBypassKeepaDebug()) : cached
+      );
+    }
+    const acquired = await acquireKeepaSlotWithDebug(req.headers);
+    if (!acquired.slot.allowed) return sendKeepaBusy(res);
+    return handleSearchViaKeepa(req, res, code, cacheKey, keepaApiKey, acquired.debug);
   }
 
   return res.status(503).json({ error: 'spapi_credentials_missing', message: SPAPI_CREDENTIALS_MISSING_MESSAGE });
@@ -971,13 +1029,16 @@ router.get('/api/graph-data', async (req, res) => {
     // BYOキーの有無に関わらずキャッシュキー(graphDataCacheKey)は共通のまま
     // (キャッシュヒット時は誰のKeepaトークンも消費しないため、キーを分ける必要がない)。
     if (!isPro) attachQuota(res, await deviceQuota.computeQuota(deviceId));
-    return res.json(cached);
+    return res.json(
+      hasKeepaDebugHeader(req.headers) ? attachKeepaDebug(cached, cacheBypassKeepaDebug()) : cached
+    );
   }
 
   // 共有Keepaキーの通行許可(キャッシュヒット時は不要なのでこの位置)。
   // 無料枠ユニットの消費より前に取る(拒否時にユニットを失わせないため)。
-  const slot = await acquireKeepaSlot(req.headers);
-  if (!slot.allowed) return sendKeepaBusy(res);
+  const acquired = await acquireKeepaSlotWithDebug(req.headers);
+  if (!acquired.slot.allowed) return sendKeepaBusy(res);
+  const keepaDebug = acquired.debug;
 
   if (!isPro) {
     // 無料枠ユニットの消費ロジックは変更しない(Keepa連携はPro限定機能のため実質影響しないが、
@@ -1002,8 +1063,10 @@ router.get('/api/graph-data', async (req, res) => {
       await keepaThrottle.reportTokensLeft(tokensLeft);
     }
     const responseBody = { series: keepa.extractGraphSeries(product) };
+    // _keepaDebugはキャッシュへ入れる前(素のresponseBody)にsetし、レスポンスだけ
+    // attachKeepaDebugしたコピーで返す(理由はhandleSearchViaKeepaと同じ)。
     graphDataCache.set(cacheKey, responseBody);
-    res.json(responseBody);
+    res.json(attachKeepaDebug(responseBody, keepaDebug));
   } catch (err) {
     if (err.code === 'keepa_tokens_exhausted') {
       // 推定より実残量が少なかった稀なケース。残量0へ補正し、ユーザーには

@@ -44,6 +44,9 @@ export class KeepaThrottleDO {
       this.core.reportExhausted();
       return Response.json({ ok: true });
     }
+    if (request.method === 'POST' && url.pathname === '/debug') {
+      return Response.json(this.core.debugSnapshot());
+    }
     return new Response('not found', { status: 404 });
   }
 }

@@ -756,6 +756,11 @@ struct SearchTabView: View {
                     browserTarget = BrowserTarget(url: url)
                 }
             )
+            #if DEBUG
+            if settings.keepaThrottleDebugEnabled, let debug = viewModel.latestResult?.keepaDebug {
+                keepaDebugView(debug)
+            }
+            #endif
         } else if let busyMessage = viewModel.keepaBusyMessage {
             keepaBusyCard(message: busyMessage)
         } else if let errorMessage = viewModel.searchErrorMessage {
@@ -769,6 +774,19 @@ struct SearchTabView: View {
             EmptyView()
         }
     }
+
+    #if DEBUG
+    /// Keepaスロットルのデバッグ表示(開発者向け。設定でONかつX-Keepa-Debug応答があるときだけ出す)。
+    private func keepaDebugView(_ debug: KeepaDebugInfo) -> some View {
+        let snapshotText = debug.snapshot.map {
+            "残量≈\($0.tokensEstimate) 消費\($0.consumeRatePerMin)/分 補充\($0.refillPerMin)/分 キュー\($0.queueLength)/\($0.depth)"
+        } ?? "スナップショット無し"
+        return Text("[Keepa Debug] bypass=\(debug.bypass ?? "-") 待ち\(debug.waitedMs)ms allowed=\(debug.allowed) reason=\(debug.reason ?? "-") \(snapshotText)")
+            .font(.system(size: 9, design: .monospaced))
+            .foregroundColor(.secondary)
+            .padding(.horizontal, 4)
+    }
+    #endif
 
     // MARK: - オファーパネル
 

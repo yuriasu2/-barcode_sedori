@@ -186,3 +186,147 @@ test('/api/graph-data: 成功時はtokensLeftがスロットルへ報告され�
     t.after(() => routes.graphDataCache.clear());
   });
 });
+
+// ---------------------------------------------------------------------------
+// Keepaスロットルのデバッグ表示(X-Keepa-Debug)
+// docs/superpowers/specs/2026-08-02-keepa-token-depletion-design.md §2.1・§2.6
+// ---------------------------------------------------------------------------
+
+test('/api/search: X-Keepa-Debugヘッダー付き(通常経路)は_keepaDebugを含み、bypass=nullでsnapshotが入る', async (t) => {
+  await withEnv({ ...NO_SPAPI, KEEPA_API_KEY: 'shared-key' }, async () => {
+    const routes = freshRoutes();
+    const keepa = require('../src/keepa/client');
+    throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_QUEUE_DEPTH: '10', KEEPA_REFILL_PER_MIN: '5' });
+    keepa.getProduct = async () => ({
+      product: { asin: 'B000DEBUG01', title: 'デバッグテスト', csv: [] },
+      tokensLeft: 9,
+    });
+
+    const req = {
+      query: { code: '9784873119045' },
+      headers: { 'x-app-plan': 'pro', 'x-device-id': 'dev-debug-1', 'x-keepa-debug': '1' },
+    };
+    const res = createMockRes();
+    await routes.match('GET', '/api/search').handler(req, res);
+
+    assert.equal(res.statusCode, 200);
+    assert.ok(res.body._keepaDebug, '_keepaDebugが含まれること');
+    assert.equal(res.body._keepaDebug.bypass, null);
+    assert.equal(res.body._keepaDebug.allowed, true);
+    assert.equal(res.body._keepaDebug.reason, null);
+    assert.equal(typeof res.body._keepaDebug.waitedMs, 'number');
+    assert.ok(res.body._keepaDebug.snapshot, 'snapshotが入ること');
+    assert.equal(res.body._keepaDebug.snapshot.capacity, 10);
+    assert.equal(res.body._keepaDebug.snapshot.refillPerMin, 5);
+    assert.equal(res.body._keepaDebug.snapshot.depth, 10);
+
+    t.after(() => routes.searchCache.clear());
+  });
+});
+
+test('/api/search: X-Keepa-Debug+BYOキーはbypass=byoでスロットルに触れない', async (t) => {
+  await withEnv({ ...NO_SPAPI, KEEPA_API_KEY: undefined }, async () => {
+    const routes = freshRoutes();
+    const keepa = require('../src/keepa/client');
+    throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_QUEUE_DEPTH: '0', KEEPA_REFILL_PER_MIN: '1' });
+    await keepaThrottle.reportTokensLeft(0); // 共有側は枯渇状態(BYOはこの影響を受けないことも確認)
+
+    keepa.getProduct = async ({ apiKey }) => {
+      assert.equal(apiKey, 'my-own-key');
+      return { product: { asin: 'B000DEBUG02', title: 'BYOデバッグ', csv: [] }, tokensLeft: 50 };
+    };
+
+    const req = {
+      query: { code: '9784873119045' },
+      headers: {
+        'x-app-plan': 'pro',
+        'x-device-id': 'dev-debug-2',
+        'x-keepa-key': 'my-own-key',
+        'x-keepa-debug': '1',
+      },
+    };
+    const res = createMockRes();
+    await routes.match('GET', '/api/search').handler(req, res);
+
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(res.body._keepaDebug, {
+      bypass: 'byo',
+      waitedMs: 0,
+      allowed: true,
+      reason: null,
+      snapshot: null,
+    });
+
+    t.after(() => routes.searchCache.clear());
+  });
+});
+
+test('/api/search: X-Keepa-Debug+キャッシュヒットはbypass=cacheで、次のヘッダー無しリクエストへ漏れない', async (t) => {
+  await withEnv({ ...NO_SPAPI, KEEPA_API_KEY: 'shared-key' }, async () => {
+    const routes = freshRoutes();
+    const keepa = require('../src/keepa/client');
+    throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_QUEUE_DEPTH: '10', KEEPA_REFILL_PER_MIN: '5' });
+    keepa.getProduct = async () => ({
+      product: { asin: 'B000DEBUG03', title: 'キャッシュデバッグ', csv: [] },
+      tokensLeft: 9,
+    });
+
+    const baseHeaders = { 'x-app-plan': 'pro', 'x-device-id': 'dev-debug-3' };
+
+    // 1回目: キャッシュへ入れる(デバッグ無し)
+    const req1 = { query: { code: '9784873119045' }, headers: baseHeaders };
+    const res1 = createMockRes();
+    await routes.match('GET', '/api/search').handler(req1, res1);
+    assert.equal(res1.statusCode, 200);
+    assert.equal(res1.body._keepaDebug, undefined);
+
+    // 2回目: キャッシュヒット・デバッグ有効 → bypass:'cache'
+    const req2 = {
+      query: { code: '9784873119045' },
+      headers: { ...baseHeaders, 'x-keepa-debug': '1' },
+    };
+    const res2 = createMockRes();
+    await routes.match('GET', '/api/search').handler(req2, res2);
+    assert.equal(res2.statusCode, 200);
+    assert.deepEqual(res2.body._keepaDebug, {
+      bypass: 'cache',
+      waitedMs: 0,
+      allowed: true,
+      reason: null,
+      snapshot: null,
+    });
+
+    // 3回目: 再びデバッグ無し → キャッシュへ_keepaDebugが漏れて残っていないこと
+    const req3 = { query: { code: '9784873119045' }, headers: baseHeaders };
+    const res3 = createMockRes();
+    await routes.match('GET', '/api/search').handler(req3, res3);
+    assert.equal(res3.statusCode, 200);
+    assert.equal(res3.body._keepaDebug, undefined);
+
+    t.after(() => routes.searchCache.clear());
+  });
+});
+
+test('/api/search: X-Keepa-Debugヘッダーが無ければ_keepaDebugは一切含まれない', async (t) => {
+  await withEnv({ ...NO_SPAPI, KEEPA_API_KEY: 'shared-key' }, async () => {
+    const routes = freshRoutes();
+    const keepa = require('../src/keepa/client');
+    throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_QUEUE_DEPTH: '10', KEEPA_REFILL_PER_MIN: '5' });
+    keepa.getProduct = async () => ({
+      product: { asin: 'B000DEBUG04', title: '通常', csv: [] },
+      tokensLeft: 9,
+    });
+
+    const req = {
+      query: { code: '9784873119045' },
+      headers: { 'x-app-plan': 'pro', 'x-device-id': 'dev-debug-4' },
+    };
+    const res = createMockRes();
+    await routes.match('GET', '/api/search').handler(req, res);
+
+    assert.equal(res.statusCode, 200);
+    assert.equal('_keepaDebug' in res.body, false);
+
+    t.after(() => routes.searchCache.clear());
+  });
+});

@@ -95,6 +95,9 @@ final class APIClient {
         addDeviceHeader(to: &request)
         addSpApiHeadersIfNeeded(to: &request)
         addKeepaKeyHeaderIfNeeded(to: &request)
+        #if DEBUG
+        addKeepaDebugHeaderIfNeeded(to: &request)
+        #endif
         return request
     }
 
@@ -158,6 +161,16 @@ final class APIClient {
         guard settings.isKeepaKeyUsable else { return }
         request.setValue(settings.keepaApiKey, forHTTPHeaderField: "X-Keepa-Key")
     }
+
+    #if DEBUG
+    /// 開発者向けのKeepaスロットルデバッグ表示が有効なら、リクエストにX-Keepa-Debugヘッダーを付与する。
+    /// トグル自体がDEBUG専用UI(SettingsView)だが、ヘッダー付与コードもここで#if DEBUGごと囲み二重に守る
+    /// (本番配布ビルドには一切含まれない)。Pro/無料は問わない(デバッグ機能なので誰でも有効化できてよい)。
+    private func addKeepaDebugHeaderIfNeeded(to request: inout URLRequest) {
+        guard SettingsStore.shared.keepaThrottleDebugEnabled else { return }
+        request.setValue("1", forHTTPHeaderField: "X-Keepa-Debug")
+    }
+    #endif
 
     private func perform<T: Decodable>(_ request: URLRequest, as type: T.Type) async throws -> T {
         let data: Data

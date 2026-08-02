@@ -309,9 +309,28 @@ struct PriceHistoryChartView: View {
                     sellerCountChart(series: sellerCountSeries, domain: domain)
                     sellerCountLegend
                 }
+                #if DEBUG
+                if SettingsStore.shared.keepaThrottleDebugEnabled, let debug = data.keepaDebug {
+                    keepaDebugView(debug)
+                }
+                #endif
             }
         }
     }
+
+    #if DEBUG
+    /// Keepaスロットルのデバッグ表示(開発者向け。設定でONかつX-Keepa-Debug応答があるときだけ出す)。
+    /// SearchTabViewのkeepaDebugViewと同じ形式(bypass/待ち時間/allowed/reason/snapshot)。
+    private func keepaDebugView(_ debug: KeepaDebugInfo) -> some View {
+        let snapshotText = debug.snapshot.map {
+            "残量≈\($0.tokensEstimate) 消費\($0.consumeRatePerMin)/分 補充\($0.refillPerMin)/分 キュー\($0.queueLength)/\($0.depth)"
+        } ?? "スナップショット無し"
+        return Text("[Keepa Debug] bypass=\(debug.bypass ?? "-") 待ち\(debug.waitedMs)ms allowed=\(debug.allowed) reason=\(debug.reason ?? "-") \(snapshotText)")
+            .font(.system(size: 9, design: .monospaced))
+            .foregroundColor(.secondary)
+            .padding(.horizontal, 4)
+    }
+    #endif
 
     /// メインチャートの凡例(ランキング/Amazon/新品/中古)。以前はSearchTabView/ProductDetailViewが
     /// 個別に描画していたが、出品者数チャートが増えて2段構成になったため表示順を保つべくここへ移した。

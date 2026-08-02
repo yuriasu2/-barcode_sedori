@@ -34,4 +34,12 @@ struct GraphData: Codable, Equatable {
     let series: Series
     /// 無料枠ユニットの残量。非Proに付く(キャッシュヒット時は消費なし)。Pro・SP-API連携済みには付かない。
     let quota: QuotaInfo?
+    /// Keepaスロットルのデバッグ情報(X-Keepa-Debugヘッダー付きリクエスト時のみ非nil)。
+    /// サーバー側キー名は"_keepaDebug"のためCodingKeysで対応させる(KeepaDebugInfoはSearchModels.swiftで定義)。
+    let keepaDebug: KeepaDebugInfo?
+
+    private enum CodingKeys: String, CodingKey {
+        case series, quota
+        case keepaDebug = "_keepaDebug"
+    }
 }

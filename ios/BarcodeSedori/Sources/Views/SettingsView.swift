@@ -227,6 +227,7 @@ struct SettingsView: View {
                         .onChange(of: debugForcePro) { newValue in
                             entitlements.debugForcePro = newValue
                         }
+                    Toggle("Keepaスロットルのデバッグ表示", isOn: $settings.keepaThrottleDebugEnabled)
                 }
                 #endif
 

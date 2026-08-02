@@ -72,6 +72,38 @@ struct SearchResult: Codable, Equatable {
     let profitInputs: ProfitInputs?
     /// 無料枠ユニットの残量。Pro・SP-API連携済みには付かない(nil)。
     let quota: QuotaInfo?
+    /// Keepaスロットルのデバッグ情報(X-Keepa-Debugヘッダー付きリクエスト時のみ非nil)。
+    /// サーバー側キー名は"_keepaDebug"のためCodingKeysで対応させる。
+    let keepaDebug: KeepaDebugInfo?
+
+    private enum CodingKeys: String, CodingKey {
+        case codeType, asin, title, isbn13, imageUrl, salesRank, releaseDate, modelNumber
+        case prices, source, offers, profitInputs, quota
+        case keepaDebug = "_keepaDebug"
+    }
+}
+
+/// Keepaスロットルの内部状態デバッグ情報(開発者向け。設計書:
+/// docs/superpowers/specs/2026-08-02-keepa-token-depletion-design.md §2.1・§2.6)。
+struct KeepaDebugInfo: Codable, Equatable {
+    /// BYOキー使用時/キャッシュヒット時はその理由("byo"|"cache")。通常はnil。
+    let bypass: String?
+    /// acquireKeepaSlot呼び出しにかかった実測ミリ秒(BYO/キャッシュ時は0)。
+    let waitedMs: Int
+    /// acquireの結果(BYO/キャッシュ時はtrue固定)。
+    let allowed: Bool
+    /// 拒否理由("depth"|"timeout")。許可時・BYO・キャッシュ時はnil。
+    let reason: String?
+    let snapshot: Snapshot?
+
+    struct Snapshot: Codable, Equatable {
+        let tokensEstimate: Double
+        let capacity: Int
+        let consumeRatePerMin: Int
+        let refillPerMin: Int
+        let queueLength: Int
+        let depth: Int
+    }
 }
 
 /// 無料枠ユニットモデル(Phase B)の残量情報。/api/search・/api/graph-data・/api/quota が返す。
