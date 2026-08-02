@@ -589,6 +589,13 @@ struct PriceHistoryChartView: View {
         for (time, value) in points {
             if value == -1 {
                 guard !current.isEmpty else { continue }
+                // Keepaのcsvでは値は「次の点の時刻まで有効」なので、直前の値を-1の時刻に
+                // 終端点として足し、ステップ線を在庫が切れた瞬間まで届かせる。
+                // これが無いと、区間内に変化点が1つしか無い場合(例: 窓先頭の復元点のみ)に
+                // 1点きりの区間となり線が全く描けない。
+                if let lastValue = current.last?.value {
+                    current.append(ChartPoint(time: time, value: lastValue))
+                }
                 segments.append(ChartSegment(id: "\(seriesId)-\(segmentIndex)", points: current))
                 segmentIndex += 1
                 current = []
