@@ -11,6 +11,8 @@
 // Durable Object本体を再エクスポートする(Workersランタイムがクラスを見つけるために必須。
 // wrangler.jsonc の durable_objects.bindings[].class_name と一致させている)。
 export { DeviceQuotaDO } from './quotaDurableObject.js';
+// Keepaスロットル(共有キーのトークン推定+優先度キュー)のDO。グローバルに1つ。
+export { KeepaThrottleDO } from './keepaThrottleDurableObject.js';
 
 let routesPromise = null;
 
@@ -39,6 +41,10 @@ export default {
     // 無料枠ユニットのDurable Objectバインディング。deviceQuota.js側は
     // globalThis.__quotaDO を直接参照する(__adsKvと同じ簡易な受け渡し方式)。
     globalThis.__quotaDO = env.DEVICE_QUOTA || null;
+
+    // Keepaスロットルのバインディング。keepaThrottle.js側がglobalThis経由で参照する
+    // (__quotaDOと同じ簡易な受け渡し方式)。
+    globalThis.__keepaThrottleDO = env.KEEPA_THROTTLE || null;
 
     const url = new URL(request.url);
 

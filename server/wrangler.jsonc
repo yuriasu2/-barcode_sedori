@@ -21,7 +21,13 @@
     // 基本の1日あたりユニット数 / 広告視聴1本あたりの付与ユニット数 / 1日の上限(cap)。
     "BASE_DAILY_UNITS": "5",
     "UNITS_PER_AD": "5",
-    "MAX_DAILY_UNITS": "100"
+    "MAX_DAILY_UNITS": "100",
+    // Keepaスロットル(keepaThrottle.js)。契約プランの毎分トークン数 / キュー深さ上限 /
+    // キュー待ちの最大ミリ秒(iOSの通信タイムアウトより短くすること)。
+    // プランを20トークン/分へ上げたらKEEPA_REFILL_PER_MINだけ更新してデプロイする。
+    "KEEPA_REFILL_PER_MIN": "5",
+    "KEEPA_QUEUE_DEPTH": "10",
+    "KEEPA_QUEUE_TIMEOUT_MS": "25000"
   },
   // 広告配信設定(/api/ads)を置くKV namespace。id は namespace 作成後に埋める
   // (`wrangler kv namespace create ADS_CONFIG`)。id未設定(プレースホルダ)のままでも
@@ -31,12 +37,16 @@
   ],
   // 無料枠ユニット(deviceQuota.js)の永続化先。デバイスID単位でDOインスタンスを1個割り当てる。
   "durable_objects": {
-    "bindings": [{ "name": "DEVICE_QUOTA", "class_name": "DeviceQuotaDO" }]
+    "bindings": [
+      { "name": "DEVICE_QUOTA", "class_name": "DeviceQuotaDO" },
+      { "name": "KEEPA_THROTTLE", "class_name": "KeepaThrottleDO" }
+    ]
   },
   // new_sqlite_classes を使う(new_classes ではない)。無料プランではSQLiteバックエンドの
   // Durable Objectsのみ利用可能なため(KVバックエンドは有料プラン専用)。
   "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["DeviceQuotaDO"] }
+    { "tag": "v1", "new_sqlite_classes": ["DeviceQuotaDO"] },
+    { "tag": "v2", "new_sqlite_classes": ["KeepaThrottleDO"] }
   ]
   // Secrets(LWA_CLIENT_ID/LWA_CLIENT_SECRET/KEEPA_API_KEY/SPAPI_APP_ID)は
   // `wrangler secret put` で登録する(このファイルに書かない)。
