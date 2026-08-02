@@ -200,6 +200,12 @@ class ThrottleCore {
 // ---------------------------------------------------------------------------
 
 let durableBindingOverride;
+/**
+ * テスト用: DOバインディングを差し替える。
+ * - 何らかのモックbindingを渡すとDO経路を強制する。
+ * - undefinedを渡すと通常状態(globalThis.__keepaThrottleDOを見る)に戻る。
+ * - nullを渡すとインメモリ経路を強制する(globalThis.__keepaThrottleDOが設定されていても無視)。
+ */
 function _setDurableBinding(binding) {
   durableBindingOverride = binding;
 }
@@ -216,7 +222,13 @@ async function callDurableObject(binding, path, params) {
   const stub = binding.get(id);
   const qs = new URLSearchParams(params).toString();
   const res = await stub.fetch(`https://do/${path}?${qs}`, { method: 'POST' });
-  return res.json();
+  const body = await res.json();
+  if (!res.ok) {
+    const err = new Error(`throttle DO ${path} returned status ${res.status}`);
+    err.body = body;
+    throw err;
+  }
+  return body;
 }
 
 // ---------------------------------------------------------------------------
