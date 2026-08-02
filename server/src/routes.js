@@ -10,6 +10,7 @@ const spapiAuth = require('./spapi/auth');
 const oauth = require('./oauth');
 const keepa = require('./keepa/client');
 const deviceQuota = require('./deviceQuota');
+const keepaThrottle = require('./keepaThrottle');
 const admobSsv = require('./admobSsv');
 const listings = require('./spapi/listings');
 const spapiClient = require('./spapi/client');
@@ -262,6 +263,28 @@ function resolveKeepaApiKey(headers) {
   const trimmed = headerKey ? String(headerKey).trim() : '';
   if (trimmed) return trimmed;
   return keepa.getApiKey();
+}
+
+/** BYO Keepaキー(X-Keepa-Key)が付いたリクエストか。BYOは本人の枠を使うためスロットル対象外。 */
+function hasByoKeepaKey(headers) {
+  const headerKey = headers && (headers['x-keepa-key'] || headers['X-Keepa-Key']);
+  return Boolean(headerKey && String(headerKey).trim());
+}
+
+/** キュー拒否・Keepa枯渇時の共通レスポンス(設計書§2.1。文言は正確にこの通りとする)。 */
+const KEEPA_BUSY_MESSAGE = '混み合っているので時間を空けてお試しください。';
+function sendKeepaBusy(res) {
+  return res.status(429).json({ error: 'keepa_busy', message: KEEPA_BUSY_MESSAGE });
+}
+
+/**
+ * 共有Keepaキーを使う直前の通行許可。BYOキーはスロットル外(即許可)。
+ * 待ち行列はkeepaThrottle(DO)側が持ち、この呼び出しは許可が出るか
+ * 拒否(深さ超過/タイムアウト)が確定するまで解決しない。
+ */
+async function acquireKeepaSlot(headers) {
+  if (hasByoKeepaKey(headers)) return { allowed: true };
+  return keepaThrottle.acquire(isProRequest(headers) ? 'pro' : 'free');
 }
 
 /**
@@ -584,7 +607,12 @@ async function handleSearchViaKeepa(req, res, code, cacheKey, apiKey) {
     // history:1で取得してもトークン消費はhistory:0と同じ1個(実測済み)。
     // ここで取得したproductからグラフ生データも抽出しgraphDataCacheへ先入れすることで、
     // Keepa経路で検索した商品のグラフ(/api/graph-data)はトークン追加消費ゼロで返せる。
-    const { product } = await keepa.getProduct({ code: janOrIsbn, history: 1, apiKey });
+    const { product, tokensLeft } = await keepa.getProduct({ code: janOrIsbn, history: 1, apiKey });
+    // 共有キーのときだけ実残量をスロットルへ報告する(BYOキーの残量で共有側の推定を
+    // 壊さないようにする)。報告は補正であり本処理の成否に影響させない。
+    if (!hasByoKeepaKey(req.headers) && Number.isFinite(tokensLeft)) {
+      await keepaThrottle.reportTokensLeft(tokensLeft);
+    }
     const mapped = keepa.mapProductToSearchResult(product);
 
     if (!mapped) {
@@ -639,7 +667,10 @@ async function handleSearchViaKeepa(req, res, code, cacheKey, apiKey) {
     res.json(responseBody);
   } catch (err) {
     if (err.code === 'keepa_tokens_exhausted') {
-      return res.status(503).json({ error: 'keepa_tokens_exhausted', message: err.message });
+      // 推定より実残量が少なかった稀なケース。残量0へ補正し、ユーザーには
+      // キュー拒否と同じ文言で返す(体験を1種類に揃える。設計書§2.1)。
+      if (!hasByoKeepaKey(req.headers)) await keepaThrottle.reportExhausted();
+      return sendKeepaBusy(res);
     }
     console.error(`[search:keepa] code=${code} failed:`, err.message);
     res.status(502).json({ error: 'search_failed', message: err.message });
@@ -694,6 +725,11 @@ router.get('/api/search', async (req, res) => {
       const willCallKeepa =
         converted.codeType !== CODE_TYPES.UNRESOLVED && Boolean(converted.isbn13 || converted.jan);
       if (willCallKeepa) {
+        // 共有Keepaキーの通行許可を先に取る。拒否時にユニットを消費しない順序が重要
+        // (設計書§2.2: 「エラーになったのに枠だけ減った」を作らない)。
+        const slot = await acquireKeepaSlot(req.headers);
+        if (!slot.allowed) return sendKeepaBusy(res);
+
         const consumeResult = await deviceQuota.tryConsume(deviceId, 1);
         if (!consumeResult.allowed) {
           return res.status(429).json({
@@ -712,6 +748,8 @@ router.get('/api/search', async (req, res) => {
     }
 
     if (cached) return res.json(cached);
+    const slot = await acquireKeepaSlot(req.headers);
+    if (!slot.allowed) return sendKeepaBusy(res);
     return handleSearchViaKeepa(req, res, code, cacheKey, keepaApiKey);
   }
 
@@ -936,6 +974,11 @@ router.get('/api/graph-data', async (req, res) => {
     return res.json(cached);
   }
 
+  // 共有Keepaキーの通行許可(キャッシュヒット時は不要なのでこの位置)。
+  // 無料枠ユニットの消費より前に取る(拒否時にユニットを失わせないため)。
+  const slot = await acquireKeepaSlot(req.headers);
+  if (!slot.allowed) return sendKeepaBusy(res);
+
   if (!isPro) {
     // 無料枠ユニットの消費ロジックは変更しない(Keepa連携はPro限定機能のため実質影響しないが、
     // 無料ユーザーがBYOキーを送ってきた場合も従来どおり消費する。安全側の判断)。
@@ -952,13 +995,21 @@ router.get('/api/graph-data', async (req, res) => {
   }
 
   try {
-    const { product } = await keepa.getProduct({ asin, history: 1, apiKey: keepaApiKey });
+    const { product, tokensLeft } = await keepa.getProduct({ asin, history: 1, apiKey: keepaApiKey });
+    // 共有キーのときだけ実残量をスロットルへ報告する(BYOキーの残量で共有側の推定を
+    // 壊さないようにする)。報告は補正であり本処理の成否に影響させない。
+    if (!hasByoKeepaKey(req.headers) && Number.isFinite(tokensLeft)) {
+      await keepaThrottle.reportTokensLeft(tokensLeft);
+    }
     const responseBody = { series: keepa.extractGraphSeries(product) };
     graphDataCache.set(cacheKey, responseBody);
     res.json(responseBody);
   } catch (err) {
     if (err.code === 'keepa_tokens_exhausted') {
-      return res.status(503).json({ error: 'keepa_tokens_exhausted', message: err.message });
+      // 推定より実残量が少なかった稀なケース。残量0へ補正し、ユーザーには
+      // キュー拒否と同じ文言で返す(体験を1種類に揃える。設計書§2.1)。
+      if (!hasByoKeepaKey(req.headers)) await keepaThrottle.reportExhausted();
+      return sendKeepaBusy(res);
     }
     console.error(`[graph-data] asin=${asin} failed:`, err.message);
     res.status(502).json({ error: 'graph_data_failed', message: err.message });
@@ -1425,6 +1476,8 @@ router.graphDataCache = graphDataCache;
 router.isProRequest = isProRequest;
 // テスト用途にKeepa BYOキー解決関数を公開する。
 router.resolveKeepaApiKey = resolveKeepaApiKey;
+// テスト用途にBYOキー判定を公開する。
+router.hasByoKeepaKey = hasByoKeepaKey;
 // テスト用途にデバイスID抽出関数、deviceQuotaモジュール本体を公開する。
 router.deviceIdOf = deviceIdOf;
 router.deviceQuota = deviceQuota;

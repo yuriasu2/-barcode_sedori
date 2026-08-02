@@ -1025,10 +1025,11 @@ test('/api/graph-data: キャッシュ命中時はKeepaを再度呼ばない', a
   });
 });
 
-test('/api/graph-data: keepa_tokens_exhaustedは503、その他エラーは502で返す', async () => {
+test('/api/graph-data: keepa_tokens_exhaustedは429 keepa_busy、その他エラーは502で返す', async (t) => {
   await withEnv({ KEEPA_API_KEY: 'test-keepa-key' }, async () => {
     const routes = freshRoutes();
     const keepa = require('../src/keepa/client');
+    const keepaThrottle = require('../src/keepaThrottle');
 
     keepa.getProduct = async () => {
       const err = new Error('keepa_tokens_exhausted');
@@ -1041,8 +1042,15 @@ test('/api/graph-data: keepa_tokens_exhaustedは503、その他エラーは502�
     const route = routes.match('GET', '/api/graph-data');
     await route.handler(req, res);
 
-    assert.equal(res.statusCode, 503);
-    assert.equal(res.body.error, 'keepa_tokens_exhausted');
+    // 枯渇時はキュー拒否と同じ体験(429 keepa_busy)に揃える(設計書§2.1)。
+    assert.equal(res.statusCode, 429);
+    assert.equal(res.body.error, 'keepa_busy');
+
+    // このテストはkeepaThrottle.reportExhausted()を実際に発火させ、共有スロットルの
+    // トークン残量を0にする。プロセス内で全テストが同じ(モジュール単位の)スロットルを
+    // 共有しているため、リセットしないと後続テストが補充待ち(既定は毎分5個)で
+    // 数秒〜十数秒ブロックされてしまう。
+    t.after(() => keepaThrottle._resetForTest());
   });
 });
 
