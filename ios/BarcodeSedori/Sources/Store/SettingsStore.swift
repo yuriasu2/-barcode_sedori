@@ -23,8 +23,9 @@ final class SettingsStore: ObservableObject {
         /// リフレッシュトークンと異なり機密度が低いためKeychainではなくUserDefaultsに保存する。
         static let spapiSellerId = "settings.spapiSellerId"
 
-        /// 利用者自身のKeepa APIキー(BYO)。Pro限定(2026-08 追加)。
-        static let keepaApiKey = "settings.keepaApiKey"
+        /// 旧: UserDefaultsに平文保存していた利用者自身のKeepa APIキー(BYO)。
+        /// 現在はKeychainへ移行済み(初回起動時に自動移行して削除)。
+        static let legacyKeepaApiKey = "settings.keepaApiKey"
 
         // 利益アラート(Phase 1a)。既定は全条件OFFで既存ユーザーの挙動を変えない。
         static let profitAlertEnabled = "settings.profitAlert.enabled"
@@ -77,6 +78,9 @@ final class SettingsStore: ObservableObject {
     /// Keychain上のアカウント名(リフレッシュトークン用)。
     private static let keychainRefreshTokenAccount = "spapi.refreshToken"
 
+    /// Keychain上のアカウント名(Keepa APIキー用)。
+    private static let keychainKeepaApiKeyAccount = "keepa.apiKey"
+
     private let defaults: UserDefaults
 
     @Published var serverURLString: String {
@@ -113,9 +117,12 @@ final class SettingsStore: ObservableObject {
     /// 利用者自身のKeepa APIキー(BYO)。設定するとグラフ取得の消費先が自分の枠になり、
     /// SP-API連携済み時のグラフ表示待ち(PriceHistoryChartView.linkedFetchDelaySeconds)が不要になる。
     /// Pro限定(設定画面SettingsViewのKeepa連携セクション参照)。
+    ///
+    /// 有料Keepaアカウントの資格情報(漏れると他人にトークンを消費される)のため、
+    /// SP-APIリフレッシュトークンと同じくUserDefaults(平文)ではなくKeychainに保存する。
     @Published var keepaApiKey: String {
         didSet {
-            defaults.set(keepaApiKey, forKey: Keys.keepaApiKey)
+            KeychainStore.set(keepaApiKey, for: Self.keychainKeepaApiKeyAccount)
         }
     }
 
@@ -359,7 +366,6 @@ final class SettingsStore: ObservableObject {
         self.serverURLString = defaults.string(forKey: Keys.serverURL) ?? Self.defaultServerURL
         self.spapiLinkEnabled = defaults.bool(forKey: Keys.spapiLinkEnabled)
         self.spapiSellerId = defaults.string(forKey: Keys.spapiSellerId) ?? ""
-        self.keepaApiKey = defaults.string(forKey: Keys.keepaApiKey) ?? ""
 
         // リンクボタン。未設定/デコード失敗時は既定4つ(仕入れ/Amazon/メルカリ/楽天市場)で読み込む。
         if let data = defaults.data(forKey: Keys.linkButtons),
@@ -433,6 +439,20 @@ final class SettingsStore: ObservableObject {
             self.spapiRefreshToken = ""
             // 空文字のまま残っている旧キーも掃除しておく。
             defaults.removeObject(forKey: Keys.legacySpapiRefreshToken)
+        }
+
+        // Keepa APIキーも同じ作法でKeychainから読む。
+        // 2026-08の初期実装ではUserDefaultsに平文保存していたため、その値をKeychainへ移行して平文を削除する。
+        if let keychainKeepaKey = KeychainStore.get(Self.keychainKeepaApiKeyAccount) {
+            self.keepaApiKey = keychainKeepaKey
+        } else if let legacyKeepaKey = defaults.string(forKey: Keys.legacyKeepaApiKey),
+                  !legacyKeepaKey.isEmpty {
+            self.keepaApiKey = legacyKeepaKey
+            KeychainStore.set(legacyKeepaKey, for: Self.keychainKeepaApiKeyAccount)
+            defaults.removeObject(forKey: Keys.legacyKeepaApiKey)
+        } else {
+            self.keepaApiKey = ""
+            defaults.removeObject(forKey: Keys.legacyKeepaApiKey)
         }
     }
 
