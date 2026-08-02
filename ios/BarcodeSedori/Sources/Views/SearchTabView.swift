@@ -1048,6 +1048,8 @@ private struct ResultCardActionButtons: View {
                 color: kind.color,
                 labelColor: kind.labelColor,
                 labelFontScale: kind.labelFontScale,
+                labelFontWeight: kind.labelFontWeight,
+                labelFontDesign: kind.labelFontDesign,
                 systemOverlayImage: kind.iconSystemName,
                 accessibilityLabel: kind.displayName,
                 action: { open(kind) }
@@ -1064,6 +1066,8 @@ private struct ResultCardActionButtons: View {
         color: Color,
         labelColor: Color = .white,
         labelFontScale: CGFloat = 1.0,
+        labelFontWeight: Font.Weight = .bold,
+        labelFontDesign: Font.Design = .default,
         isDisabled: Bool = false,
         systemOverlayImage: String? = nil,
         accessibilityLabel: String? = nil,
@@ -1094,11 +1098,13 @@ private struct ResultCardActionButtons: View {
                             .font(.headline)
                             .foregroundColor(labelColor)
                     } else {
-                        Text(label)
-                            .font(.system(size: fontSize(for: label) * labelFontScale, weight: .bold))
-                            .foregroundColor(labelColor)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.6)
+                        LinkButtonGlyphLabel(
+                            text: label,
+                            size: fontSize(for: label) * labelFontScale,
+                            weight: labelFontWeight,
+                            design: labelFontDesign,
+                            color: labelColor
+                        )
                     }
                 }
                 .overlay(alignment: .topTrailing) {

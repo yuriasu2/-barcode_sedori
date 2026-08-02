@@ -49,6 +49,24 @@ enum LinkButtonKind: String, CaseIterable, Identifiable, Codable {
         }
     }
 
+    /// ラベルの太さ。ブランドロゴの見た目に寄せるものだけ既定(bold)から変える。
+    var labelFontWeight: Font.Weight {
+        switch self {
+        // Yahoo!ロゴは太いセリフ体、ヤフオクのカナは極太ゴシック。
+        case .yahooShopping, .yahooAuction: return .black
+        default: return .bold
+        }
+    }
+
+    /// ラベルの書体デザイン。Yahoo!ショッピングの「Y!」だけ、
+    /// Yahoo!ロゴに近いセリフ体(ヒゲ付き)にする。
+    var labelFontDesign: Font.Design {
+        switch self {
+        case .yahooShopping: return .serif
+        default: return .default
+        }
+    }
+
     /// 設定画面(LinkButtonSettingsView)で表示する名前。
     var displayName: String {
         switch self {

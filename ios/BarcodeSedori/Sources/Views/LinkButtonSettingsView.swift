@@ -72,11 +72,13 @@ struct LinkButtonSettingsView: View {
                         .foregroundColor(kind.labelColor)
                 } else {
                     let base: CGFloat = kind.label.allSatisfy { $0.isASCII } ? 13 : 11
-                    Text(kind.label)
-                        .font(.system(size: base * kind.labelFontScale, weight: .bold))
-                        .foregroundColor(kind.labelColor)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.6)
+                    LinkButtonGlyphLabel(
+                        text: kind.label,
+                        size: base * kind.labelFontScale,
+                        weight: kind.labelFontWeight,
+                        design: kind.labelFontDesign,
+                        color: kind.labelColor
+                    )
                 }
             }
             .accessibilityHidden(true)
