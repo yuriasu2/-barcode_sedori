@@ -60,11 +60,18 @@ final class SearchTabViewModel: ObservableObject {
     /// 利益アラートの判定結果。Proかつ検索成功時のみ評価する。未評価/非Proはnil。
     @Published var profitAlertVerdict: ProfitAlertEvaluator.Verdict?
 
+    /// 出品制限(出品許可申請が必要か)の判定結果。trueのときだけカードに警告バッジを出す。
+    /// Pro+SP-API連携(sellerIdまで取得済み)でなければチェック自体を行わずfalseのまま。
+    @Published var isListingRestricted = false
+
     private let apiClient: APIClient
     private let historyStore: ScanHistoryStore
 
     /// 直近history追加したエントリのid。オファー同梱時にこのidの履歴を更新するために保持する。
     private var pendingHistoryItemId: UUID?
+
+    /// 出品制限チェックの実行連番。完了時に最新でなければ結果を捨てる(連続スキャン時の順序ずれ対策)。
+    private var restrictionCheckSequence = 0
 
     init(apiClient: APIClient = .shared, historyStore: ScanHistoryStore = .shared) {
         self.apiClient = apiClient
@@ -97,6 +104,7 @@ final class SearchTabViewModel: ObservableObject {
         offersLocked = false
         pendingHistoryItemId = nil
         profitAlertVerdict = nil
+        isListingRestricted = false
 
         Task { await self.search(code: code) }
     }
@@ -119,6 +127,8 @@ final class SearchTabViewModel: ObservableObject {
                     Self.fireProfitAlertHaptics()
                 }
             }
+
+            startListingRestrictionCheck(asin: result.asin)
 
             if result.codeType != .unresolved {
                 let historyItem = ScanHistoryItem(scannedCode: code, result: result)
@@ -153,6 +163,39 @@ final class SearchTabViewModel: ObservableObject {
                 searchErrorMessage = "本日の無料スキャン上限に達しました。Proにアップグレードすると無制限に使えます。"
             } else {
                 searchErrorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    /// 出品制限チェックを開始する。Pro+SP-API連携済み(sellerId取得済み)のときだけAPIを呼ぶ。
+    /// 未連携・無料プラン・ASIN不明のときは何もしない(バッジは出ない)。
+    ///
+    /// コンディションは仕入れフォームで直近使ったもの(未使用なら新品)で問い合わせる。
+    /// 出品可否はコンディション単位で決まるため、実際に出品する状態で判定するのが最も実態に近い。
+    ///
+    /// 連続スキャンで古い結果が新しい結果を上書きしないよう、PurchaseFormViewと同じ連番ガードを使う。
+    private func startListingRestrictionCheck(asin: String?) {
+        guard let asin,
+              EntitlementStore.shared.isPro,
+              SettingsStore.shared.isListingReady else { return }
+
+        restrictionCheckSequence += 1
+        let sequence = restrictionCheckSequence
+        let condition = SettingsStore.shared.lastListingCondition ?? .newNew
+
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let result = try await self.apiClient.listingsRestrictions(
+                    asin: asin,
+                    condition: condition.rawValue
+                )
+                guard sequence == self.restrictionCheckSequence else { return }
+                self.isListingRestricted = result.restricted
+            } catch {
+                // チェックに失敗したときは「制限あり」と誤表示しない(バッジを出さない)。
+                guard sequence == self.restrictionCheckSequence else { return }
+                self.isListingRestricted = false
             }
         }
     }
@@ -630,6 +673,7 @@ struct SearchTabView: View {
                 result: result,
                 scannedCode: viewModel.latestScannedCode ?? "",
                 profitVerdict: viewModel.profitAlertVerdict,
+                isListingRestricted: viewModel.isListingRestricted,
                 isPro: entitlements.isPro,
                 isInPurchaseList: result.asin.map { purchaseList.contains(asin: $0) } ?? false,
                 onAddToPurchaseList: {
@@ -792,8 +836,10 @@ struct SearchTabView: View {
 private struct LatestResultCardView: View {
     let result: SearchResult
     let scannedCode: String
-    /// 利益アラートの判定結果。発火時のみ緑バナー・縁取りを出す。非Pro/未評価はnil。
+    /// 利益アラートの判定結果。発火時のみ緑の縁取りを出す。非Pro/未評価はnil。
     let profitVerdict: ProfitAlertEvaluator.Verdict?
+    /// 出品制限あり(出品許可申請が必要)。trueのときタイトル右に警告バッジを出す。
+    let isListingRestricted: Bool
     /// 「仕」ボタンの表示可否(Pro限定)。依存は呼び出し元から引数で渡す(View内でEntitlementStoreを直接触らない)。
     let isPro: Bool
     /// 仕入れリストに追加済みか(追加済みならボタンを無効化して「追加済み」表示)。
@@ -806,37 +852,30 @@ private struct LatestResultCardView: View {
     let onOpenLink: (URL) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if profitVerdict?.isTriggered == true {
-                profitAlertBanner
-            }
-
-            cardContent
-        }
-        // カードは現在囲み枠なしのため、発火時のみ縁取りを付けて視認差を大きくする。
-        .overlay(
-            profitVerdict?.isTriggered == true
-                ? RoundedRectangle(cornerRadius: 10).stroke(Color.green, lineWidth: 2)
-                : nil
-        )
+        cardContent
+            // 発火時は文言を出さず緑の縁取りだけで示す(ユーザー指示 2026-08-02)。
+            // 線幅は従来2ptの1.5倍=3pt。
+            .overlay(
+                profitVerdict?.isTriggered == true
+                    ? RoundedRectangle(cornerRadius: 10).stroke(Color.green, lineWidth: 3)
+                    : nil
+            )
     }
 
-    /// 発火時のみ表示する緑バナー行(「利益条件クリア」+粗利があれば併記)。
-    private var profitAlertBanner: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "checkmark.circle.fill")
-            Text("利益条件クリア")
-            if let grossMargin = profitVerdict?.grossMargin {
-                Text("粗利 ¥\(Int(grossMargin))")
-            }
+    /// 出品制限あり(出品許可申請が必要)を示す警告バッジ。警告マークの下に「出品制限」を置く。
+    private var listingRestrictedBadge: some View {
+        VStack(spacing: 2) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 18))
+            Text("出品制限")
+                .font(.system(size: 10))
+                .fontWeight(.bold)
         }
-        .font(.caption)
-        .fontWeight(.bold)
-        .foregroundColor(.white)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(Color.green)
-        .cornerRadius(8)
+        .foregroundColor(.orange)
+        // 発火時の緑の縁取りに文字が接触しないよう右に少し逃がす。
+        .padding(.trailing, 4)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("出品制限あり。出品許可申請が必要です")
     }
 
     private var cardContent: some View {
@@ -881,10 +920,20 @@ private struct LatestResultCardView: View {
                         .font(.subheadline)
                         .foregroundColor(.orange)
                 } else {
-                    Text(result.title ?? "(タイトル不明)")
-                        .font(.subheadline)
-                        .fontWeight(.medium)
-                        .lineLimit(2)
+                    // 出品制限バッジはタイトル右上に置く。タイトルは残り幅で折り返すため
+                    // バッジ側を自然幅(fixedSize)にして、タイトルが伸びても押し出されないようにする。
+                    HStack(alignment: .top, spacing: 6) {
+                        Text(result.title ?? "(タイトル不明)")
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .lineLimit(2)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                        if isListingRestricted {
+                            listingRestrictedBadge
+                                .fixedSize()
+                        }
+                    }
                 }
 
                 // ISBN・ランキング列の右横に、アクションボタンを1列の横並びで置く。
