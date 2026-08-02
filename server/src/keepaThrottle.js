@@ -103,6 +103,19 @@ class ThrottleCore {
     this.lastRefillAt = now;
   }
 
+  /**
+   * refill()と同じ計算式で「今この瞬間の推定トークン数」を求めるが、
+   * this.tokens/this.lastRefillAtへは書き込まない読み取り専用版。
+   * デバッグ表示(debugSnapshot)専用: 観測のためだけに呼ぶ処理が本処理の状態
+   * (実際のトークン消費計算の起点となるlastRefillAt)を書き換えてしまうと、
+   * 見ただけで残量推定がズレるという副作用が生まれるため分離している。
+   */
+  peekTokens(now) {
+    const elapsed = now - this.lastRefillAt;
+    if (elapsed <= 0) return this.tokens;
+    return Math.min(this.config.capacity, this.tokens + (elapsed * this.config.refillPerMin) / 60000);
+  }
+
   queueLength() {
     return this.proQueue.length + this.freeQueue.length;
   }
@@ -312,11 +325,14 @@ class ThrottleCore {
     if (this.queueLength() > 0) this.grantTick();
   }
 
-  /** デバッグ用: 現在の推定状態のスナップショット(観測のみ、副作用なし)。 */
+  /**
+   * デバッグ用: 現在の推定状態のスナップショット(観測のみ、副作用なし)。
+   * refill()を呼ぶとthis.tokens/this.lastRefillAtが書き換わってしまうため、
+   * ここでは読み取り専用のpeekTokens()で見かけ上のトークン数だけを計算する。
+   */
   debugSnapshot(now = Date.now()) {
-    this.refill(now);
     return {
-      tokensEstimate: Math.round(this.tokens * 10) / 10,
+      tokensEstimate: Math.round(this.peekTokens(now) * 10) / 10,
       capacity: this.config.capacity,
       consumeRatePerMin: this.consumeRatePerMin(now),
       refillPerMin: this.config.refillPerMin,
