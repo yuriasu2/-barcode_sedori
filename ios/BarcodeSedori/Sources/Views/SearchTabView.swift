@@ -48,6 +48,9 @@ final class SearchTabViewModel: ObservableObject {
     @Published var isSearching = false
     /// 検索失敗時のエラーメッセージ
     @Published var searchErrorMessage: String?
+    /// Keepa混雑(keepa_busy)時の文言。セット時は専用の混雑カード(再試行+誘導)を出す。
+    /// searchErrorMessage(汎用エラー)とは排他(どちらか一方のみセットされる)。
+    @Published var keepaBusyMessage: String?
 
     /// SP-API経路のとき/api/search応答に同梱されるオファー一覧。Keepa経路ではnil。
     @Published var offersResult: OffersResult?
@@ -97,6 +100,7 @@ final class SearchTabViewModel: ObservableObject {
         // 新しいスキャンが来たらカード・パネル・グラフ用の状態を全てリセットしてから再取得する。
         isSearching = true
         searchErrorMessage = nil
+        keepaBusyMessage = nil
         latestScannedCode = code
         latestResult = nil
         offersResult = nil
@@ -155,7 +159,11 @@ final class SearchTabViewModel: ObservableObject {
             // 無料枠ユニット上限超過(429・quota_exceeded)。quotaを反映すればisQuotaExhaustedが
             // trueになりQuotaPaywallOverlayが自動的に表示されるため、ここでは
             // searchErrorMessageを設定しない(同じ内容の赤文字が二重に出るのを避けるため)。
-            if case APIClientError.quotaExceeded(let quota, _) = error {
+            if case APIClientError.keepaBusy(let message) = error {
+                // 混雑は専用カード(再試行+SP-API/Keepaキー誘導)で表示する。
+                // searchErrorMessage(赤文字の汎用エラー)には流さない。
+                keepaBusyMessage = message ?? "混み合っているので時間を空けてお試しください。"
+            } else if case APIClientError.quotaExceeded(let quota, _) = error {
                 ScanQuotaStore.shared.apply(quota)
             } else if case APIClientError.httpError(let status, _) = error, status == 429 {
                 // quota_exceeded形式でない429(旧サーバー互換)のフォールバック。
@@ -554,6 +562,58 @@ struct SearchTabView: View {
         }
     }
 
+    /// Keepa混雑(keepa_busy)時のカード。再試行と、混雑を回避できる連携への誘導を出す
+    /// (混雑を連携・課金の入口に変える。設計書§2.3)。
+    private func keepaBusyCard(message: String) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                Image(systemName: "clock.arrow.circlepath")
+                    .foregroundColor(.orange)
+                Text(message)
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+            }
+
+            Button {
+                // 再スキャン不要で同じコードを再検索する。startSearch(カメラ用クールダウン)は
+                // 通さない(混雑待ちからの再試行にスキャン間隔の制限を重ねる意味が無いため)。
+                if let code = viewModel.latestScannedCode {
+                    viewModel.handleScan(code)
+                }
+            } label: {
+                Label("再試行", systemImage: "arrow.clockwise")
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+            }
+            .buttonStyle(.borderedProminent)
+
+            // 誘導: 未連携ならSP-API連携、Pro(連携済み)でBYOキー未設定ならKeepaキー設定。
+            if !settings.isSpApiLinkUsable {
+                Button {
+                    AppNavigation.shared.selectedTab = AppNavigation.settingsTab
+                } label: {
+                    Text("Amazon連携なら自分の枠で待たずに検索できます →")
+                        .font(.footnote)
+                        .foregroundColor(.accentColor)
+                }
+                .buttonStyle(.plain)
+            } else if entitlements.isPro && !settings.isKeepaKeyUsable {
+                Button {
+                    AppNavigation.shared.selectedTab = AppNavigation.settingsTab
+                } label: {
+                    Text("Keepa APIキーを設定するとグラフも自分の枠で取得できます →")
+                        .font(.footnote)
+                        .foregroundColor(.accentColor)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding()
+        .background(Color(.secondarySystemBackground))
+        .cornerRadius(10)
+    }
+
     @ViewBuilder
     private var destinationView: some View {
         if let selectedResult, let asin = selectedResult.asin {
@@ -696,6 +756,8 @@ struct SearchTabView: View {
                     browserTarget = BrowserTarget(url: url)
                 }
             )
+        } else if let busyMessage = viewModel.keepaBusyMessage {
+            keepaBusyCard(message: busyMessage)
         } else if let errorMessage = viewModel.searchErrorMessage {
             Text(errorMessage)
                 .font(.footnote)
