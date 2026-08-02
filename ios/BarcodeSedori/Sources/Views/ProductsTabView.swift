@@ -258,10 +258,13 @@ struct ProductsTabView: View {
             ProductDetailView(
                 asin: asin,
                 title: selectedItem.title,
+                imageUrl: selectedItem.imageUrl,
                 cachedOffers: selectedItem.offersResult,
                 janCode: selectedItem.isbn13 ?? selectedItem.scannedCode,
+                salesRank: selectedItem.salesRank,
                 listPrice: selectedItem.listPrice,
-                releaseDate: selectedItem.releaseDate
+                releaseDate: selectedItem.releaseDate,
+                prices: selectedItem.prices
             )
         } else {
             EmptyView()
