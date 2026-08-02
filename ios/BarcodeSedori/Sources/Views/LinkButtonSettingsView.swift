@@ -71,8 +71,9 @@ struct LinkButtonSettingsView: View {
                         .font(.system(size: 12, weight: .bold))
                         .foregroundColor(kind.labelColor)
                 } else {
+                    let base: CGFloat = kind.label.allSatisfy { $0.isASCII } ? 13 : 11
                     Text(kind.label)
-                        .font(.system(size: kind.label.allSatisfy { $0.isASCII } ? 13 : 11, weight: .bold))
+                        .font(.system(size: base * kind.labelFontScale, weight: .bold))
                         .foregroundColor(kind.labelColor)
                         .lineLimit(1)
                         .minimumScaleFactor(0.6)

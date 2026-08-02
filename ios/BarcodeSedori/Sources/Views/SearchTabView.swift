@@ -1036,7 +1036,9 @@ private struct ResultCardActionButtons: View {
                 color: kind.color,
                 labelColor: kind.labelColor,
                 isDisabled: isPro && isInPurchaseList,
-                systemOverlayImage: isPro && isInPurchaseList ? "checkmark" : nil,
+                // 追加済みはチェックマーク、通常は仕入れタブと同じカゴのアイコン。
+                systemOverlayImage: isPro && isInPurchaseList ? "checkmark" : kind.iconSystemName,
+                accessibilityLabel: kind.displayName,
                 showsLockBadge: !isPro,
                 action: isPro ? onAddToPurchaseList : onLockedPurchaseTap
             )
@@ -1045,6 +1047,7 @@ private struct ResultCardActionButtons: View {
                 label: kind.label,
                 color: kind.color,
                 labelColor: kind.labelColor,
+                labelFontScale: kind.labelFontScale,
                 systemOverlayImage: kind.iconSystemName,
                 accessibilityLabel: kind.displayName,
                 action: { open(kind) }
@@ -1060,6 +1063,7 @@ private struct ResultCardActionButtons: View {
         label: String,
         color: Color,
         labelColor: Color = .white,
+        labelFontScale: CGFloat = 1.0,
         isDisabled: Bool = false,
         systemOverlayImage: String? = nil,
         accessibilityLabel: String? = nil,
@@ -1091,7 +1095,7 @@ private struct ResultCardActionButtons: View {
                             .foregroundColor(labelColor)
                     } else {
                         Text(label)
-                            .font(.system(size: fontSize(for: label), weight: .bold))
+                            .font(.system(size: fontSize(for: label) * labelFontScale, weight: .bold))
                             .foregroundColor(labelColor)
                             .lineLimit(1)
                             .minimumScaleFactor(0.6)
