@@ -1,6 +1,12 @@
 # Keepa API トークン枯渇 対応 企画書
 
-作成: 2026-07-15 / ステータス: **企画（未実装。Phase 1 の一部＝30分キャッシュのみ実装済み）**
+> **⚠️ 本書は旧版です（2026-08-02置き換え）。**
+> Render時代の前提（旧無料枠・BYO無し）のまま現状と乖離したため、
+> Cloudflare Workers + DO・フリーミアムv2・BYO Keepaキーを前提とした新版
+> [docs/superpowers/specs/2026-08-02-keepa-token-depletion-design.md](docs/superpowers/specs/2026-08-02-keepa-token-depletion-design.md)
+> に全面改訂した。実装は新版に従うこと。旧Phase構成と新版の対応表は新版の7章にある。
+
+作成: 2026-07-15 / ステータス: **旧版（新版へ置き換え済み）**
 
 ## 0. 背景・現状
 
