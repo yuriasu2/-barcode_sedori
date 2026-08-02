@@ -138,6 +138,56 @@ test('keepaThrottle: reportTokensLeftの上方補正で古いgrantTimerに引き
   );
 });
 
+// ---------------------------------------------------------------------------
+// 適応ブレーキ(設計書§2.6): 消費速度監視による予防的な遅延
+// ---------------------------------------------------------------------------
+
+/** capacity=100・refillPerMin=60(floor=1000ms)のコアを作り、free acquireをn回消費させる。 */
+async function primeConsumption(t, n) {
+  configure(t, { capacity: 100, refillPerMin: 60, depth: 50, timeoutMs: 8000 });
+  for (let i = 0; i < n; i += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    await keepaThrottle.acquire('free');
+  }
+}
+
+test('keepaThrottle: 適応ブレーキ - 消費履歴が無ければ残量が少なくてもブレーキ0(即時許可)', async (t) => {
+  // 消費履歴なし(grantTimestamps空) → rate=0 → net=0-refillPerMin<=0 → ブレーキは常に0。
+  // 残量自体は少ない(capacity=2)状態でも即時許可されることを確認する。
+  configure(t, { capacity: 2, refillPerMin: 60, depth: 10, timeoutMs: 5000 });
+  const started = Date.now();
+  const result = await keepaThrottle.acquire('free');
+  assert.deepEqual(result, { allowed: true });
+  assert.ok(Date.now() - started < 50, `消費履歴が無いのにブレーキが掛かった(${Date.now() - started}ms)`);
+});
+
+test('keepaThrottle: 適応ブレーキ - 消費レート>補充でTTEが安全圏(free=10分)を切ると遅延する', async (t) => {
+  // 事前に70回acquireすると rate=70, tokens=30(=100-70), net=70-60=10 → tte=30/10=3分。
+  // free の SAFE=10分を下回るため floorMs(1000ms) を上限に線形の遅延が入る:
+  // delay = 1000 * (1 - 3/10) = 700ms 程度。
+  await primeConsumption(t, 70);
+  const started = Date.now();
+  const result = await keepaThrottle.acquire('free');
+  assert.deepEqual(result, { allowed: true });
+  const elapsed = Date.now() - started;
+  assert.ok(elapsed >= 300, `freeがブレーキで遅延していない(${elapsed}ms)`);
+});
+
+test('keepaThrottle: 適応ブレーキ - 同条件でもProはSAFE圏内(2分)のため遅延しない', async (t) => {
+  // 同じtte=3分でも、Proの SAFE=2分より大きいためブレーキは掛からない(Pro優先の維持)。
+  await primeConsumption(t, 70);
+  const started = Date.now();
+  const result = await keepaThrottle.acquire('pro');
+  assert.deepEqual(result, { allowed: true });
+  assert.ok(Date.now() - started < 50, `Proがブレーキで遅延した(${Date.now() - started}ms)`);
+});
+
+test('keepaThrottle: 適応ブレーキ後も残量があれば許可される({allowed:true})', async (t) => {
+  await primeConsumption(t, 70);
+  const result = await keepaThrottle.acquire('free');
+  assert.deepEqual(result, { allowed: true });
+});
+
 test('keepaThrottle: 残量補正直後の新参acquireは、キュー内の待機者を追い越して即時許可されない', async (t) => {
   // ThrottleCoreを直接操作するホワイトボックステスト。
   // refillPerMin=1・待機者を積んでから外部要因(reportTokensLeft等)でトークンが1個

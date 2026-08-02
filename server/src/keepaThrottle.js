@@ -38,6 +38,14 @@ function readThrottleConfig(env) {
   };
 }
 
+// 適応ブレーキ(設計書§2.6)の安全圏(分)。コード内定数(YAGNI、環境変数化はしない)。
+// Proは無料より短い安全圏(=枯渇ギリギリまでブレーキが掛からない)にして、
+// §1の「キュー内でProを常に無料より優先する」と一貫させる。
+const BRAKE_SAFE_TTE_MIN_FREE = 10;
+const BRAKE_SAFE_TTE_MIN_PRO = 2;
+// 消費レートを測る観測窓(ミリ秒)。直近60秒のgrant件数がconsumeRatePerMin。
+const BRAKE_WINDOW_MS = 60000;
+
 /**
  * スロットル本体。インメモリ経路とKeepaThrottleDOの両方がこのクラスを使う
  * (経路間で挙動がズレるバグを構造的に防ぐため、ロジックはここ1箇所に置く)。
@@ -55,6 +63,12 @@ class ThrottleCore {
     this.proQueue = [];
     this.freeQueue = [];
     this.grantTimer = null;
+    // 適応ブレーキ(設計書§2.6)用: 直近許可(grant)のタイムスタンプ。60秒窓でprune。
+    /** @type {number[]} */
+    this.grantTimestamps = [];
+    // ブレーキ待ち(sleep)中のタイマー。destroy()でまとめて解除する。
+    /** @type {Set<{timer: any, resolve: Function}>} */
+    this.brakeWaiters = new Set();
     // 監視用の日次統計(設計書§2.4)。ログにのみ使い、判定には使わない。
     // 日付が変わったらacquire時にリセットする(rollStatsDate)。
     this.stats = this.freshStats();
@@ -67,6 +81,7 @@ class ThrottleCore {
       queued: 0,
       shedDepth: 0,
       shedTimeout: 0,
+      braked: 0,
       lastTokensLeft: null,
     };
   }
@@ -89,14 +104,74 @@ class ThrottleCore {
     return this.proQueue.length + this.freeQueue.length;
   }
 
+  /** 許可(grant)の実績を記録する(適応ブレーキの消費レート計測用。設計書§2.6)。 */
+  recordGrant(now) {
+    this.grantTimestamps.push(now);
+    this.pruneGrantTimestamps(now);
+  }
+
+  /** 60秒窓より古い記録を捨てる。 */
+  pruneGrantTimestamps(now) {
+    const cutoff = now - BRAKE_WINDOW_MS;
+    while (this.grantTimestamps.length > 0 && this.grantTimestamps[0] < cutoff) {
+      this.grantTimestamps.shift();
+    }
+  }
+
+  /** 直近60秒の許可件数(=消費レート/分。全呼び出しが1トークンなので件数=トークン数)。 */
+  consumeRatePerMin(now) {
+    this.pruneGrantTimestamps(now);
+    return this.grantTimestamps.length;
+  }
+
+  /**
+   * 適応ブレーキ(設計書§2.6)の遅延時間(ms)を計算する。
+   * 消費レートが補充レートを上回り(net>0)、かつ枯渇予測時間(TTE)が安全圏を
+   * 切っている場合のみ、0〜補充間隔(floorMs)の範囲で線形に遅延を返す。
+   * 補充が消費に勝っている(net<=0)間は常に0(空いている時は残量が少なくても即応答)。
+   * @param {'pro'|'free'} priority
+   * @param {number} now
+   */
+  computeBrakeMs(priority, now) {
+    const rate = this.consumeRatePerMin(now);
+    const net = rate - this.config.refillPerMin;
+    if (net <= 0) return 0;
+
+    const tteMin = this.tokens / net;
+    const safeMin = priority === 'pro' ? BRAKE_SAFE_TTE_MIN_PRO : BRAKE_SAFE_TTE_MIN_FREE;
+    if (tteMin >= safeMin) return 0;
+
+    // floorMs=補充間隔(補充と同速まで遅延させれば、そこで消費≦補充となり均衡する)。
+    const floorMs = 60000 / this.config.refillPerMin;
+    return Math.round(Math.min(floorMs, floorMs * (1 - tteMin / safeMin)));
+  }
+
+  /**
+   * ブレーキ待ちのsleep。destroy()で強制的に打ち切られた場合はfalseを返す
+   * (通常のタイマー満了ならtrue)。
+   * @returns {Promise<boolean>}
+   */
+  sleepForBrake(ms) {
+    return new Promise((resolve) => {
+      const entry = { timer: null, resolve: null };
+      entry.timer = setTimeout(() => {
+        this.brakeWaiters.delete(entry);
+        resolve(true);
+      }, ms);
+      if (typeof entry.timer.unref === 'function') entry.timer.unref();
+      entry.resolve = () => resolve(false);
+      this.brakeWaiters.add(entry);
+    });
+  }
+
   /**
    * トークン1個の通行許可を求める。
    * @param {'pro'|'free'} priority
    * @returns {Promise<{allowed: boolean, reason?: 'depth'|'timeout'}>}
    */
-  acquire(priority) {
+  async acquire(priority) {
     this.rollStatsDate();
-    const now = Date.now();
+    let now = Date.now();
     this.refill(now);
 
     // キューに待機者がいるのにトークンがあるからと新参を先に通すと、残量補正
@@ -106,19 +181,44 @@ class ThrottleCore {
       this.grantTick();
     }
 
+    // 適応ブレーキ(設計書§2.6): 即時許可できる状況でも、消費速度が枯渇へ向かっている
+    // 場合は補充間隔を上限に遅延を入れる。1回のacquireにつき最大1回だけ適用する。
+    let brakeMs = 0;
+    if (this.tokens >= 1) {
+      brakeMs = this.computeBrakeMs(priority, now);
+      if (brakeMs > 0) {
+        this.stats.braked += 1;
+        const completedNormally = await this.sleepForBrake(brakeMs);
+        if (!completedNormally) {
+          // destroy()による強制解除。テストがぶら下がらないよう即座に拒否で返す。
+          return { allowed: false, reason: 'timeout' };
+        }
+        now = Date.now();
+        this.refill(now);
+        // 待っている間に他の待機者がいれば先に流す(既存の追い越し防止ルールと同じ理由)。
+        if (this.queueLength() > 0 && this.tokens >= 1) {
+          this.grantTick();
+        }
+      }
+    }
+
     if (this.tokens >= 1) {
       this.tokens -= 1;
+      this.recordGrant(now);
       this.stats.granted += 1;
-      return Promise.resolve({ allowed: true });
+      return { allowed: true };
     }
 
     if (this.queueLength() >= this.config.depth) {
       this.stats.shedDepth += 1;
       this.logShed('depth');
-      return Promise.resolve({ allowed: false, reason: 'depth' });
+      return { allowed: false, reason: 'depth' };
     }
 
     this.stats.queued += 1;
+    // ブレーキで既に使った時間の分だけキュー待ちの上限を短くし、合計がtimeoutMsを
+    // 超えないようにする(設計書§2.6: iOSの通信タイムアウトより短く保つ必要があるため)。
+    const remainingTimeoutMs = Math.max(0, this.config.timeoutMs - brakeMs);
     return new Promise((resolve) => {
       const waiter = { resolve, timeoutTimer: null };
       waiter.timeoutTimer = setTimeout(() => {
@@ -126,7 +226,7 @@ class ThrottleCore {
         this.stats.shedTimeout += 1;
         this.logShed('timeout');
         resolve({ allowed: false, reason: 'timeout' });
-      }, this.config.timeoutMs);
+      }, remainingTimeoutMs);
       // Node環境でプロセスの終了を妨げないようにする(Workers/DOにはunrefが無い)。
       if (typeof waiter.timeoutTimer.unref === 'function') waiter.timeoutTimer.unref();
 
@@ -158,11 +258,13 @@ class ThrottleCore {
 
   /** 貯まったトークンぶんだけ、Pro優先でキュー先頭から許可する。 */
   grantTick() {
-    this.refill(Date.now());
+    const now = Date.now();
+    this.refill(now);
     while (this.tokens >= 1 && this.queueLength() > 0) {
       const waiter = this.proQueue.shift() || this.freeQueue.shift();
       clearTimeout(waiter.timeoutTimer);
       this.tokens -= 1;
+      this.recordGrant(now);
       this.stats.granted += 1;
       waiter.resolve({ allowed: true });
     }
@@ -201,10 +303,11 @@ class ThrottleCore {
     if (this.queueLength() > 0) this.grantTick();
   }
 
-  /** shedding発生時の構造化ログ(wrangler tailで確認する。設計書§2.4)。 */
+  /** shedding発生時の構造化ログ(wrangler tailで確認する。設計書§2.4)。直近消費レートも出す(§2.6)。 */
   logShed(kind) {
+    const rate = this.consumeRatePerMin(Date.now());
     console.log(
-      `[keepaThrottle] shed kind=${kind} stats=${JSON.stringify(this.stats)} queue=${this.queueLength()}`
+      `[keepaThrottle] shed kind=${kind} rate=${rate} stats=${JSON.stringify(this.stats)} queue=${this.queueLength()}`
     );
   }
 
@@ -212,6 +315,12 @@ class ThrottleCore {
   destroy() {
     if (this.grantTimer) clearTimeout(this.grantTimer);
     this.grantTimer = null;
+    // ブレーキ待ち(sleep)中のacquireも、destroy中に取り残されないよう強制解除する。
+    for (const entry of this.brakeWaiters) {
+      clearTimeout(entry.timer);
+      entry.resolve();
+    }
+    this.brakeWaiters.clear();
     for (const queue of [this.proQueue, this.freeQueue]) {
       for (const waiter of queue) {
         clearTimeout(waiter.timeoutTimer);
