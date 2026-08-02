@@ -10,6 +10,9 @@ enum APIClientError: Error, LocalizedError {
     /// 無料枠ユニットモデル(Phase B)の上限超過(HTTP 429, error=="quota_exceeded")。
     /// quotaには超過時点の残量(通常unitsRemaining=0)が入る。
     case quotaExceeded(quota: QuotaInfo?, message: String?)
+    /// Keepa混雑(HTTP 429, error=="keepa_busy")。共有Keepaキーのキューがあふれた/待ちがタイムアウトした。
+    /// messageはサーバーが返す文言(「混み合っているので時間を空けてお試しください。」)。
+    case keepaBusy(message: String?)
 
     var errorDescription: String? {
         switch self {
@@ -25,6 +28,8 @@ enum APIClientError: Error, LocalizedError {
             return error.localizedDescription
         case .quotaExceeded(_, let message):
             return message ?? "本日の無料スキャン上限に達しました。"
+        case .keepaBusy(let message):
+            return message ?? "混み合っているので時間を空けてお試しください。"
         }
     }
 }
@@ -174,6 +179,13 @@ final class APIClient {
                let quotaBody = try? decoder.decode(QuotaExceededBody.self, from: data),
                quotaBody.error == "quota_exceeded" {
                 throw APIClientError.quotaExceeded(quota: quotaBody.quota, message: quotaBody.message)
+            }
+            // Keepa混雑(429)。quota_exceededと同じボディ形式(quotaフィールドは無し=nil)のため
+            // QuotaExceededBodyを使い回してデコードする。
+            if httpResponse.statusCode == 429,
+               let busyBody = try? decoder.decode(QuotaExceededBody.self, from: data),
+               busyBody.error == "keepa_busy" {
+                throw APIClientError.keepaBusy(message: busyBody.message)
             }
             let body = String(data: data, encoding: .utf8) ?? ""
             throw APIClientError.httpError(status: httpResponse.statusCode, body: body)
