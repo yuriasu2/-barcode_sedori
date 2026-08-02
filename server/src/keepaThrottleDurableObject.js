@@ -47,6 +47,18 @@ export class KeepaThrottleDO {
     if (request.method === 'POST' && url.pathname === '/debug') {
       return Response.json(this.core.debugSnapshot());
     }
+    if (request.method === 'POST' && url.pathname === '/seed-demo') {
+      // デモ専用: このDOインスタンス自体が呼び出し元(keepaThrottle.js)から
+      // idFromName('demo')で振り分けられた別オブジェクトなので、ここでは
+      // 素直にthis.coreへ注入するだけでよい('global'に影響しない保証は
+      // 呼び出し側のインスタンス分離で担保されている)。
+      const tokensRaw = url.searchParams.get('tokens');
+      const rateRaw = url.searchParams.get('ratePerMin');
+      const tokens = tokensRaw !== null && tokensRaw !== '' ? parseFloat(tokensRaw) : undefined;
+      const ratePerMin = rateRaw !== null && rateRaw !== '' ? parseFloat(rateRaw) : undefined;
+      this.core.seedDemoState({ tokens, ratePerMin });
+      return Response.json(this.core.debugSnapshot());
+    }
     return new Response('not found', { status: 404 });
   }
 }

@@ -106,6 +106,13 @@ struct KeepaDebugInfo: Codable, Equatable {
     }
 }
 
+/// POST /api/keepa-throttle-demo/seed の応答(開発者向けデモモード)。
+/// 'demo'インスタンス(本番の共有'global'とは隔離)へ注入した後のスナップショットを返す。
+struct KeepaThrottleDemoSeedResult: Codable, Equatable {
+    let ok: Bool
+    let snapshot: KeepaDebugInfo.Snapshot?
+}
+
 /// 無料枠ユニットモデル(Phase B)の残量情報。/api/search・/api/graph-data・/api/quota が返す。
 /// サーバーが状況により形の異なるJSONを返し得るため、全フィールドをOptionalにしておく。
 struct QuotaInfo: Codable, Equatable {

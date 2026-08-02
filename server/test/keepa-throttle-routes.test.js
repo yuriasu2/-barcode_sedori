@@ -469,3 +469,153 @@ test('/api/graph-data: X-Keepa-Debugヘッダーが無ければ_keepaDebugは一
     t.after(() => routes.graphDataCache.clear());
   });
 });
+
+// ---------------------------------------------------------------------------
+// Keepaスロットルのデモモード(X-Keepa-Demo / POST /api/keepa-throttle-demo/seed)
+// ---------------------------------------------------------------------------
+
+test('POST /api/keepa-throttle-demo/seed: tokens/ratePerMinどちらもseedしスナップショットを返す', async (t) => {
+  const routes = freshRoutes();
+  throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_QUEUE_DEPTH: '10', KEEPA_REFILL_PER_MIN: '5' });
+
+  const req = { query: { tokens: '3', ratePerMin: '8' }, headers: {} };
+  const res = createMockRes();
+  await routes.match('POST', '/api/keepa-throttle-demo/seed').handler(req, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.ok, true);
+  assert.equal(res.body.snapshot.tokensEstimate, 3);
+  assert.equal(res.body.snapshot.consumeRatePerMin, 8);
+});
+
+test('POST /api/keepa-throttle-demo/seed: パラメータ無しは400', async (t) => {
+  const routes = freshRoutes();
+  throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_QUEUE_DEPTH: '10', KEEPA_REFILL_PER_MIN: '5' });
+
+  const req = { query: {}, headers: {} };
+  const res = createMockRes();
+  await routes.match('POST', '/api/keepa-throttle-demo/seed').handler(req, res);
+
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.body.error, 'invalid_request');
+});
+
+test('POST /api/keepa-throttle-demo/seed: tokensが数値でなければ400', async (t) => {
+  const routes = freshRoutes();
+  throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_QUEUE_DEPTH: '10', KEEPA_REFILL_PER_MIN: '5' });
+
+  const req = { query: { tokens: 'abc' }, headers: {} };
+  const res = createMockRes();
+  await routes.match('POST', '/api/keepa-throttle-demo/seed').handler(req, res);
+
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.body.error, 'invalid_request');
+});
+
+test('POST /api/keepa-throttle-demo/seed: ratePerMinが負なら400', async (t) => {
+  const routes = freshRoutes();
+  throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_QUEUE_DEPTH: '10', KEEPA_REFILL_PER_MIN: '5' });
+
+  const req = { query: { ratePerMin: '-1' }, headers: {} };
+  const res = createMockRes();
+  await routes.match('POST', '/api/keepa-throttle-demo/seed').handler(req, res);
+
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.body.error, 'invalid_request');
+});
+
+test('/api/search: X-Keepa-Demoでdemoをseedし残量0にすると、demo付き検索はkeepa_busyになるが、同時にdemo無しの通常検索(global)は影響を受けず成功する(安全設計の核心)', async (t) => {
+  await withEnv({ ...NO_SPAPI, KEEPA_API_KEY: 'shared-key' }, async () => {
+    const routes = freshRoutes();
+    const keepa = require('../src/keepa/client');
+    throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_QUEUE_DEPTH: '0', KEEPA_REFILL_PER_MIN: '5' });
+    keepa.getProduct = async () => ({
+      product: { asin: 'B000DEMOSAFE', title: 'デモ隔離テスト', csv: [] },
+      tokensLeft: 9,
+    });
+
+    // demoインスタンスだけを残量0にする(globalには一切触れない)。
+    await keepaThrottle.seedDemoState({ tokens: 0 });
+
+    // demo付きリクエスト: demoインスタンスは枯渇済み・depth=0なので即拒否されるはず。
+    const demoReq = {
+      query: { code: '9784873119045' },
+      headers: { 'x-app-plan': 'pro', 'x-device-id': 'dev-demo-1', 'x-keepa-demo': '1' },
+    };
+    const demoRes = createMockRes();
+    await routes.match('GET', '/api/search').handler(demoReq, demoRes);
+    assert.equal(demoRes.statusCode, 429);
+    assert.equal(demoRes.body.error, 'keepa_busy');
+
+    // demo無しの通常リクエスト(global)は満タンのままなので通常通り成功するはず。
+    const normalReq = {
+      query: { code: '9784873119046' },
+      headers: { 'x-app-plan': 'pro', 'x-device-id': 'dev-normal-1' },
+    };
+    const normalRes = createMockRes();
+    await routes.match('GET', '/api/search').handler(normalReq, normalRes);
+    assert.equal(normalRes.statusCode, 200);
+
+    t.after(() => routes.searchCache.clear());
+  });
+});
+
+test('/api/search: X-Keepa-Demo付きでもBYOキーが優先されスロットル自体をバイパスする', async (t) => {
+  await withEnv({ ...NO_SPAPI, KEEPA_API_KEY: undefined }, async () => {
+    const routes = freshRoutes();
+    const keepa = require('../src/keepa/client');
+    throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_QUEUE_DEPTH: '0', KEEPA_REFILL_PER_MIN: '5' });
+    await keepaThrottle.seedDemoState({ tokens: 0 }); // demoは枯渇状態
+
+    keepa.getProduct = async ({ apiKey }) => {
+      assert.equal(apiKey, 'my-own-key');
+      return {
+        product: { asin: 'B000DEMOBYO', title: 'デモ+BYOテスト', csv: [] },
+        tokensLeft: 50,
+      };
+    };
+
+    const req = {
+      query: { code: '9784873119045' },
+      headers: {
+        'x-app-plan': 'pro',
+        'x-device-id': 'dev-demo-byo-1',
+        'x-keepa-key': 'my-own-key',
+        'x-keepa-demo': '1',
+      },
+    };
+    const res = createMockRes();
+    await routes.match('GET', '/api/search').handler(req, res);
+
+    assert.equal(res.statusCode, 200); // demo枯渇の影響を受けない(BYOが優先)
+
+    t.after(() => routes.searchCache.clear());
+  });
+});
+
+test('/api/graph-data: X-Keepa-Demo経路の成功時は実Keepaのtokens Leftでdemoインスタンスを上書きしない', async (t) => {
+  await withEnv({ ...NO_SPAPI, KEEPA_API_KEY: 'shared-key' }, async () => {
+    const routes = freshRoutes();
+    const keepa = require('../src/keepa/client');
+    throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_QUEUE_DEPTH: '10', KEEPA_REFILL_PER_MIN: '5' });
+    // demoを明示的に残量5にseedする。
+    await keepaThrottle.seedDemoState({ tokens: 5 });
+    // 実Keepaは残量0を返す(通常経路ならreportTokensLeftでdemoが0に上書きされてしまうはず)。
+    keepa.getProduct = async ({ asin }) => ({ product: { asin, csv: [] }, tokensLeft: 0 });
+
+    const req = {
+      query: { asin: 'B000DEMOKEEP1' },
+      headers: { 'x-app-plan': 'pro', 'x-device-id': 'dev-demo-keep-1', 'x-keepa-demo': '1' },
+    };
+    const res = createMockRes();
+    await routes.match('GET', '/api/graph-data').handler(req, res);
+    assert.equal(res.statusCode, 200);
+
+    // demoインスタンスのスナップショットが実Keepaのtokens Left(0)で上書きされていないこと
+    // (seedした5前後のまま=消費で1個減って4程度のはず。少なくとも0にはなっていない)。
+    const snapshot = await keepaThrottle.debugSnapshot('demo');
+    assert.ok(snapshot.tokensEstimate > 0, `demoが実Keepaの残量で上書きされている(tokensEstimate=${snapshot.tokensEstimate})`);
+
+    t.after(() => routes.graphDataCache.clear());
+  });
+});

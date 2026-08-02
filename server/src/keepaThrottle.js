@@ -350,6 +350,27 @@ class ThrottleCore {
     );
   }
 
+  /**
+   * デモ専用: 任意の残量・消費レートを人為的に作る(観測目的でブレーキ/キュー/sheddingの
+   * 挙動を検証者が意図的に再現できるようにするため)。本番相当のacquire等とは異なり、
+   * 呼び出し元がこのメソッドを'demo'インスタンスのコアに対してのみ呼ぶことで
+   * 本番の共有インスタンス('global')には作用しない設計にする(routes.js側で保証)。
+   * @param {{tokens?: number, ratePerMin?: number}} params
+   */
+  seedDemoState({ tokens, ratePerMin } = {}) {
+    const now = Date.now();
+    if (Number.isFinite(tokens)) {
+      this.tokens = Math.max(0, Math.min(this.config.capacity, tokens));
+      this.lastRefillAt = now;
+    }
+    if (Number.isFinite(ratePerMin) && ratePerMin >= 0) {
+      // 直近60秒に「ratePerMin件のgrantがあった」ことにして消費レートを再現する。
+      // 実際のgrant記録(recordGrant)と同じgrantTimestampsを直接差し替えるだけで、
+      // consumeRatePerMin()・computeBrakeMsは既存のロジックがそのまま使える。
+      this.grantTimestamps = Array.from({ length: Math.round(ratePerMin) }, () => now);
+    }
+  }
+
   /** テスト用: 保留中のタイマーを全て破棄し、待機中はallowed:falseで解決する。 */
   destroy() {
     if (this.grantTimer) clearTimeout(this.grantTimer);
@@ -389,11 +410,14 @@ function getDurableBinding() {
 }
 
 /**
- * グローバルに1つのDOへfetchする。名前は固定("global")。
- * キューと残量は全ユーザー共通の状態なので、deviceQuotaのようにIDごとに分けない。
+ * 指定インスタンス名のDOへfetchする(既定"global")。
+ * キューと残量は全ユーザー共通の状態なので、通常はdeviceQuotaのようにIDごとに分けないが、
+ * デモモード(instance='demo')だけは本番('global')と完全に独立した状態を持たせるために
+ * 別IDのDOインスタンスへ振り分ける(idFromNameが異なれば別オブジェクトになるため、
+ * 実装(KeepaThrottleDO)側は何も意識しなくてよい)。
  */
-async function callDurableObject(binding, path, params) {
-  const id = binding.idFromName('global');
+async function callDurableObject(binding, path, params, instance = 'global') {
+  const id = binding.idFromName(instance);
   const stub = binding.get(id);
   const qs = new URLSearchParams(params).toString();
   const res = await stub.fetch(`https://do/${path}?${qs}`, { method: 'POST' });
@@ -410,10 +434,12 @@ async function callDurableObject(binding, path, params) {
 // インメモリ経路(Node/Render/テスト用)
 // ---------------------------------------------------------------------------
 
-let core = null;
-function getCore() {
-  if (!core) core = new ThrottleCore(readThrottleConfig(process.env));
-  return core;
+const cores = new Map();
+function getCore(instance = 'global') {
+  if (!cores.has(instance)) {
+    cores.set(instance, new ThrottleCore(readThrottleConfig(process.env)));
+  }
+  return cores.get(instance);
 }
 
 // ---------------------------------------------------------------------------
@@ -423,36 +449,44 @@ function getCore() {
 /**
  * 共有Keepaキーでの1回の呼び出しの通行許可を求める。
  * @param {'pro'|'free'} priority
+ * @param {string} [instance] 既定'global'(本番共有インスタンス)。デモモードでは'demo'を渡す。
  * @returns {Promise<{allowed: boolean, reason?: 'depth'|'timeout'}>}
  */
-async function acquire(priority) {
+async function acquire(priority, instance = 'global') {
   const binding = getDurableBinding();
-  if (!binding) return getCore().acquire(priority);
+  if (!binding) return getCore(instance).acquire(priority);
   try {
-    return await callDurableObject(binding, 'acquire', { priority });
+    return await callDurableObject(binding, 'acquire', { priority }, instance);
   } catch (err) {
     console.error('[keepaThrottle] DO acquire failed, allowing (availability first):', err.message);
     return { allowed: true };
   }
 }
 
-/** Keepaレスポンスのtokens Leftで推定を補正する(失敗しても本処理に影響させない)。 */
-async function reportTokensLeft(tokensLeft) {
+/**
+ * Keepaレスポンスのtokens Leftで推定を補正する(失敗しても本処理に影響させない)。
+ * @param {number} tokensLeft
+ * @param {string} [instance] 既定'global'。
+ */
+async function reportTokensLeft(tokensLeft, instance = 'global') {
   const binding = getDurableBinding();
-  if (!binding) return getCore().reportTokensLeft(tokensLeft);
+  if (!binding) return getCore(instance).reportTokensLeft(tokensLeft);
   try {
-    await callDurableObject(binding, 'report', { tokensLeft: String(tokensLeft) });
+    await callDurableObject(binding, 'report', { tokensLeft: String(tokensLeft) }, instance);
   } catch (err) {
     console.error('[keepaThrottle] DO report failed (ignored):', err.message);
   }
 }
 
-/** Keepaがkeepa_tokens_exhaustedを返したときの残量0補正。 */
-async function reportExhausted() {
+/**
+ * Keepaがkeepa_tokens_exhaustedを返したときの残量0補正。
+ * @param {string} [instance] 既定'global'。
+ */
+async function reportExhausted(instance = 'global') {
   const binding = getDurableBinding();
-  if (!binding) return getCore().reportExhausted();
+  if (!binding) return getCore(instance).reportExhausted();
   try {
-    await callDurableObject(binding, 'exhausted', {});
+    await callDurableObject(binding, 'exhausted', {}, instance);
   } catch (err) {
     console.error('[keepaThrottle] DO exhausted-report failed (ignored):', err.message);
   }
@@ -462,22 +496,49 @@ async function reportExhausted() {
  * デバッグ表示用: 現在の推定状態のスナップショット(観測のみ、副作用なし)。
  * DO障害時はnullを返す(可用性優先のacquireと違い、デバッグ情報が取れないだけで
  * 実害が無いため、reportTokensLeftと同じ「失敗を無視」の作法。ただし戻り値はnull)。
+ * @param {string} [instance] 既定'global'。
  */
-async function debugSnapshot() {
+async function debugSnapshot(instance = 'global') {
   const binding = getDurableBinding();
-  if (!binding) return getCore().debugSnapshot();
+  if (!binding) return getCore(instance).debugSnapshot();
   try {
-    return await callDurableObject(binding, 'debug', {});
+    return await callDurableObject(binding, 'debug', {}, instance);
   } catch (err) {
     console.error('[keepaThrottle] DO debug snapshot failed (ignored):', err.message);
     return null;
   }
 }
 
-/** テスト用: 環境変数を読み直してインメモリコアを作り直す。 */
+/**
+ * デモ専用: 任意の残量・消費レートを注入する。常に固定で'demo'インスタンスのコアに
+ * 対してのみ動作する(呼び出し元がinstanceを指定できないようにするのが安全設計の要。
+ * これにより本番の共有インスタンス'global'には絶対に作用しない)。
+ * DO障害時はnullを返す(可用性優先の対象外の機能なので、失敗を無視してよい)。
+ * @param {{tokens?: number, ratePerMin?: number}} params
+ */
+async function seedDemoState({ tokens, ratePerMin } = {}) {
+  const binding = getDurableBinding();
+  if (!binding) {
+    getCore('demo').seedDemoState({ tokens, ratePerMin });
+    return getCore('demo').debugSnapshot();
+  }
+  try {
+    return await callDurableObject(
+      binding,
+      'seed-demo',
+      { tokens: String(tokens ?? ''), ratePerMin: String(ratePerMin ?? '') },
+      'demo'
+    );
+  } catch (err) {
+    console.error('[keepaThrottle] DO seed-demo failed (ignored):', err.message);
+    return null;
+  }
+}
+
+/** テスト用: 環境変数を読み直して全インスタンスのインメモリコアを作り直す。 */
 function _resetForTest() {
-  if (core) core.destroy();
-  core = null;
+  for (const c of cores.values()) c.destroy();
+  cores.clear();
 }
 
 module.exports = {
@@ -485,6 +546,7 @@ module.exports = {
   reportTokensLeft,
   reportExhausted,
   debugSnapshot,
+  seedDemoState,
   ThrottleCore,
   readThrottleConfig,
   _setDurableBinding,

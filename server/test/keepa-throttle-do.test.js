@@ -42,6 +42,27 @@ test('KeepaThrottleDO: /exhaustedで残量0になる', async () => {
   assert.deepEqual(await res.json(), { allowed: false, reason: 'depth' });
 });
 
+test('KeepaThrottleDO: /seed-demoはtokens/ratePerMinを注入しスナップショットを返す', async () => {
+  const doInstance = await makeDo({ KEEPA_BUCKET_CAPACITY: '100', KEEPA_REFILL_PER_MIN: '60' });
+  const res = await doInstance.fetch(
+    new Request('https://do/seed-demo?tokens=3&ratePerMin=8', { method: 'POST' })
+  );
+  const body = await res.json();
+  assert.equal(body.tokensEstimate, 3);
+  assert.equal(body.consumeRatePerMin, 8);
+});
+
+test('KeepaThrottleDO: /seed-demoで残量0にすると、depth=0の/acquireは即拒否', async () => {
+  const doInstance = await makeDo({
+    KEEPA_BUCKET_CAPACITY: '10',
+    KEEPA_REFILL_PER_MIN: '1',
+    KEEPA_QUEUE_DEPTH: '0',
+  });
+  await doInstance.fetch(new Request('https://do/seed-demo?tokens=0', { method: 'POST' }));
+  const res = await doInstance.fetch(new Request('https://do/acquire?priority=free', { method: 'POST' }));
+  assert.deepEqual(await res.json(), { allowed: false, reason: 'depth' });
+});
+
 test('KeepaThrottleDO: 不明なパスは404', async () => {
   const doInstance = await makeDo({});
   const res = await doInstance.fetch(new Request('https://do/unknown', { method: 'POST' }));

@@ -138,6 +138,31 @@ final class SettingsViewModel: ObservableObject {
         }
         keepaTestState = .idle
     }
+
+    // MARK: Keepaスロットルのデモモード(開発者向け)
+
+    /// デモ状態の適用結果(成功時はスナップショットの整形文字列、失敗時はエラー文言)を
+    /// 画面に一時表示するためのテキスト。
+    @Published var demoSeedResultText: String?
+
+    /// 入力欄の文字列(空なら未指定=そのパラメータはサーバーへ送らない)をDoubleへ変換し、
+    /// POST /api/keepa-throttle-demo/seed を呼ぶ。tokens/ratePerMinの少なくとも一方が
+    /// 数値変換できればよい(両方空はサーバー側で400になるが、ここでは弾かずそのまま送る)。
+    func seedKeepaThrottleDemo(tokensText: String, ratePerMinText: String) async {
+        let tokens = Double(tokensText.trimmingCharacters(in: .whitespaces))
+        let ratePerMin = Double(ratePerMinText.trimmingCharacters(in: .whitespaces))
+        do {
+            let result = try await apiClient.seedKeepaThrottleDemo(tokens: tokens, ratePerMin: ratePerMin)
+            if let snapshot = result.snapshot {
+                demoSeedResultText = "適用しました: 残量\(snapshot.tokensEstimate)/\(snapshot.capacity)"
+                    + " 消費レート\(snapshot.consumeRatePerMin)/分 キュー\(snapshot.queueLength)/\(snapshot.depth)"
+            } else {
+                demoSeedResultText = "適用しました(スナップショットは取得できませんでした)"
+            }
+        } catch {
+            demoSeedResultText = "失敗しました: \(error.localizedDescription)"
+        }
+    }
 }
 
 struct SettingsView: View {
@@ -149,6 +174,9 @@ struct SettingsView: View {
     #if DEBUG
     /// 開発用Pro強制トグルの表示state(実体はEntitlementStore側のUserDefaults)。
     @State private var debugForcePro = EntitlementStore.shared.debugForcePro
+    /// Keepaスロットルのデモモード用入力欄(残りトークン数・消費レート)。文字列で保持しDouble変換する。
+    @State private var demoTokensText = ""
+    @State private var demoRatePerMinText = ""
     #endif
 
     var body: some View {
@@ -228,6 +256,35 @@ struct SettingsView: View {
                             entitlements.debugForcePro = newValue
                         }
                     Toggle("Keepaスロットルのデバッグ表示", isOn: $settings.keepaThrottleDebugEnabled)
+
+                    Toggle("Keepaデモインスタンスを使う", isOn: $settings.keepaThrottleDemoEnabled)
+
+                    TextField("残りトークン数", text: $demoTokensText)
+                        .keyboardType(.decimalPad)
+
+                    TextField("消費レート(件/分)", text: $demoRatePerMinText)
+                        .keyboardType(.decimalPad)
+
+                    Button {
+                        Task {
+                            await viewModel.seedKeepaThrottleDemo(
+                                tokensText: demoTokensText,
+                                ratePerMinText: demoRatePerMinText
+                            )
+                        }
+                    } label: {
+                        Text("デモ状態を適用")
+                    }
+
+                    if let demoSeedResultText = viewModel.demoSeedResultText {
+                        Text(demoSeedResultText)
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                    }
+
+                    Text("デモ専用の隔離されたインスタンスに値を注入します。本番の共有Keepaキーを使う他の利用者には一切影響しません。デモインスタンスを使うにはこのトグルと上のデバッグ表示を両方ONにしてください。")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
                 }
                 #endif
 

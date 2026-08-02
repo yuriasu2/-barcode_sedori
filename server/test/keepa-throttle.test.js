@@ -217,6 +217,67 @@ test('keepaThrottle: 適応ブレーキ - 既定値5/分ではfloorMs(12000ms)�
   assert.ok(elapsed < 2000, `テスト用timeoutMs(2000ms)未満で返っていない(${elapsed}ms)`);
 });
 
+// ---------------------------------------------------------------------------
+// デモモード: seedDemoState + マルチインスタンス分離('demo'は'global'に影響しない)
+// ---------------------------------------------------------------------------
+
+test('ThrottleCore.seedDemoState: tokensのみ指定するとtokensだけ変わりgrantTimestampsは変わらない', () => {
+  const { ThrottleCore } = keepaThrottle;
+  const core = new ThrottleCore({ refillPerMin: 60, capacity: 100, depth: 10, timeoutMs: 1000 });
+  core.grantTimestamps = [1, 2, 3];
+  core.seedDemoState({ tokens: 7 });
+  assert.equal(core.tokens, 7);
+  assert.deepEqual(core.grantTimestamps, [1, 2, 3]);
+  core.destroy();
+});
+
+test('ThrottleCore.seedDemoState: ratePerMinのみ指定するとgrantTimestampsだけ変わりtokensは変わらない', () => {
+  const { ThrottleCore } = keepaThrottle;
+  const core = new ThrottleCore({ refillPerMin: 60, capacity: 100, depth: 10, timeoutMs: 1000 });
+  core.tokens = 42;
+  core.seedDemoState({ ratePerMin: 5 });
+  assert.equal(core.tokens, 42);
+  assert.equal(core.grantTimestamps.length, 5);
+  core.destroy();
+});
+
+test('ThrottleCore.seedDemoState: tokens・ratePerMinを両方指定すると両方反映される', () => {
+  const { ThrottleCore } = keepaThrottle;
+  const core = new ThrottleCore({ refillPerMin: 60, capacity: 100, depth: 10, timeoutMs: 1000 });
+  core.seedDemoState({ tokens: 3, ratePerMin: 8 });
+  assert.equal(core.tokens, 3);
+  assert.equal(core.grantTimestamps.length, 8);
+  core.destroy();
+});
+
+test('ThrottleCore.seedDemoState: どちらも未指定なら何も変わらない', () => {
+  const { ThrottleCore } = keepaThrottle;
+  const core = new ThrottleCore({ refillPerMin: 60, capacity: 100, depth: 10, timeoutMs: 1000 });
+  core.tokens = 10;
+  core.grantTimestamps = [1, 2];
+  core.seedDemoState({});
+  assert.equal(core.tokens, 10);
+  assert.deepEqual(core.grantTimestamps, [1, 2]);
+  core.destroy();
+});
+
+test('keepaThrottle: instance="demo"へのseedDemoStateはinstance省略(=global)に影響しない', async (t) => {
+  configure(t, { capacity: 10, refillPerMin: 60, depth: 0, timeoutMs: 1000 });
+  // demoだけ残量0にする
+  await keepaThrottle.seedDemoState({ tokens: 0 });
+  // globalはconfigureで作った満タン状態のまま → 即時許可されるはず
+  assert.deepEqual(await keepaThrottle.acquire('free'), { allowed: true });
+});
+
+test('keepaThrottle: acquire(priority, "demo")はacquire(priority)(=global省略時)と別状態', async (t) => {
+  configure(t, { capacity: 1, refillPerMin: 60, depth: 0, timeoutMs: 1000 });
+  // demoインスタンスを枯渇させる
+  assert.deepEqual(await keepaThrottle.acquire('free', 'demo'), { allowed: true });
+  assert.deepEqual(await keepaThrottle.acquire('free', 'demo'), { allowed: false, reason: 'depth' });
+  // globalは影響を受けず、まだ残量があるので許可される
+  assert.deepEqual(await keepaThrottle.acquire('free'), { allowed: true });
+});
+
 test('keepaThrottle: 残量補正直後の新参acquireは、キュー内の待機者を追い越して即時許可されない', async (t) => {
   // ThrottleCoreを直接操作するホワイトボックステスト。
   // refillPerMin=1・待機者を積んでから外部要因(reportTokensLeft等)でトークンが1個

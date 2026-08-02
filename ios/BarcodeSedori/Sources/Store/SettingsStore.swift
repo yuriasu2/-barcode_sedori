@@ -66,6 +66,10 @@ final class SettingsStore: ObservableObject {
 
         /// Keepaスロットルのデバッグ表示(開発者向け。DEBUGビルド専用)。既定false。
         static let keepaThrottleDebugEnabled = "settings.keepaThrottleDebugEnabled"
+        /// Keepaスロットルのデモインスタンスを使うか(開発者向け。DEBUGビルド専用)。
+        /// ONにするとリクエストにX-Keepa-Demoが付き、本番と隔離された'demo'インスタンスへ
+        /// スロットル判定だけが振り分けられる(本番の共有Keepaキー利用者には影響しない)。既定false。
+        static let keepaThrottleDemoEnabled = "settings.keepaThrottleDemoEnabled"
 
         // 仕入れ設定(PurchaseSettingsView): フォームのFBA・配送料デフォルトと仕入先リスト。
         static let purchaseUseFbaDefault = "purchase.useFbaDefault"
@@ -153,6 +157,15 @@ final class SettingsStore: ObservableObject {
     @Published var keepaThrottleDebugEnabled: Bool {
         didSet {
             defaults.set(keepaThrottleDebugEnabled, forKey: Keys.keepaThrottleDebugEnabled)
+        }
+    }
+
+    /// Keepaスロットルのデモインスタンス('demo')を使うか。ONにするとリクエストへ
+    /// X-Keepa-Demoヘッダーが付与され、本番の共有インスタンス('global')とは完全に
+    /// 隔離された状態でスロットルの挙動(ブレーキ・キュー・お断り)を再現できる。既定false。
+    @Published var keepaThrottleDemoEnabled: Bool {
+        didSet {
+            defaults.set(keepaThrottleDemoEnabled, forKey: Keys.keepaThrottleDemoEnabled)
         }
     }
 
@@ -387,6 +400,7 @@ final class SettingsStore: ObservableObject {
         }
         self.linkSearchByModelNumber = defaults.bool(forKey: Keys.linkSearchByModelNumber)
         self.keepaThrottleDebugEnabled = defaults.bool(forKey: Keys.keepaThrottleDebugEnabled)
+        self.keepaThrottleDemoEnabled = defaults.bool(forKey: Keys.keepaThrottleDemoEnabled)
 
         // 利益アラート(Phase 1a)。未設定時は全条件OFF・既定値で読み込む(既存ユーザーの挙動は不変)。
         self.profitAlertEnabled = defaults.bool(forKey: Keys.profitAlertEnabled)

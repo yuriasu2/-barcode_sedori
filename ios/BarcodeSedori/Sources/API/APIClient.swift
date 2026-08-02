@@ -97,6 +97,7 @@ final class APIClient {
         addKeepaKeyHeaderIfNeeded(to: &request)
         #if DEBUG
         addKeepaDebugHeaderIfNeeded(to: &request)
+        addKeepaDemoHeaderIfNeeded(to: &request)
         #endif
         return request
     }
@@ -169,6 +170,15 @@ final class APIClient {
     private func addKeepaDebugHeaderIfNeeded(to request: inout URLRequest) {
         guard SettingsStore.shared.keepaThrottleDebugEnabled else { return }
         request.setValue("1", forHTTPHeaderField: "X-Keepa-Debug")
+    }
+
+    /// 開発者向けのKeepaスロットルデモモードが有効なら、リクエストにX-Keepa-Demoヘッダーを付与する。
+    /// これによりサーバー側のスロットル判定だけが本番の共有インスタンス('global')から隔離された
+    /// 'demo'インスタンスへ振り分けられる(実際のKeepa API呼び出し・商品データ取得は今までどおり行う)。
+    /// addKeepaDebugHeaderIfNeededと同じ場所・同じ流儀で#if DEBUGごと囲み二重に守る。
+    private func addKeepaDemoHeaderIfNeeded(to request: inout URLRequest) {
+        guard SettingsStore.shared.keepaThrottleDemoEnabled else { return }
+        request.setValue("1", forHTTPHeaderField: "X-Keepa-Demo")
     }
     #endif
 
@@ -304,6 +314,23 @@ final class APIClient {
     func keepaTest() async throws -> KeepaTestResult {
         let request = try makeRequest(path: "/api/keepa-test")
         return try await perform(request, as: KeepaTestResult.self)
+    }
+
+    /// POST /api/keepa-throttle-demo/seed?tokens=&ratePerMin=
+    /// Keepaスロットルのデモモード(開発者向け)。'demo'インスタンス(本番の共有インスタンス
+    /// 'global'とは完全に隔離)へ任意の残量・消費レートを注入し、そのスナップショットを返す。
+    /// tokens/ratePerMinはどちらかがnilならクエリに含めない(サーバー側は省略可)。
+    func seedKeepaThrottleDemo(tokens: Double?, ratePerMin: Double?) async throws -> KeepaThrottleDemoSeedResult {
+        var queryItems: [URLQueryItem] = []
+        if let tokens {
+            queryItems.append(URLQueryItem(name: "tokens", value: String(tokens)))
+        }
+        if let ratePerMin {
+            queryItems.append(URLQueryItem(name: "ratePerMin", value: String(ratePerMin)))
+        }
+        var request = try makeRequest(path: "/api/keepa-throttle-demo/seed", queryItems: queryItems)
+        request.httpMethod = "POST"
+        return try await perform(request, as: KeepaThrottleDemoSeedResult.self)
     }
 
     /// 接続テスト用。GET /api/health があれば利用し、失敗した場合は /api/search を軽く叩いて疎通確認する。

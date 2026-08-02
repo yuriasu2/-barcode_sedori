@@ -278,13 +278,34 @@ function sendKeepaBusy(res) {
 }
 
 /**
+ * X-Keepa-Demoヘッダー(非空)が付いたリクエストか。デモモードでは、スロットルの
+ * 判定(許可/ブレーキ/キュー待ち/お断り)だけを本番と隔離された'demo'インスタンスに
+ * 対して行う(hasByoKeepaKey/hasKeepaDebugHeaderと同じ形)。
+ */
+function hasKeepaDemoHeader(headers) {
+  const headerValue = headers && (headers['x-keepa-demo'] || headers['X-Keepa-Demo']);
+  return Boolean(headerValue && String(headerValue).trim());
+}
+
+/**
+ * このリクエストが使うべきスロットルのインスタンス名を返す。
+ * X-Keepa-Demoが付いていれば'demo'(本番の共有インスタンスには一切影響しない隔離された
+ * インスタンス)、無ければ従来通り'global'。
+ */
+function keepaThrottleInstanceFor(headers) {
+  return hasKeepaDemoHeader(headers) ? 'demo' : 'global';
+}
+
+/**
  * 共有Keepaキーを使う直前の通行許可。BYOキーはスロットル外(即許可)。
  * 待ち行列はkeepaThrottle(DO)側が持ち、この呼び出しは許可が出るか
  * 拒否(深さ超過/タイムアウト)が確定するまで解決しない。
+ * X-Keepa-Demoヘッダーが付いていれば、判定だけを'demo'インスタンスに対して行う
+ * (実際のKeepa API呼び出し自体は今までどおり行う。スロットル判定のみ隔離する)。
  */
 async function acquireKeepaSlot(headers) {
   if (hasByoKeepaKey(headers)) return { allowed: true };
-  return keepaThrottle.acquire(isProRequest(headers) ? 'pro' : 'free');
+  return keepaThrottle.acquire(isProRequest(headers) ? 'pro' : 'free', keepaThrottleInstanceFor(headers));
 }
 
 /**
@@ -323,7 +344,8 @@ async function acquireKeepaSlotWithDebug(headers) {
     };
   }
   // 判定直前(=acquireが見る状態そのもの)のスナップショットを取ってから実測する。
-  const snapshot = await keepaThrottle.debugSnapshot();
+  // デモモードのときは'demo'インスタンスのスナップショットを見る(acquireと同じインスタンス)。
+  const snapshot = await keepaThrottle.debugSnapshot(keepaThrottleInstanceFor(headers));
   const startedAt = Date.now();
   const slot = await acquireKeepaSlot(headers);
   const waitedMs = Date.now() - startedAt;
@@ -657,7 +679,9 @@ async function handleSearchViaKeepa(req, res, code, cacheKey, apiKey, keepaDebug
     const { product, tokensLeft } = await keepa.getProduct({ code: janOrIsbn, history: 1, apiKey });
     // 共有キーのときだけ実残量をスロットルへ報告する(BYOキーの残量で共有側の推定を
     // 壊さないようにする)。報告は補正であり本処理の成否に影響させない。
-    if (!hasByoKeepaKey(req.headers) && Number.isFinite(tokensLeft)) {
+    // デモモード(X-Keepa-Demo)のときは報告しない: demoインスタンスの状態は利用者が
+    // 明示的にseedした値のまま維持すべきで、実Keepaの残量で上書きすると意味が無くなる。
+    if (!hasByoKeepaKey(req.headers) && !hasKeepaDemoHeader(req.headers) && Number.isFinite(tokensLeft)) {
       await keepaThrottle.reportTokensLeft(tokensLeft);
     }
     const mapped = keepa.mapProductToSearchResult(product);
@@ -719,7 +743,8 @@ async function handleSearchViaKeepa(req, res, code, cacheKey, apiKey, keepaDebug
     if (err.code === 'keepa_tokens_exhausted') {
       // 推定より実残量が少なかった稀なケース。残量0へ補正し、ユーザーには
       // キュー拒否と同じ文言で返す(体験を1種類に揃える。設計書§2.1)。
-      if (!hasByoKeepaKey(req.headers)) await keepaThrottle.reportExhausted();
+      // デモモードのときは報告しない(理由は上のreportTokensLeft呼び出しと同じ)。
+      if (!hasByoKeepaKey(req.headers) && !hasKeepaDemoHeader(req.headers)) await keepaThrottle.reportExhausted();
       return sendKeepaBusy(res);
     }
     console.error(`[search:keepa] code=${code} failed:`, err.message);
@@ -1059,7 +1084,9 @@ router.get('/api/graph-data', async (req, res) => {
     const { product, tokensLeft } = await keepa.getProduct({ asin, history: 1, apiKey: keepaApiKey });
     // 共有キーのときだけ実残量をスロットルへ報告する(BYOキーの残量で共有側の推定を
     // 壊さないようにする)。報告は補正であり本処理の成否に影響させない。
-    if (!hasByoKeepaKey(req.headers) && Number.isFinite(tokensLeft)) {
+    // デモモード(X-Keepa-Demo)のときは報告しない: demoインスタンスの状態は利用者が
+    // 明示的にseedした値のまま維持すべきで、実Keepaの残量で上書きすると意味が無くなる。
+    if (!hasByoKeepaKey(req.headers) && !hasKeepaDemoHeader(req.headers) && Number.isFinite(tokensLeft)) {
       await keepaThrottle.reportTokensLeft(tokensLeft);
     }
     const responseBody = { series: keepa.extractGraphSeries(product) };
@@ -1071,12 +1098,36 @@ router.get('/api/graph-data', async (req, res) => {
     if (err.code === 'keepa_tokens_exhausted') {
       // 推定より実残量が少なかった稀なケース。残量0へ補正し、ユーザーには
       // キュー拒否と同じ文言で返す(体験を1種類に揃える。設計書§2.1)。
-      if (!hasByoKeepaKey(req.headers)) await keepaThrottle.reportExhausted();
+      // デモモードのときは報告しない(理由は上のreportTokensLeft呼び出しと同じ)。
+      if (!hasByoKeepaKey(req.headers) && !hasKeepaDemoHeader(req.headers)) await keepaThrottle.reportExhausted();
       return sendKeepaBusy(res);
     }
     console.error(`[graph-data] asin=${asin} failed:`, err.message);
     res.status(502).json({ error: 'graph_data_failed', message: err.message });
   }
+});
+
+/**
+ * POST /api/keepa-throttle-demo/seed — デモ専用: 'demo'インスタンスのスロットル状態
+ * (残量・消費レート)を任意の値に注入する。常にseedDemoState()経由で'demo'インスタンス
+ * のみへ作用するため、本番の共有インスタンス('global')・実利用者には一切影響しない。
+ */
+router.post('/api/keepa-throttle-demo/seed', async (req, res) => {
+  const tokensRaw = req.query.tokens;
+  const rateRaw = req.query.ratePerMin;
+  const tokens = tokensRaw !== undefined && tokensRaw !== '' ? parseFloat(tokensRaw) : undefined;
+  const ratePerMin = rateRaw !== undefined && rateRaw !== '' ? parseFloat(rateRaw) : undefined;
+  if (tokens === undefined && ratePerMin === undefined) {
+    return res.status(400).json({ error: 'invalid_request', message: 'tokensまたはratePerMinのいずれかを指定してください' });
+  }
+  if (tokens !== undefined && !Number.isFinite(tokens)) {
+    return res.status(400).json({ error: 'invalid_request', message: 'tokensは数値で指定してください' });
+  }
+  if (ratePerMin !== undefined && (!Number.isFinite(ratePerMin) || ratePerMin < 0)) {
+    return res.status(400).json({ error: 'invalid_request', message: 'ratePerMinは0以上の数値で指定してください' });
+  }
+  const snapshot = await keepaThrottle.seedDemoState({ tokens, ratePerMin });
+  res.json({ ok: true, snapshot });
 });
 
 // GET /api/quota — フリーミアムv2: 現在のデバイスの無料枠ユニット残量を返す。
@@ -1541,6 +1592,8 @@ router.isProRequest = isProRequest;
 router.resolveKeepaApiKey = resolveKeepaApiKey;
 // テスト用途にBYOキー判定を公開する。
 router.hasByoKeepaKey = hasByoKeepaKey;
+// テスト用途にKeepaデモモードヘッダー判定を公開する。
+router.hasKeepaDemoHeader = hasKeepaDemoHeader;
 // テスト用途にデバイスID抽出関数、deviceQuotaモジュール本体を公開する。
 router.deviceIdOf = deviceIdOf;
 router.deviceQuota = deviceQuota;
