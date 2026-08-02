@@ -23,11 +23,14 @@
     "UNITS_PER_AD": "5",
     "MAX_DAILY_UNITS": "100",
     // Keepaスロットル(keepaThrottle.js)。契約プランの毎分トークン数 / キュー深さ上限 /
-    // キュー待ちの最大ミリ秒(iOSの通信タイムアウトより短くすること)。
+    // キュー待ちの最大ミリ秒。KEEPA_QUEUE_TIMEOUT_MSはiOSのURLSessionタイムアウト
+    // (APIClient.swiftのtimeoutInterval=10秒)より短くする必要がある。これより長いと、
+    // iOS側が先に切断した後にサーバー側で許可が出て「誰も受け取らないレスポンス」の
+    // ためだけにユニット・トークンを消費する経路が生まれる。
     // プランを20トークン/分へ上げたらKEEPA_REFILL_PER_MINだけ更新してデプロイする。
     "KEEPA_REFILL_PER_MIN": "5",
     "KEEPA_QUEUE_DEPTH": "10",
-    "KEEPA_QUEUE_TIMEOUT_MS": "25000"
+    "KEEPA_QUEUE_TIMEOUT_MS": "8000"
   },
   // 広告配信設定(/api/ads)を置くKV namespace。id は namespace 作成後に埋める
   // (`wrangler kv namespace create ADS_CONFIG`)。id未設定(プレースホルダ)のままでも

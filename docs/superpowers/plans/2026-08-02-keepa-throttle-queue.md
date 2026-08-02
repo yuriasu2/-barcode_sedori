@@ -14,7 +14,7 @@
 
 - お断り文言は正確に「混み合っているので時間を空けてお試しください。」（設計書 §1）
 - エラーレスポンスは **HTTP 429** `{ "error": "keepa_busy", "message": "<上記文言>" }`（既存の `quota_exceeded` と `error` コードで区別）
-- 環境変数: `KEEPA_REFILL_PER_MIN`(既定"5") / `KEEPA_QUEUE_DEPTH`(既定"10") / `KEEPA_QUEUE_TIMEOUT_MS`(既定"25000")
+- 環境変数: `KEEPA_REFILL_PER_MIN`(既定"5") / `KEEPA_QUEUE_DEPTH`(既定"10") / `KEEPA_QUEUE_TIMEOUT_MS`(既定"8000")
 - キュー拒否時に無料枠ユニットを消費しないこと（acquire成功後にのみ消費）（設計書 §2.2）
 - BYO Keepaキー（`X-Keepa-Key` ヘッダー非空）・キャッシュヒット・SP-API経路はスロットル対象外
 - DO障害時は「許可」で倒す（可用性優先、`deviceQuota.js` と同方針）
@@ -204,7 +204,7 @@ function readThrottleConfig(env) {
     refillPerMin,
     capacity: Number.isFinite(capacityRaw) && capacityRaw > 0 ? capacityRaw : refillPerMin * 60,
     depth: (env && Number.isFinite(parseInt(env.KEEPA_QUEUE_DEPTH, 10))) ? parseInt(env.KEEPA_QUEUE_DEPTH, 10) : 10,
-    timeoutMs: (env && parseInt(env.KEEPA_QUEUE_TIMEOUT_MS, 10)) || 25000,
+    timeoutMs: (env && parseInt(env.KEEPA_QUEUE_TIMEOUT_MS, 10)) || 8000,
   };
 }
 
@@ -670,7 +670,7 @@ export { KeepaThrottleDO } from './keepaThrottleDurableObject.js';
     // プランを20トークン/分へ上げたらKEEPA_REFILL_PER_MINだけ更新してデプロイする。
     "KEEPA_REFILL_PER_MIN": "5",
     "KEEPA_QUEUE_DEPTH": "10",
-    "KEEPA_QUEUE_TIMEOUT_MS": "25000"
+    "KEEPA_QUEUE_TIMEOUT_MS": "8000"
 ```
 
 - [ ] **Step 6: テストが通ることを確認**

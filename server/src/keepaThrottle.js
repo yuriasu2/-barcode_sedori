@@ -31,7 +31,10 @@ function readThrottleConfig(env) {
     refillPerMin,
     capacity: Number.isFinite(capacityRaw) && capacityRaw > 0 ? capacityRaw : refillPerMin * 60,
     depth: (env && Number.isFinite(parseInt(env.KEEPA_QUEUE_DEPTH, 10))) ? parseInt(env.KEEPA_QUEUE_DEPTH, 10) : 10,
-    timeoutMs: (env && parseInt(env.KEEPA_QUEUE_TIMEOUT_MS, 10)) || 25000,
+    // iOSの通信タイムアウト(APIClient.swiftのtimeoutInterval=10秒)より短くする必要がある。
+    // これより長いと、iOS側が先に切断した後にサーバー側で許可が出て「誰も受け取らない
+    // レスポンス」のためだけにユニット・トークンを消費する経路が生まれる。
+    timeoutMs: (env && parseInt(env.KEEPA_QUEUE_TIMEOUT_MS, 10)) || 8000,
   };
 }
 
@@ -95,6 +98,13 @@ class ThrottleCore {
     this.rollStatsDate();
     const now = Date.now();
     this.refill(now);
+
+    // キューに待機者がいるのにトークンがあるからと新参を先に通すと、残量補正
+    // (reportTokensLeft/reportExhausted)直後などの窓で新参が待機中のPro/freeを
+    // 追い越せてしまう。自分の判定に進む前に、先にキューを流しておく。
+    if (this.queueLength() > 0 && this.tokens >= 1) {
+      this.grantTick();
+    }
 
     if (this.tokens >= 1) {
       this.tokens -= 1;
@@ -165,6 +175,7 @@ class ThrottleCore {
     this.lastRefillAt = Date.now();
     this.tokens = Math.max(0, Math.min(this.config.capacity, tokensLeft));
     this.stats.lastTokensLeft = tokensLeft;
+    this.reflowQueueAfterCorrection();
   }
 
   /** Keepaがkeepa_tokens_exhausted(503)を返した=実残量0。 */
@@ -172,6 +183,22 @@ class ThrottleCore {
     this.lastRefillAt = Date.now();
     this.tokens = 0;
     this.stats.lastTokensLeft = 0;
+    this.reflowQueueAfterCorrection();
+  }
+
+  /**
+   * 残量補正(reportTokensLeft/reportExhausted)の直後に呼ぶ。
+   * 補正前の残量見積もりを前提に予約されたgrantTimerを一度破棄してgrantTickを
+   * やり直すことで、上方補正なら待機者を即座に流し、下方補正なら現在の残量から
+   * 正しい待ち時間で再予約されるようにする(古いタイマーを放置すると、上方補正時に
+   * 補充ペース分だけ余計に待たされたり、下方補正時に時期尚早な許可が起きたりする)。
+   */
+  reflowQueueAfterCorrection() {
+    if (this.grantTimer) {
+      clearTimeout(this.grantTimer);
+      this.grantTimer = null;
+    }
+    if (this.queueLength() > 0) this.grantTick();
   }
 
   /** shedding発生時の構造化ログ(wrangler tailで確認する。設計書§2.4)。 */

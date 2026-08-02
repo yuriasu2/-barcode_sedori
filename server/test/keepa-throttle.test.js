@@ -113,3 +113,51 @@ test('keepaThrottle: DO障害時はallowed:trueで倒す(可用性優先)', asyn
   const result = await keepaThrottle.acquire('free');
   assert.equal(result.allowed, true);
 });
+
+// ---------------------------------------------------------------------------
+// 最終レビュー指摘の修正(2): 残量補正時にキューを流す + 新参の追い越し防止
+// ---------------------------------------------------------------------------
+
+test('keepaThrottle: reportTokensLeftの上方補正で古いgrantTimerに引きずられず即座にキューが流れる', async (t) => {
+  // capacity=1・refillPerMin=30 → 自然補充なら1トークンに2000ms(60000/30)かかる想定。
+  // 待機者を積んだ時点でその2000ms後にgrantTimerが予約されるが、
+  // reportTokensLeftで残量が上方補正されたら古い予約を待たずに即時許可されるべき。
+  configure(t, { capacity: 1, refillPerMin: 30, depth: 10, timeoutMs: 5000 });
+  await keepaThrottle.acquire('free'); // 枯渇させる(tokens=0)
+  const waiterPromise = keepaThrottle.acquire('free'); // キューへ。約2000ms後のgrantTimerが予約される
+  await new Promise((r) => setTimeout(r, 20)); // waiterが確実にキューに入るのを待つ
+
+  const started = Date.now();
+  await keepaThrottle.reportTokensLeft(5); // 実残量5と判明(上方補正)
+  const result = await waiterPromise;
+
+  assert.deepEqual(result, { allowed: true });
+  assert.ok(
+    Date.now() - started < 500,
+    `補正から${Date.now() - started}ms経っても即時に流れていない(古いgrantTimerの待ち時間に引きずられている)`
+  );
+});
+
+test('keepaThrottle: 残量補正直後の新参acquireは、キュー内の待機者を追い越して即時許可されない', async (t) => {
+  // ThrottleCoreを直接操作するホワイトボックステスト。
+  // refillPerMin=1・待機者を積んでから外部要因(reportTokensLeft等)でトークンが1個
+  // 補充されたのと同じ状況を再現し、その直後に新参がacquireした場合の挙動を見る。
+  const { ThrottleCore } = keepaThrottle;
+  const core = new ThrottleCore({ refillPerMin: 1, capacity: 5, depth: 10, timeoutMs: 200 });
+  t.after(() => core.destroy());
+
+  core.tokens = 0;
+  const proWaiterPromise = core.acquire('pro');
+  await new Promise((r) => setTimeout(r, 10)); // proが確実にキューに入るのを待つ
+  assert.equal(core.queueLength(), 1);
+
+  // 補正でトークンが1個入ったのと同じ状況(grantTickを経由しない直接更新)を再現。
+  core.tokens = 1;
+
+  const freeResult = await core.acquire('free');
+  // 新参(free)がキュー内で待っているpro(優先度が上)を追い越して許可されてはいけない。
+  assert.notDeepEqual(freeResult, { allowed: true });
+
+  const proResult = await proWaiterPromise;
+  assert.deepEqual(proResult, { allowed: true });
+});
