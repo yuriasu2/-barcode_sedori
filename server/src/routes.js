@@ -1115,8 +1115,10 @@ router.get('/api/graph-data', async (req, res) => {
 router.post('/api/keepa-throttle-demo/seed', async (req, res) => {
   const tokensRaw = req.query.tokens;
   const rateRaw = req.query.ratePerMin;
+  const refillRaw = req.query.refillPerMin;
   const tokens = tokensRaw !== undefined && tokensRaw !== '' ? parseFloat(tokensRaw) : undefined;
   const ratePerMin = rateRaw !== undefined && rateRaw !== '' ? parseFloat(rateRaw) : undefined;
+  const refillPerMin = refillRaw !== undefined && refillRaw !== '' ? parseFloat(refillRaw) : undefined;
   if (tokens === undefined && ratePerMin === undefined) {
     return res.status(400).json({ error: 'invalid_request', message: 'tokensまたはratePerMinのいずれかを指定してください' });
   }
@@ -1126,8 +1128,28 @@ router.post('/api/keepa-throttle-demo/seed', async (req, res) => {
   if (ratePerMin !== undefined && (!Number.isFinite(ratePerMin) || ratePerMin < 0)) {
     return res.status(400).json({ error: 'invalid_request', message: 'ratePerMinは0以上の数値で指定してください' });
   }
-  const snapshot = await keepaThrottle.seedDemoState({ tokens, ratePerMin });
+  if (refillPerMin !== undefined && (!Number.isFinite(refillPerMin) || refillPerMin < 0)) {
+    return res.status(400).json({ error: 'invalid_request', message: 'refillPerMinは0以上の数値で指定してください' });
+  }
+  const snapshot = await keepaThrottle.seedDemoState({ tokens, ratePerMin, refillPerMin });
   res.json({ ok: true, snapshot });
+});
+
+/**
+ * POST /api/keepa-throttle-demo/probe?priority=pro|free — デモ専用: 実際のKeepa呼び出し・
+ * キャッシュ・履歴記録を一切行わず、'demo'インスタンスのスロットル判定(acquire)だけを試す。
+ * 複数を同時発火してキューの挙動(補充で順に許可される様子・Pro優先で先に通る様子)を
+ * 観察するためのテスト専用エンドポイント。X-Keepa-Debug/X-Keepa-Demoヘッダーの有無に
+ * 関わらず常に'demo'インスタンス限定で動く(実験用のデバッグ機能でありヘッダー切り替えの
+ * 対象にする意味が無いため。'global'には一切作用しない)。
+ */
+router.post('/api/keepa-throttle-demo/probe', async (req, res) => {
+  const priority = req.query.priority === 'pro' ? 'pro' : 'free';
+  const startedAt = Date.now();
+  const result = await keepaThrottle.acquire(priority, 'demo');
+  const waitedMs = Date.now() - startedAt;
+  const snapshot = await keepaThrottle.debugSnapshot('demo');
+  res.json({ priority, waitedMs, allowed: result.allowed, reason: result.reason || null, snapshot });
 });
 
 // GET /api/quota — フリーミアムv2: 現在のデバイスの無料枠ユニット残量を返す。

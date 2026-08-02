@@ -316,11 +316,13 @@ final class APIClient {
         return try await perform(request, as: KeepaTestResult.self)
     }
 
-    /// POST /api/keepa-throttle-demo/seed?tokens=&ratePerMin=
+    /// POST /api/keepa-throttle-demo/seed?tokens=&ratePerMin=&refillPerMin=
     /// Keepaスロットルのデモモード(開発者向け)。'demo'インスタンス(本番の共有インスタンス
     /// 'global'とは完全に隔離)へ任意の残量・消費レートを注入し、そのスナップショットを返す。
-    /// tokens/ratePerMinはどちらかがnilならクエリに含めない(サーバー側は省略可)。
-    func seedKeepaThrottleDemo(tokens: Double?, ratePerMin: Double?) async throws -> KeepaThrottleDemoSeedResult {
+    /// tokens/ratePerMin/refillPerMinはいずれもnilならクエリに含めない(サーバー側は省略可)。
+    /// refillPerMinを指定すると、seed直後から時間経過で実際にトークンが補充されていく様子を
+    /// 見られる(サーバー側は未指定なら従来通り0固定=自然回復しない)。
+    func seedKeepaThrottleDemo(tokens: Double?, ratePerMin: Double?, refillPerMin: Double?) async throws -> KeepaThrottleDemoSeedResult {
         var queryItems: [URLQueryItem] = []
         if let tokens {
             queryItems.append(URLQueryItem(name: "tokens", value: String(tokens)))
@@ -328,9 +330,28 @@ final class APIClient {
         if let ratePerMin {
             queryItems.append(URLQueryItem(name: "ratePerMin", value: String(ratePerMin)))
         }
+        if let refillPerMin {
+            queryItems.append(URLQueryItem(name: "refillPerMin", value: String(refillPerMin)))
+        }
         var request = try makeRequest(path: "/api/keepa-throttle-demo/seed", queryItems: queryItems)
         request.httpMethod = "POST"
         return try await perform(request, as: KeepaThrottleDemoSeedResult.self)
+    }
+
+    /// POST /api/keepa-throttle-demo/probe?priority=pro|free
+    /// デモ専用: 実際のKeepa呼び出し・キャッシュ・履歴記録を一切行わず、'demo'インスタンスの
+    /// スロットル判定(acquire)だけを試す。複数を同時発火してキューの挙動(補充で順に許可される
+    /// 様子・Pro優先で先に通る様子)を観察するためのテスト専用メソッド。
+    /// このエンドポイントはヘッダー(X-Keepa-Debug/X-Keepa-Demo)の有無に関わらずサーバー側で
+    /// 常に'demo'インスタンス限定で動くため、ここでもそれらのヘッダーは付けない
+    /// (呼び出し側=SettingsViewのDEBUG専用セクションという#if DEBUGガードで十分守られている)。
+    func probeKeepaThrottleDemo(priority: String) async throws -> KeepaThrottleProbeResult {
+        var request = try makeRequest(
+            path: "/api/keepa-throttle-demo/probe",
+            queryItems: [URLQueryItem(name: "priority", value: priority)]
+        )
+        request.httpMethod = "POST"
+        return try await perform(request, as: KeepaThrottleProbeResult.self)
     }
 
     /// 接続テスト用。GET /api/health があれば利用し、失敗した場合は /api/search を軽く叩いて疎通確認する。

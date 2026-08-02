@@ -80,13 +80,15 @@ export class KeepaThrottleDO {
       // 呼び出し側のインスタンス分離で担保されている)。
       const tokensRaw = url.searchParams.get('tokens');
       const rateRaw = url.searchParams.get('ratePerMin');
+      const refillRaw = url.searchParams.get('refillPerMin');
       const tokens = tokensRaw !== null && tokensRaw !== '' ? parseFloat(tokensRaw) : undefined;
       const ratePerMin = rateRaw !== null && rateRaw !== '' ? parseFloat(rateRaw) : undefined;
-      this.core.seedDemoState({ tokens, ratePerMin });
+      const refillPerMin = refillRaw !== null && refillRaw !== '' ? parseFloat(refillRaw) : undefined;
+      this.core.seedDemoState({ tokens, ratePerMin, refillPerMin });
       // DOがこの後メモリから退避されても復元できるよう、seedした値そのもの
-      // ({tokens, ratePerMin})を保存しておく(restoreDemoSeedIfNeeded参照)。
+      // ({tokens, ratePerMin, refillPerMin})を保存しておく(restoreDemoSeedIfNeeded参照)。
       // 'global'インスタンスはこのルートを呼ばれないため、このstorage書き込みも発生しない。
-      await this.state.storage.put('demoSeed', { tokens, ratePerMin });
+      await this.state.storage.put('demoSeed', { tokens, ratePerMin, refillPerMin });
       return Response.json(this.core.debugSnapshot());
     }
     return new Response('not found', { status: 404 });

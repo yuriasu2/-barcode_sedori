@@ -273,6 +273,34 @@ test('ThrottleCore.seedDemoState: 呼ぶとrefillPerMinが0になり、時間が
   core.destroy();
 });
 
+test('ThrottleCore.seedDemoState: refillPerMinを明示指定すると、その値で補充が進む(時間経過でトークンが実際に増える)', () => {
+  const { ThrottleCore } = keepaThrottle;
+  const core = new ThrottleCore({ refillPerMin: 60, capacity: 100, depth: 10, timeoutMs: 1000 });
+  core.seedDemoState({ tokens: 0, refillPerMin: 30 }); // 1秒に0.5個 = 2秒で1個
+  assert.equal(core.config.refillPerMin, 30);
+  const twoSecondsLater = Date.now() + 2000;
+  assert.equal(core.peekTokens(twoSecondsLater), 1, '明示指定したrefillPerMinで補充が進んでいない');
+  core.destroy();
+});
+
+test('ThrottleCore.seedDemoState: refillPerMin未指定なら従来通り0固定される(自然回復しない)', () => {
+  const { ThrottleCore } = keepaThrottle;
+  const core = new ThrottleCore({ refillPerMin: 60, capacity: 100, depth: 10, timeoutMs: 1000 });
+  core.seedDemoState({ tokens: 0 });
+  assert.equal(core.config.refillPerMin, 0);
+  const farFuture = Date.now() + 5 * 60 * 1000;
+  assert.equal(core.peekTokens(farFuture), 0);
+  core.destroy();
+});
+
+test('ThrottleCore.seedDemoState: refillPerMinに負値を渡しても0固定にフォールバックする', () => {
+  const { ThrottleCore } = keepaThrottle;
+  const core = new ThrottleCore({ refillPerMin: 60, capacity: 100, depth: 10, timeoutMs: 1000 });
+  core.seedDemoState({ tokens: 0, refillPerMin: -5 });
+  assert.equal(core.config.refillPerMin, 0);
+  core.destroy();
+});
+
 test('keepaThrottle: instance="demo"へのseedDemoStateはinstance省略(=global)に影響しない', async (t) => {
   configure(t, { capacity: 10, refillPerMin: 60, depth: 0, timeoutMs: 1000 });
   // demoだけ残量0にする

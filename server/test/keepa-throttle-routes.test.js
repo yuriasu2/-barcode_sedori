@@ -524,6 +524,130 @@ test('POST /api/keepa-throttle-demo/seed: ratePerMinが負なら400', async (t) 
   assert.equal(res.body.error, 'invalid_request');
 });
 
+test('POST /api/keepa-throttle-demo/seed: refillPerMinを明示指定すると時間経過でトークンが実際に補充される', async (t) => {
+  const routes = freshRoutes();
+  throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_QUEUE_DEPTH: '10', KEEPA_REFILL_PER_MIN: '5' });
+
+  // tokens=0・refillPerMin=600(1秒に10個)でseed → 100ms待てば1個以上戻っているはず。
+  const req = { query: { tokens: '0', refillPerMin: '600' }, headers: {} };
+  const res = createMockRes();
+  await routes.match('POST', '/api/keepa-throttle-demo/seed').handler(req, res);
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.snapshot.tokensEstimate, 0);
+  assert.equal(res.body.snapshot.refillPerMin, 600);
+
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  const snapshot = await keepaThrottle.debugSnapshot('demo');
+  assert.ok(snapshot.tokensEstimate > 0, `refillPerMin指定なのにトークンが補充されていない(${snapshot.tokensEstimate})`);
+});
+
+test('POST /api/keepa-throttle-demo/seed: refillPerMin未指定なら従来通り0固定される(後方互換)', async (t) => {
+  const routes = freshRoutes();
+  throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_QUEUE_DEPTH: '10', KEEPA_REFILL_PER_MIN: '5' });
+
+  const req = { query: { tokens: '0' }, headers: {} };
+  const res = createMockRes();
+  await routes.match('POST', '/api/keepa-throttle-demo/seed').handler(req, res);
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.snapshot.refillPerMin, 0);
+
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  const snapshot = await keepaThrottle.debugSnapshot('demo');
+  assert.equal(snapshot.tokensEstimate, 0, 'refillPerMin未指定なのに自然回復してしまっている');
+});
+
+test('POST /api/keepa-throttle-demo/seed: refillPerMinが負なら400', async (t) => {
+  const routes = freshRoutes();
+  throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_QUEUE_DEPTH: '10', KEEPA_REFILL_PER_MIN: '5' });
+
+  const req = { query: { tokens: '1', refillPerMin: '-3' }, headers: {} };
+  const res = createMockRes();
+  await routes.match('POST', '/api/keepa-throttle-demo/seed').handler(req, res);
+
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.body.error, 'invalid_request');
+});
+
+test('POST /api/keepa-throttle-demo/seed: refillPerMinが数値でなければ400', async (t) => {
+  const routes = freshRoutes();
+  throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_QUEUE_DEPTH: '10', KEEPA_REFILL_PER_MIN: '5' });
+
+  const req = { query: { tokens: '1', refillPerMin: 'abc' }, headers: {} };
+  const res = createMockRes();
+  await routes.match('POST', '/api/keepa-throttle-demo/seed').handler(req, res);
+
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.body.error, 'invalid_request');
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/keepa-throttle-demo/probe — 実Keepaを呼ばない純粋なスロットル判定プローブ
+// ---------------------------------------------------------------------------
+
+test('POST /api/keepa-throttle-demo/probe: 実Keepa(global.fetch)を一切呼ばない', async (t) => {
+  const routes = freshRoutes();
+  throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_QUEUE_DEPTH: '10', KEEPA_REFILL_PER_MIN: '5' });
+  await keepaThrottle.seedDemoState({ tokens: 5 });
+
+  const originalFetch = global.fetch;
+  let callCount = 0;
+  global.fetch = async (...args) => {
+    callCount += 1;
+    return originalFetch(...args);
+  };
+  t.after(() => {
+    global.fetch = originalFetch;
+  });
+
+  const req = { query: { priority: 'pro' }, headers: {} };
+  const res = createMockRes();
+  await routes.match('POST', '/api/keepa-throttle-demo/probe').handler(req, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.priority, 'pro');
+  assert.equal(res.body.allowed, true);
+  assert.equal(callCount, 0, 'probeがKeepa API(global.fetch)を呼び出してしまっている');
+});
+
+test('POST /api/keepa-throttle-demo/probe: priority省略時はfree扱い、レスポンスにwaitedMs/snapshotが入る', async (t) => {
+  const routes = freshRoutes();
+  throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_QUEUE_DEPTH: '10', KEEPA_REFILL_PER_MIN: '5' });
+  await keepaThrottle.seedDemoState({ tokens: 5 });
+
+  const req = { query: {}, headers: {} };
+  const res = createMockRes();
+  await routes.match('POST', '/api/keepa-throttle-demo/probe').handler(req, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.priority, 'free');
+  assert.equal(res.body.allowed, true);
+  assert.equal(res.body.reason, null);
+  assert.equal(typeof res.body.waitedMs, 'number');
+  assert.ok(res.body.snapshot, 'snapshotが入ること');
+});
+
+test('POST /api/keepa-throttle-demo/probe: seedした残量ぶんはallowed:true、それ以降はallowed:false(depth)になる', async (t) => {
+  const routes = freshRoutes();
+  throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_QUEUE_DEPTH: '0', KEEPA_REFILL_PER_MIN: '5' });
+  await keepaThrottle.seedDemoState({ tokens: 2 }); // refillPerMinは0固定なので自然回復しない
+
+  const route = routes.match('POST', '/api/keepa-throttle-demo/probe');
+  const results = [];
+  for (let i = 0; i < 4; i += 1) {
+    const req = { query: { priority: 'free' }, headers: {} };
+    const res = createMockRes();
+    await route.handler(req, res);
+    results.push(res.body);
+  }
+
+  assert.equal(results[0].allowed, true);
+  assert.equal(results[1].allowed, true);
+  assert.equal(results[2].allowed, false);
+  assert.equal(results[2].reason, 'depth');
+  assert.equal(results[3].allowed, false);
+  assert.equal(results[3].reason, 'depth');
+});
+
 test('/api/search: X-Keepa-Demoでdemoをseedし残量0にすると、demo付き検索はkeepa_busyになるが、同時にdemo無しの通常検索(global)は影響を受けず成功する(安全設計の核心)', async (t) => {
   await withEnv({ ...NO_SPAPI, KEEPA_API_KEY: 'shared-key' }, async () => {
     const routes = freshRoutes();

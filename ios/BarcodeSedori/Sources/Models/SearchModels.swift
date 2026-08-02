@@ -113,6 +113,20 @@ struct KeepaThrottleDemoSeedResult: Codable, Equatable {
     let snapshot: KeepaDebugInfo.Snapshot?
 }
 
+/// POST /api/keepa-throttle-demo/probe の応答(開発者向けデモモード)。
+/// 実際のKeepa呼び出しを一切行わず、'demo'インスタンスのスロットル判定(acquire)だけを
+/// 実行した結果。複数を同時発火して完了順を見ることでキューの挙動(補充で順に許可される
+/// 様子・Pro優先で先に通る様子)を確認するために使う。
+struct KeepaThrottleProbeResult: Codable, Equatable {
+    let priority: String
+    /// acquire呼び出しにかかった実測ミリ秒。
+    let waitedMs: Int
+    let allowed: Bool
+    /// 拒否理由("depth"|"timeout")。許可時はnil。
+    let reason: String?
+    let snapshot: KeepaDebugInfo.Snapshot?
+}
+
 /// 無料枠ユニットモデル(Phase B)の残量情報。/api/search・/api/graph-data・/api/quota が返す。
 /// サーバーが状況により形の異なるJSONを返し得るため、全フィールドをOptionalにしておく。
 struct QuotaInfo: Codable, Equatable {

@@ -148,19 +148,79 @@ final class SettingsViewModel: ObservableObject {
     /// 入力欄の文字列(空なら未指定=そのパラメータはサーバーへ送らない)をDoubleへ変換し、
     /// POST /api/keepa-throttle-demo/seed を呼ぶ。tokens/ratePerMinの少なくとも一方が
     /// 数値変換できればよい(両方空はサーバー側で400になるが、ここでは弾かずそのまま送る)。
-    func seedKeepaThrottleDemo(tokensText: String, ratePerMinText: String) async {
+    /// refillPerMinは補充レート(トークン/分)。空欄なら未指定のまま送り、サーバー側の既定
+    /// (0固定=自然回復しない)に任せる。
+    func seedKeepaThrottleDemo(tokensText: String, ratePerMinText: String, refillPerMinText: String) async {
         let tokens = Double(tokensText.trimmingCharacters(in: .whitespaces))
         let ratePerMin = Double(ratePerMinText.trimmingCharacters(in: .whitespaces))
+        let refillPerMin = Double(refillPerMinText.trimmingCharacters(in: .whitespaces))
         do {
-            let result = try await apiClient.seedKeepaThrottleDemo(tokens: tokens, ratePerMin: ratePerMin)
+            let result = try await apiClient.seedKeepaThrottleDemo(
+                tokens: tokens,
+                ratePerMin: ratePerMin,
+                refillPerMin: refillPerMin
+            )
             if let snapshot = result.snapshot {
                 demoSeedResultText = "適用しました: 残量\(snapshot.tokensEstimate)/\(snapshot.capacity)"
-                    + " 消費レート\(snapshot.consumeRatePerMin)/分 キュー\(snapshot.queueLength)/\(snapshot.depth)"
+                    + " 消費レート\(snapshot.consumeRatePerMin)/分 補充\(snapshot.refillPerMin)/分 キュー\(snapshot.queueLength)/\(snapshot.depth)"
             } else {
                 demoSeedResultText = "適用しました(スナップショットは取得できませんでした)"
             }
         } catch {
             demoSeedResultText = "失敗しました: \(error.localizedDescription)"
+        }
+    }
+
+    /// 「同時リクエストをテスト」1件分の表示用データ。完了した順にprobeResultsへappendしていく。
+    struct ProbeResultRow: Identifiable {
+        let id = UUID()
+        let label: String
+        let priority: String
+        /// 成功時はKeepaThrottleProbeResult、失敗時(通信エラー等)はエラー文言。
+        let outcome: Result<KeepaThrottleProbeResult, Error>
+
+        var displayText: String {
+            switch outcome {
+            case .success(let result):
+                let icon = result.allowed ? "✅" : "❌"
+                let statusText = result.allowed ? "許可" : "拒否(\(result.reason ?? "不明"))"
+                return "\(icon) \(label)  \(priority)  \(statusText)  waited=\(result.waitedMs)ms"
+            case .failure(let error):
+                return "⚠️ \(label)  \(priority)  エラー: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    /// Pro/freeの複数リクエストを同時発火し、'demo'インスタンスのスロットル判定だけを見る
+    /// (実Keepaは呼ばない)。完了した順にprobeResultsへappendすることで、Proが先に通る様子・
+    /// 補充で順に許可されていく様子を画面上で確認できるようにする。
+    @Published var probeResults: [ProbeResultRow] = []
+    @Published var isProbing = false
+
+    func runConcurrentKeepaThrottleProbe() async {
+        probeResults = []
+        isProbing = true
+        defer { isProbing = false }
+
+        let requests: [(String, String)] = [
+            ("free-1", "free"), ("free-2", "free"), ("free-3", "free"),
+            ("pro-1", "pro"), ("pro-2", "pro"),
+        ]
+
+        await withTaskGroup(of: (String, String, Result<KeepaThrottleProbeResult, Error>).self) { group in
+            for (label, priority) in requests {
+                group.addTask {
+                    do {
+                        let result = try await self.apiClient.probeKeepaThrottleDemo(priority: priority)
+                        return (label, priority, .success(result))
+                    } catch {
+                        return (label, priority, .failure(error))
+                    }
+                }
+            }
+            for await (label, priority, outcome) in group {
+                probeResults.append(ProbeResultRow(label: label, priority: priority, outcome: outcome))
+            }
         }
     }
 }
@@ -174,9 +234,10 @@ struct SettingsView: View {
     #if DEBUG
     /// 開発用Pro強制トグルの表示state(実体はEntitlementStore側のUserDefaults)。
     @State private var debugForcePro = EntitlementStore.shared.debugForcePro
-    /// Keepaスロットルのデモモード用入力欄(残りトークン数・消費レート)。文字列で保持しDouble変換する。
+    /// Keepaスロットルのデモモード用入力欄(残りトークン数・消費レート・補充レート)。文字列で保持しDouble変換する。
     @State private var demoTokensText = ""
     @State private var demoRatePerMinText = ""
+    @State private var demoRefillPerMinText = ""
     #endif
 
     var body: some View {
@@ -265,11 +326,15 @@ struct SettingsView: View {
                     TextField("消費レート(件/分)", text: $demoRatePerMinText)
                         .keyboardType(.decimalPad)
 
+                    TextField("補充レート(トークン/分)", text: $demoRefillPerMinText)
+                        .keyboardType(.decimalPad)
+
                     Button {
                         Task {
                             await viewModel.seedKeepaThrottleDemo(
                                 tokensText: demoTokensText,
-                                ratePerMinText: demoRatePerMinText
+                                ratePerMinText: demoRatePerMinText,
+                                refillPerMinText: demoRefillPerMinText
                             )
                         }
                     } label: {
@@ -282,7 +347,30 @@ struct SettingsView: View {
                             .foregroundColor(.secondary)
                     }
 
-                    Text("デモ専用の隔離されたインスタンスに値を注入します。本番の共有Keepaキーを使う他の利用者には一切影響しません。注入した値やブレーキ・キューの挙動を確認するには、上の「デバッグ表示」も合わせてONにしてください。")
+                    Text("デモ専用の隔離されたインスタンスに値を注入します。本番の共有Keepaキーを使う他の利用者には一切影響しません。注入した値やブレーキ・キューの挙動を確認するには、上の「デバッグ表示」も合わせてONにしてください。補充レートを指定すると、時間経過で残量が実際に回復していく様子を観察できます(未指定時は従来通り固定されたままです)。")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+
+                    Button {
+                        Task { await viewModel.runConcurrentKeepaThrottleProbe() }
+                    } label: {
+                        HStack {
+                            Text("同時リクエストをテスト")
+                            if viewModel.isProbing {
+                                Spacer()
+                                ProgressView()
+                            }
+                        }
+                    }
+                    .disabled(viewModel.isProbing)
+
+                    ForEach(viewModel.probeResults) { row in
+                        Text(row.displayText)
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                    }
+
+                    Text("Pro2件・Free3件を同時に発火し、実Keepaを呼ばずに'demo'インスタンスのスロットル判定だけを試します。完了した順に上から表示されるため、Proが優先して通る様子や、補充で順に許可されていく様子を確認できます。")
                         .font(.footnote)
                         .foregroundColor(.secondary)
                 }

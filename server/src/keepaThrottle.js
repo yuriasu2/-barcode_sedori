@@ -362,11 +362,16 @@ class ThrottleCore {
    * してしまう。デモの目的は「注入した状態を固定して観察する」ことなので、seedした
    * 瞬間の状態が再seedするまで変わらないようにする(以後のacquireによる消費は反映される。
    * 止めるのは受動的な時間経過による自然回復だけ)。
-   * @param {{tokens?: number, ratePerMin?: number}} params
+   *
+   * refillPerMinが明示的に指定された場合(0以上の有限数)は、その値を使う
+   * (「時間経過でキューが補充されて順に許可されていく様子」を人が見える速さで
+   * 検証者に見せたい場合のため)。未指定・不正値なら従来通り0固定(上記の安全策)。
+   * @param {{tokens?: number, ratePerMin?: number, refillPerMin?: number}} params
    */
-  seedDemoState({ tokens, ratePerMin } = {}) {
+  seedDemoState({ tokens, ratePerMin, refillPerMin } = {}) {
     const now = Date.now();
-    this.config = { ...this.config, refillPerMin: 0 };
+    const resolvedRefillPerMin = Number.isFinite(refillPerMin) && refillPerMin >= 0 ? refillPerMin : 0;
+    this.config = { ...this.config, refillPerMin: resolvedRefillPerMin };
     if (Number.isFinite(tokens)) {
       this.tokens = Math.max(0, Math.min(this.config.capacity, tokens));
       this.lastRefillAt = now;
@@ -522,19 +527,19 @@ async function debugSnapshot(instance = 'global') {
  * 対してのみ動作する(呼び出し元がinstanceを指定できないようにするのが安全設計の要。
  * これにより本番の共有インスタンス'global'には絶対に作用しない)。
  * DO障害時はnullを返す(可用性優先の対象外の機能なので、失敗を無視してよい)。
- * @param {{tokens?: number, ratePerMin?: number}} params
+ * @param {{tokens?: number, ratePerMin?: number, refillPerMin?: number}} params
  */
-async function seedDemoState({ tokens, ratePerMin } = {}) {
+async function seedDemoState({ tokens, ratePerMin, refillPerMin } = {}) {
   const binding = getDurableBinding();
   if (!binding) {
-    getCore('demo').seedDemoState({ tokens, ratePerMin });
+    getCore('demo').seedDemoState({ tokens, ratePerMin, refillPerMin });
     return getCore('demo').debugSnapshot();
   }
   try {
     return await callDurableObject(
       binding,
       'seed-demo',
-      { tokens: String(tokens ?? ''), ratePerMin: String(ratePerMin ?? '') },
+      { tokens: String(tokens ?? ''), ratePerMin: String(ratePerMin ?? ''), refillPerMin: String(refillPerMin ?? '') },
       'demo'
     );
   } catch (err) {
