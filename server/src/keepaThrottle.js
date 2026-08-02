@@ -384,6 +384,22 @@ class ThrottleCore {
     }
   }
 
+  /**
+   * デモ専用: DOの退避→再構築をまたいだ状態復元に使う。seedDemoStateと違い、
+   * lastRefillAtを「復元した瞬間」にリセットしない(渡された生のタイムスタンプを
+   * そのまま使う)。これにより、退避中に実際に経過した時間ぶんの補充が
+   * refill()呼び出し時に正しく反映される(seedDemoStateだと退避のたびに
+   * 補充の起点が「復元した瞬間」へ巻き戻ってしまい、蓄積した補充分が消えてしまう)。
+   * @param {{tokens?: number, lastRefillAt?: number, refillPerMin?: number}} params
+   */
+  restoreRawState({ tokens, lastRefillAt, refillPerMin } = {}) {
+    if (Number.isFinite(tokens)) this.tokens = tokens;
+    if (Number.isFinite(lastRefillAt)) this.lastRefillAt = lastRefillAt;
+    if (Number.isFinite(refillPerMin) && refillPerMin >= 0) {
+      this.config = { ...this.config, refillPerMin };
+    }
+  }
+
   /** テスト用: 保留中のタイマーを全て破棄し、待機中はallowed:falseで解決する。 */
   destroy() {
     if (this.grantTimer) clearTimeout(this.grantTimer);
