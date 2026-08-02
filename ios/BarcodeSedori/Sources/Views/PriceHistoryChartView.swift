@@ -603,27 +603,40 @@ struct PriceHistoryChartView: View {
         return ChartSeries(id: seriesId, color: color, segments: segments)
     }
 
-    /// 期間フィルタ。全期間(range.rawValue==0)はそのまま全点。それ以外は
-    /// 「今日からrange日前」以降の点に絞り、窓開始直前に有効値(-1でない値)があれば
-    /// その値を窓の先頭時刻にクランプして先頭へ足す(ステップ線が左端の時刻から途切れず
-    /// 始まるように)。窓開始直前が-1(データなし)しか無い場合は何も足さない。
+    /// 期間フィルタ。全期間(range.rawValue==0)は全点+右端延長。それ以外は
+    /// 「今日からrange日前」以降の点に絞り、窓の左右両端でステップ線の状態を復元する。
+    ///
+    /// Keepaのcsvは「値が変化した時刻」にのみ点を持つ疎なデータのため、
+    /// 価格が長期間変わっていない商品は最終点が数週間前になる。そのままだと
+    /// 線が途中で止まったり(中古)、窓内に点が1つしか無く線が全く描けない(新品)
+    /// 症状が出る。Keepa本家と同じく、最終点が有効値(-1でない)の系列は
+    /// 「その値が現在まで続いている」とみなして右端(now)まで延長する。
+    /// 最終点が-1(在庫切れ等でデータ終了)の系列は延長しない(線は切れたまま)。
     private func filteredPoints(raw: [[Double]], now: Date) -> [(Date, Double)] {
-        let points: [(Date, Double)] = raw.compactMap { pair in
+        var points: [(Date, Double)] = raw.compactMap { pair in
             guard pair.count == 2 else { return nil }
             return (Date(timeIntervalSince1970: pair[0]), pair[1])
+        }
+        if let last = points.last, last.1 != -1, last.0 < now {
+            points.append((now, last.1))
         }
         guard range.rawValue > 0 else { return points }
 
         let windowStart = now.addingTimeInterval(-Double(range.rawValue) * 86400)
         var windowed = points.filter { $0.0 >= windowStart }
-        if let lastValidBefore = points.last(where: { $0.0 < windowStart && $0.1 != -1 }) {
-            windowed.insert((windowStart, lastValidBefore.1), at: 0)
+        // 窓開始時点の状態の復元: 窓開始直前の「最後の点」が有効値のときだけ、その値を
+        // 窓の先頭時刻にクランプして足す(ステップ線が左端から途切れず始まるように)。
+        // 直前の最後の点が-1なら窓開始時点はデータなし(在庫なし等)なので何も足さない
+        // (さらに前の古い有効値を引っ張ると、無かったはずの線が描かれてしまう)。
+        if let lastBefore = points.last(where: { $0.0 < windowStart }), lastBefore.1 != -1 {
+            windowed.insert((windowStart, lastBefore.1), at: 0)
         }
         return windowed
     }
 
     /// チャートで共有するx軸の範囲。期間指定時は「今日からrange日前〜今日」、
-    /// 全期間時は全系列を通した最古〜最新の時刻を使う。
+    /// 全期間時は全系列を通した最古の時刻〜今日を使う
+    /// (filteredPointsが最終有効値を右端(now)まで延長するため、上限は最新データ時刻ではなくnow)。
     private func xDomain(data: GraphData, now: Date) -> ClosedRange<Date> {
         if range.rawValue > 0 {
             let start = now.addingTimeInterval(-Double(range.rawValue) * 86400)
@@ -634,10 +647,10 @@ struct PriceHistoryChartView: View {
             guard pair.count == 2 else { return nil }
             return Date(timeIntervalSince1970: pair[0])
         }
-        guard let minTime = times.min(), let maxTime = times.max(), minTime < maxTime else {
+        guard let minTime = times.min(), minTime < now else {
             return now.addingTimeInterval(-86400)...now
         }
-        return minTime...maxTime
+        return minTime...now
     }
 
     // MARK: - 軸表記フォーマット
