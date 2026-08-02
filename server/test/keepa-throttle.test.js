@@ -250,7 +250,7 @@ test('ThrottleCore.seedDemoState: tokens・ratePerMinを両方指定すると両
   core.destroy();
 });
 
-test('ThrottleCore.seedDemoState: どちらも未指定なら何も変わらない', () => {
+test('ThrottleCore.seedDemoState: どちらも未指定ならtokens/grantTimestampsは変わらない(refillPerMinは常に0固定される)', () => {
   const { ThrottleCore } = keepaThrottle;
   const core = new ThrottleCore({ refillPerMin: 60, capacity: 100, depth: 10, timeoutMs: 1000 });
   core.tokens = 10;
@@ -258,6 +258,18 @@ test('ThrottleCore.seedDemoState: どちらも未指定なら何も変わらな�
   core.seedDemoState({});
   assert.equal(core.tokens, 10);
   assert.deepEqual(core.grantTimestamps, [1, 2]);
+  assert.equal(core.config.refillPerMin, 0);
+  core.destroy();
+});
+
+test('ThrottleCore.seedDemoState: 呼ぶとrefillPerMinが0になり、時間が経ってもtokensが自然回復しない', () => {
+  const { ThrottleCore } = keepaThrottle;
+  const core = new ThrottleCore({ refillPerMin: 60, capacity: 100, depth: 10, timeoutMs: 1000 });
+  core.seedDemoState({ tokens: 0 });
+  // refillPerMin=60(1秒に1個)なら本来なら数十ms後には回復し得るが、
+  // refillPerMinが0に固定されているため、未来の時刻を渡しても残量は0のまま。
+  const farFuture = Date.now() + 5 * 60 * 1000; // 5分後
+  assert.equal(core.peekTokens(farFuture), 0);
   core.destroy();
 });
 

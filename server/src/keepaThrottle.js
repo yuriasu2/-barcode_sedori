@@ -355,10 +355,18 @@ class ThrottleCore {
    * 挙動を検証者が意図的に再現できるようにするため)。本番相当のacquire等とは異なり、
    * 呼び出し元がこのメソッドを'demo'インスタンスのコアに対してのみ呼ぶことで
    * 本番の共有インスタンス('global')には作用しない設計にする(routes.js側で保証)。
+   *
+   * refillPerMinを0に固定する(本番実機検証で発覚 2026-08-02): refillが本番と同じ
+   * レート(現行5/分)のまま時間経過で動き続けると、seedした「残量0」が数秒〜数十秒で
+   * 自然に1トークン以上へ回復してしまい、検証者が画面遷移する間にスロットルを素通り
+   * してしまう。デモの目的は「注入した状態を固定して観察する」ことなので、seedした
+   * 瞬間の状態が再seedするまで変わらないようにする(以後のacquireによる消費は反映される。
+   * 止めるのは受動的な時間経過による自然回復だけ)。
    * @param {{tokens?: number, ratePerMin?: number}} params
    */
   seedDemoState({ tokens, ratePerMin } = {}) {
     const now = Date.now();
+    this.config = { ...this.config, refillPerMin: 0 };
     if (Number.isFinite(tokens)) {
       this.tokens = Math.max(0, Math.min(this.config.capacity, tokens));
       this.lastRefillAt = now;
