@@ -34,7 +34,7 @@ function readThrottleConfig(env) {
     // iOSの通信タイムアウト(APIClient.swiftのtimeoutInterval=10秒)より短くする必要がある。
     // これより長いと、iOS側が先に切断した後にサーバー側で許可が出て「誰も受け取らない
     // レスポンス」のためだけにユニット・トークンを消費する経路が生まれる。
-    timeoutMs: (env && parseInt(env.KEEPA_QUEUE_TIMEOUT_MS, 10)) || 8000,
+    timeoutMs: (env && parseInt(env.KEEPA_QUEUE_TIMEOUT_MS, 10)) || 6000,
   };
 }
 
@@ -159,7 +159,7 @@ class ThrottleCore {
 
     // floorMs=補充間隔(補充と同速まで遅延させれば、そこで消費≦補充となり均衡する)。
     // ただし低速プラン(現行本番=5トークン/分ではfloorMs=12000ms)ではfloorMsだけで
-    // 既に config.timeoutMs(既定8000ms)を超えてしまい、ブレーキ単体でiOSの通信
+    // 既に config.timeoutMs(既定6000ms)を超えてしまい、ブレーキ単体でiOSの通信
     // タイムアウトに抵触しかねない。そのためcapは「floorMsとtimeoutMs-1秒(=キュー
     // 経路に最低1秒分の予算を残す)の小さい方」にクランプする。20/分ならfloor=3000msで
     // timeoutMs-1000(既定7000ms)より十分小さいため挙動は変わらない。
