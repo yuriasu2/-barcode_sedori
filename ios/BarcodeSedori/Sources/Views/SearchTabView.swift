@@ -1034,13 +1034,21 @@ private struct ResultCardActionButtons: View {
             actionButton(
                 label: kind.label,
                 color: kind.color,
+                labelColor: kind.labelColor,
                 isDisabled: isPro && isInPurchaseList,
                 systemOverlayImage: isPro && isInPurchaseList ? "checkmark" : nil,
                 showsLockBadge: !isPro,
                 action: isPro ? onAddToPurchaseList : onLockedPurchaseTap
             )
         default:
-            actionButton(label: kind.label, color: kind.color, action: { open(kind) })
+            actionButton(
+                label: kind.label,
+                color: kind.color,
+                labelColor: kind.labelColor,
+                systemOverlayImage: kind.iconSystemName,
+                accessibilityLabel: kind.displayName,
+                action: { open(kind) }
+            )
         }
     }
 
@@ -1051,8 +1059,10 @@ private struct ResultCardActionButtons: View {
     private func actionButton(
         label: String,
         color: Color,
+        labelColor: Color = .white,
         isDisabled: Bool = false,
         systemOverlayImage: String? = nil,
+        accessibilityLabel: String? = nil,
         showsLockBadge: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
@@ -1078,11 +1088,11 @@ private struct ResultCardActionButtons: View {
                     if let systemOverlayImage {
                         Image(systemName: systemOverlayImage)
                             .font(.headline)
-                            .foregroundColor(.white)
+                            .foregroundColor(labelColor)
                     } else {
                         Text(label)
                             .font(.system(size: fontSize(for: label), weight: .bold))
-                            .foregroundColor(.white)
+                            .foregroundColor(labelColor)
                             .lineLimit(1)
                             .minimumScaleFactor(0.6)
                     }
@@ -1096,6 +1106,9 @@ private struct ResultCardActionButtons: View {
         }
         .buttonStyle(.plain)
         .disabled(isDisabled)
+        // アイコン表示のボタン(ヤフオク)は記号だけでは何のボタンか読み上げられないため、
+        // サービス名を読み上げラベルにする。
+        .accessibilityLabel(accessibilityLabel ?? label)
     }
 
     /// ラベルの文字種・文字数に応じてフォントサイズを調整する。

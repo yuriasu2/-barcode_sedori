@@ -41,9 +41,9 @@ struct LinkButtonSettingsView: View {
             toggle(kind)
         } label: {
             HStack {
-                Circle()
-                    .fill(kind.color)
-                    .frame(width: 10, height: 10)
+                // 色ドットではなく実際のボタンの縮小版を出す。グレー地のボタンが4種あり、
+                // 地色だけでは見分けられないため(文字・アイコンまで含めて示す)。
+                buttonSwatch(for: kind)
                 Text(kind.displayName)
                     .foregroundColor(.primary)
                 Spacer()
@@ -58,6 +58,27 @@ struct LinkButtonSettingsView: View {
         .buttonStyle(.plain)
         // 4つ選択済みのとき、未選択の項目はタップ不可にする(0個や5個にならないよう選択不可で防ぐ)。
         .disabled(!isSelected && selection.count >= requiredCount)
+    }
+
+    /// 結果カードに出るボタンの縮小プレビュー(地色+文字/アイコン)。
+    private func buttonSwatch(for kind: LinkButtonKind) -> some View {
+        RoundedRectangle(cornerRadius: 6)
+            .fill(kind.color)
+            .frame(width: 24, height: 24)
+            .overlay {
+                if let icon = kind.iconSystemName {
+                    Image(systemName: icon)
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundColor(kind.labelColor)
+                } else {
+                    Text(kind.label)
+                        .font(.system(size: kind.label.allSatisfy { $0.isASCII } ? 13 : 11, weight: .bold))
+                        .foregroundColor(kind.labelColor)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                }
+            }
+            .accessibilityHidden(true)
     }
 
     private func toggle(_ kind: LinkButtonKind) {
