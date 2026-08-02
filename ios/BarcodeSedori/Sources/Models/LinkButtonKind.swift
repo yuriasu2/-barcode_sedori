@@ -35,7 +35,7 @@ enum LinkButtonKind: String, CaseIterable, Identifiable, Codable {
     /// 仕入れのみ、仕入れタブと同じカゴのアイコンを使って対応を分かりやすくする。
     var iconSystemName: String? {
         switch self {
-        case .purchase: return "cart"
+        case .purchase: return "cart.badge.plus"
         default: return nil
         }
     }
