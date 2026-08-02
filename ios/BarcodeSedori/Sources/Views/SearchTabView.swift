@@ -774,36 +774,11 @@ struct SearchTabView: View {
                 // オファーパネルとの重なりを避けるための余白。
                 Spacer().frame(height: 10)
                 // サーバーから履歴データ(/api/graph-data)を取得し、端末側でSwift Chartsに描画する。
-                // チャートは全幅、凡例は下に1列で自前描画する。
+                // チャート本体・凡例(メイン/出品者数とも)はPriceHistoryChartView側で描画する。
                 PriceHistoryChartView(asin: asin, range: selectedGraphRange)
-                graphLegend
                 graphRangeSegment
             }
         }
-    }
-
-    /// グラフの凡例。チャートの線の色に合わせた点と短いラベルをグラフ下に1列・中央寄せで並べる。
-    private var graphLegend: some View {
-        HStack(spacing: 16) {
-            legendItem(color: .green, label: "ランキング")
-            legendItem(color: .orange, label: "Amazon")
-            legendItem(color: .blue, label: "新品")
-            legendItem(color: .primary, label: "中古")
-        }
-        .frame(maxWidth: .infinity)
-    }
-
-    private func legendItem(color: Color, label: String) -> some View {
-        HStack(spacing: 4) {
-            Circle()
-                .fill(color)
-                .frame(width: 7, height: 7)
-            Text(label)
-                .font(.caption2)
-                .foregroundColor(.secondary)
-        }
-        .lineLimit(1)
-        .minimumScaleFactor(0.8)
     }
 
     /// グラフの直下に置く期間切替セグメント(1ヶ月/3ヶ月/1年/全期間)。

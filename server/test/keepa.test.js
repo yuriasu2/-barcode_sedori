@@ -821,9 +821,10 @@ test('keepa client: extractGraphSeries は-1(データなし)の値もそのま�
 
 test('keepa client: extractGraphSeries はcsvが無い/該当系列が無い場合は空配列を返す', () => {
   const keepa = require('../src/keepa/client');
-  assert.deepEqual(keepa.extractGraphSeries(null), { amazon: [], new: [], used: [], rank: [] });
-  assert.deepEqual(keepa.extractGraphSeries({}), { amazon: [], new: [], used: [], rank: [] });
-  assert.deepEqual(keepa.extractGraphSeries({ csv: [] }), { amazon: [], new: [], used: [], rank: [] });
+  const empty = { amazon: [], new: [], used: [], rank: [], newCount: [], usedCount: [], collectibleCount: [] };
+  assert.deepEqual(keepa.extractGraphSeries(null), empty);
+  assert.deepEqual(keepa.extractGraphSeries({}), empty);
+  assert.deepEqual(keepa.extractGraphSeries({ csv: [] }), empty);
 });
 
 test('keepa client: extractGraphSeries は古い区間を250点へ間引き、最初と最後の点は保持する', () => {
@@ -982,7 +983,10 @@ test('/api/graph-data: 正常応答は{series:{amazon,new,used,rank}}の形で�
 
     assert.equal(res.statusCode, 200);
     assert.deepEqual(Object.keys(res.body), ['series']);
-    assert.deepEqual(Object.keys(res.body.series).sort(), ['amazon', 'new', 'rank', 'used']);
+    assert.deepEqual(
+      Object.keys(res.body.series).sort(),
+      ['amazon', 'collectibleCount', 'new', 'newCount', 'rank', 'used', 'usedCount'].sort()
+    );
     assert.deepEqual(res.body.series.new, [[(5000000 + 21564000) * 60, 1500]]);
 
     t.after(() => {

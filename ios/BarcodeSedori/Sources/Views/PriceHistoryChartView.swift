@@ -166,6 +166,12 @@ struct PriceHistoryChartView: View {
     /// ロード中/失敗時も同じ高さを確保してレイアウトが跳ねないようにする。
     private static let reservedHeight: CGFloat = 140
 
+    /// 出品者数チャート(メインの下に別チャートとして追加)の高さ。メインより情報量が少ないため低めにする。
+    private static let sellerCountReservedHeight: CGFloat = 100
+
+    /// コレクター出品者数の色(薄い水色)。中古(.primary)・新品(.blue)と見分けやすいよう専用定数にする。
+    private static let collectibleColor = Color(red: 0.53, green: 0.78, blue: 0.98)
+
     /// SP-API連携済みのとき、取得前に置く静止待ち時間(秒)。
     /// 連携済みの検索はトークン消費ゼロだが、グラフは新商品1件につきKeepaトークンを
     /// 1個消費する。高速連続スキャン中に商品ごとへ自動取得が走るとトークンが数分で
@@ -268,6 +274,15 @@ struct PriceHistoryChartView: View {
         let rank = series(from: data.series.rank, seriesId: "rank", color: .green, now: now)
         let priceSeries = [amazon, newSeries, used].compactMap { $0 }
 
+        // 出品者数(新品/中古/コレクター)。色はメインチャートの中古/新品と揃え、
+        // コレクターのみ専用の薄い水色にする。
+        let usedCount = series(from: data.series.usedCount, seriesId: "usedCount", color: .primary, now: now)
+        let newCount = series(from: data.series.newCount, seriesId: "newCount", color: .blue, now: now)
+        let collectibleCount = series(
+            from: data.series.collectibleCount, seriesId: "collectibleCount", color: Self.collectibleColor, now: now
+        )
+        let sellerCountSeries = [usedCount, newCount, collectibleCount].compactMap { $0 }
+
         if priceSeries.isEmpty && rank == nil {
             Text("履歴データがありません")
                 .font(.caption)
@@ -275,8 +290,102 @@ struct PriceHistoryChartView: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: Self.reservedHeight)
         } else {
-            combinedChart(priceSeries: priceSeries, rankSeries: rank, domain: domain)
+            VStack(spacing: 6) {
+                combinedChart(priceSeries: priceSeries, rankSeries: rank, domain: domain)
+                mainLegend
+                // 出品者数は3系列とも空(旧サーバー互換のキャッシュ等)なら、チャートも凡例も出さない。
+                if !sellerCountSeries.isEmpty {
+                    sellerCountChart(series: sellerCountSeries, domain: domain)
+                    sellerCountLegend
+                }
+            }
         }
+    }
+
+    /// メインチャートの凡例(ランキング/Amazon/新品/中古)。以前はSearchTabView/ProductDetailViewが
+    /// 個別に描画していたが、出品者数チャートが増えて2段構成になったため表示順を保つべくここへ移した。
+    private var mainLegend: some View {
+        HStack(spacing: 16) {
+            legendItem(color: .green, label: "ランキング")
+            legendItem(color: .orange, label: "Amazon")
+            legendItem(color: .blue, label: "新品")
+            legendItem(color: .primary, label: "中古")
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    /// 出品者数チャートの凡例(中古/新品/コレクター)。
+    private var sellerCountLegend: some View {
+        HStack(spacing: 16) {
+            legendItem(color: .primary, label: "中古")
+            legendItem(color: .blue, label: "新品")
+            legendItem(color: Self.collectibleColor, label: "コレクター")
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func legendItem(color: Color, label: String) -> some View {
+        HStack(spacing: 4) {
+            Circle()
+                .fill(color)
+                .frame(width: 7, height: 7)
+            Text(label)
+                .font(.caption2)
+                .foregroundColor(.secondary)
+        }
+        .lineLimit(1)
+        .minimumScaleFactor(0.8)
+    }
+
+    /// 出品者数チャート(新品/中古/コレクター)。メインチャートと同じx軸(domain)を共有し、
+    /// 出品者数は実値のまま単一の左軸にNiceScaleで表示する(価格ではないため¥や万表記は付けない)。
+    @ViewBuilder
+    private func sellerCountChart(series: [ChartSeries], domain: ClosedRange<Date>) -> some View {
+        let values = series.flatMap { $0.allPoints }.map { $0.value }
+        let scale = NiceScale(dataMin: values.min() ?? 0, dataMax: values.max() ?? 1)
+
+        Chart {
+            ForEach(series) { s in
+                ForEach(s.segments) { segment in
+                    ForEach(segment.points) { point in
+                        LineMark(
+                            x: .value("時刻", point.time),
+                            y: .value("出品者数", point.value),
+                            series: .value("系列", segment.id)
+                        )
+                        .foregroundStyle(s.color)
+                        .interpolationMethod(.stepEnd)
+                        .lineStyle(StrokeStyle(lineWidth: 1))
+                    }
+                }
+            }
+        }
+        .chartLegend(.hidden)
+        .chartXScale(domain: domain)
+        .chartYScale(domain: scale.domainMin...scale.domainMax)
+        .chartXAxis {
+            AxisMarks { value in
+                AxisGridLine()
+                AxisTick()
+                AxisValueLabel(centered: false) {
+                    if let date = value.as(Date.self) {
+                        Text(Self.axisDateFormatter.string(from: date))
+                    }
+                }
+            }
+        }
+        .chartYAxis {
+            AxisMarks(position: .leading, values: scale.ticks) { value in
+                AxisGridLine()
+                AxisValueLabel {
+                    if let count = value.as(Double.self) {
+                        Text("\(Int(count.rounded()))")
+                            .font(.system(size: 9))
+                    }
+                }
+            }
+        }
+        .frame(height: Self.sellerCountReservedHeight)
     }
 
     /// 価格とランキングを1つのChartに重ねて描画する。

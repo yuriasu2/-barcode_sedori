@@ -317,8 +317,8 @@ struct ProductDetailView: View {
         if PriceHistoryChartView.dataCache[viewModel.asin] != nil {
             VStack(spacing: 6) {
                 // キャッシュ済みのためPriceHistoryChartViewは通信せず即描画される。
+                // チャート本体・凡例(メイン/出品者数とも)はPriceHistoryChartView側で描画する。
                 PriceHistoryChartView(asin: viewModel.asin, range: selectedGraphRange)
-                graphLegend
                 graphRangeSegment
             }
             .padding(12)
@@ -334,30 +334,6 @@ struct ProductDetailView: View {
                 .background(Color(.secondarySystemGroupedBackground))
                 .cornerRadius(14)
         }
-    }
-
-    /// グラフの凡例(検索画面と同じ並び・配色)。
-    private var graphLegend: some View {
-        HStack(spacing: 16) {
-            legendItem(color: .green, label: "ランキング")
-            legendItem(color: .orange, label: "Amazon")
-            legendItem(color: .blue, label: "新品")
-            legendItem(color: .primary, label: "中古")
-        }
-        .frame(maxWidth: .infinity)
-    }
-
-    private func legendItem(color: Color, label: String) -> some View {
-        HStack(spacing: 4) {
-            Circle()
-                .fill(color)
-                .frame(width: 7, height: 7)
-            Text(label)
-                .font(.caption2)
-                .foregroundColor(.secondary)
-        }
-        .lineLimit(1)
-        .minimumScaleFactor(0.8)
     }
 
     /// グラフ直下の期間切替セグメント(検索画面と同じ)。期間切替はキャッシュ済みデータの

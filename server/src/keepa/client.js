@@ -21,9 +21,10 @@
  *   4 = LISTPRICE           定価
  *   11 = COUNT_NEW          新品出品者数
  *   12 = COUNT_USED         中古出品者数
+ *   14 = COUNT_COLLECTIBLE  コレクター出品者数
  *   18 = BUY_BOX_SHIPPING   Buy Box価格(送料込み)。Buy Box不成立時は-1。
  *   ※ CHANGES-v6.mdの記載(0=Amazon,1=新品最安,2=中古最安,3=ランキング,18=BuyBox)と一致することを確認済み。
- *   ※ COUNT_NEW/COUNT_USEDもisExtraData=false(offersパラメータ不要)であることを確認済み。
+ *   ※ COUNT_NEW/COUNT_USED/COUNT_COLLECTIBLEもisExtraData=false(offersパラメータ不要、現行リクエストのレスポンスに含まれる)であることを確認済み。
  *   価格はすべて日本円などその通貨の最小単位の整数。データなしは -1。
  *
  * 【画像URL】
@@ -50,6 +51,7 @@ const CSV_TYPE = {
   LISTPRICE: 4,
   COUNT_NEW: 11,
   COUNT_USED: 12,
+  COUNT_COLLECTIBLE: 14,
   BUY_BOX_SHIPPING: 18,
 };
 
@@ -174,11 +176,15 @@ async function getProduct({ code, asin, history } = {}) {
 }
 
 // グラフ生データとして抽出する系列とcsvインデックスの対応(Product.CsvType)。
+// newCount/usedCount/collectibleCountは出品者数チャート用(価格ではなく人数の推移)。
 const GRAPH_SERIES_CSV_INDEX = {
   amazon: CSV_TYPE.AMAZON,
   new: CSV_TYPE.NEW,
   used: CSV_TYPE.USED,
   rank: CSV_TYPE.SALES,
+  newCount: CSV_TYPE.COUNT_NEW,
+  usedCount: CSV_TYPE.COUNT_USED,
+  collectibleCount: CSV_TYPE.COUNT_COLLECTIBLE,
 };
 
 /**
@@ -280,13 +286,13 @@ function decimateByAge(points, now) {
 
 /**
  * Keepa Product(history=1で取得したもの)のcsv配列から、
- * グラフ描画用の生データ4系列(amazon/new/used/rank)を抽出する。
+ * グラフ描画用の生データ7系列(amazon/new/used/rank/newCount/usedCount/collectibleCount)を抽出する。
  * @param {object|null|undefined} product Keepa Product Object
- * @returns {{amazon: Array<[number, number]>, new: Array<[number, number]>, used: Array<[number, number]>, rank: Array<[number, number]>}}
+ * @returns {{amazon: Array<[number, number]>, new: Array<[number, number]>, used: Array<[number, number]>, rank: Array<[number, number]>, newCount: Array<[number, number]>, usedCount: Array<[number, number]>, collectibleCount: Array<[number, number]>}}
  */
 function extractGraphSeries(product) {
   const csv = product && product.csv;
-  const result = { amazon: [], new: [], used: [], rank: [] };
+  const result = { amazon: [], new: [], used: [], rank: [], newCount: [], usedCount: [], collectibleCount: [] };
   if (!Array.isArray(csv)) return result;
   for (const key of Object.keys(GRAPH_SERIES_CSV_INDEX)) {
     result[key] = csvSeriesToPoints(csv[GRAPH_SERIES_CSV_INDEX[key]]);
