@@ -1074,7 +1074,7 @@ test('/api/graph-data: getProductが想定外エラーを投げたら502 graph_d
 });
 
 // ---------------------------------------------------------------------------
-// handleSearchViaKeepa: graphDataCacheの先入れ(トークン追加消費ゼロ化)
+// respondKeepaSearchResult: graphDataCacheの先入れ(トークン追加消費ゼロ化)
 // ---------------------------------------------------------------------------
 
 test('/api/search(keepa経路): history:1でgetProductを呼び、graphDataCacheへ先入れする(応答自体には含めない)', async (t) => {

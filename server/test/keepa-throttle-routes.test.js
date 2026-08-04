@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 
 const keepaThrottle = require('../src/keepaThrottle');
+const keepaCoalesce = require('../src/keepaCoalesce');
 
 /**
  * server/test/keepa.test.js の既存ルートテスト作法に合わせる:
@@ -35,6 +36,12 @@ async function withEnv(vars, fn) {
 function freshRoutes() {
   delete require.cache[require.resolve('../src/routes')];
   delete require.cache[require.resolve('../src/keepa/client')];
+  // keepaCoalesceはrequire.cacheから消していない(routes.jsとテストの両方が同一の
+  // シングルトンを参照し続ける必要があるため、モジュール自体は使い回す)。ただし
+  // in-flightのMapは前のテストの残骸を持ち越しうるので、テストごとに明示的にクリアする
+  // (放置すると、将来pendingなPromiseを残すテストが出た場合に後続テストへ結果が
+  // 静かに漏れる)。
+  keepaCoalesce._resetForTest();
   return require('../src/routes');
 }
 
@@ -80,7 +87,7 @@ const NO_SPAPI = {
   LWA_REFRESH_TOKEN: undefined,
 };
 
-test('/api/graph-data: スロットル拒否(depth=0,残量0)は429 keepa_busyで、指定文言を返す', async (t) => {
+test('/api/graph-data: スロットル拒否(残量0で即拒否)は429 keepa_busyで、指定文言を返す', async (t) => {
   await withEnv({ ...NO_SPAPI, KEEPA_API_KEY: 'shared-key' }, async () => {
     const routes = freshRoutes();
     throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_REFILL_PER_MIN: '1' });
@@ -659,7 +666,7 @@ test('/api/search: X-Keepa-Demoでdemoをseedし残量0にすると、demo付き
     // demoインスタンスだけを残量0にする(globalには一切触れない)。
     await keepaThrottle.seedDemoState({ tokens: 0 });
 
-    // demo付きリクエスト: demoインスタンスは枯渇済み・depth=0なので即拒否されるはず。
+    // demo付きリクエスト: demoインスタンスは枯渇済み(キューは無いので即座に拒否)なはず。
     const demoReq = {
       query: { code: '9784873119045' },
       headers: { 'x-app-plan': 'pro', 'x-device-id': 'dev-demo-1', 'x-keepa-demo': '1' },
@@ -786,6 +793,21 @@ test('/api/search: コアレッシングされたリクエストがスロット�
     throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_REFILL_PER_MIN: '5' });
     await keepaThrottle.reportTokensLeft(0); // 枯渇状態を作る
 
+    // スロットル(acquire)への問い合わせ回数を数える。keepaCoalesce.coalesceをpass-through
+    // (束ねない実装)に差し替えても、スロットルが既に枯渇している場合は各リクエストが
+    // 個別にacquireしても結局全員429になってしまい、テスト名が主張する「コアレッシングされて
+    // いること」自体は検証できていなかった。acquireが1回しか呼ばれないことまで見て、
+    // 実際に束ねられた1本のin-flight呼び出しの結果を全員が共有していることを保証する。
+    const originalAcquire = keepaThrottle.acquire;
+    let acquireCallCount = 0;
+    keepaThrottle.acquire = async (...args) => {
+      acquireCallCount += 1;
+      return originalAcquire(...args);
+    };
+    t.after(() => {
+      keepaThrottle.acquire = originalAcquire;
+    });
+
     const makeReq = (deviceId) => ({
       query: { code: '9784873119045' },
       headers: { 'x-app-plan': 'pro', 'x-device-id': deviceId },
@@ -804,5 +826,329 @@ test('/api/search: コアレッシングされたリクエストがスロット�
       assert.equal(res.statusCode, 429);
       assert.equal(res.body.error, 'keepa_busy');
     }
+    assert.equal(
+      acquireCallCount,
+      1,
+      'コアレッシングされていればスロットルへの問い合わせ(acquire)は束ねられた1回だけのはず'
+    );
   });
 });
+
+// ---------------------------------------------------------------------------
+// コアレッシングkeyの隔離(レビュー指摘: BYOキー別・priority別に束ねてはいけない)
+// ---------------------------------------------------------------------------
+
+test('/api/search: BYOキーが異なる2ユーザーの同時リクエストはコアレッシングされず、各自のKeepaキーで別々に呼ばれる', async (t) => {
+  await withEnv({ ...NO_SPAPI, KEEPA_API_KEY: undefined }, async () => {
+    const routes = freshRoutes();
+    const keepa = require('../src/keepa/client');
+
+    const seenApiKeys = [];
+    keepa.getProduct = async ({ apiKey }) => {
+      seenApiKeys.push(apiKey);
+      await new Promise((r) => setTimeout(r, 30)); // 同時実行の窓を作る
+      return {
+        product: { asin: `B000BYO-${apiKey}`, title: `BYO-${apiKey}`, csv: [] },
+        tokensLeft: 50,
+      };
+    };
+
+    const makeReq = (deviceId, byoKey) => ({
+      query: { code: '9784873119045' },
+      headers: { 'x-app-plan': 'pro', 'x-device-id': deviceId, 'x-keepa-key': byoKey },
+    });
+
+    const [resA, resB] = await Promise.all([
+      (async () => {
+        const res = createMockRes();
+        await routes.match('GET', '/api/search').handler(makeReq('dev-byo-a', 'key-A'), res);
+        return res;
+      })(),
+      (async () => {
+        const res = createMockRes();
+        await routes.match('GET', '/api/search').handler(makeReq('dev-byo-b', 'key-B'), res);
+        return res;
+      })(),
+    ]);
+
+    // 修正前はBYOのコアレッシングkeyが`byo:${coalesceKey}`のみ(キー自体を含まない)だったため、
+    // 異なるKeepaキーを持つ2ユーザーが同一商品コードで同時に検索すると1本の呼び出しに束ねられ、
+    // 先着側のキーだけが実際にKeepaへ送られていた(=後着側のスキャンが先着側の課金枠を
+    // 肩代わりする事故。無効キーなら正当なキーを持つ後着側まで502になる)。
+    assert.equal(
+      seenApiKeys.length,
+      2,
+      `Keepaへの呼び出しはユーザーごとに2回のはず(実際: ${seenApiKeys.length}回、キー=${JSON.stringify(seenApiKeys)})`
+    );
+    assert.ok(seenApiKeys.includes('key-A'), 'key-Aで実際にKeepaが呼ばれていない');
+    assert.ok(seenApiKeys.includes('key-B'), 'key-Bで実際にKeepaが呼ばれていない');
+
+    assert.equal(resA.statusCode, 200);
+    assert.equal(resB.statusCode, 200);
+    assert.equal(resA.body.asin, 'B000BYO-key-A', 'ユーザーAが自分のキーで取得した結果を受け取っていない');
+    assert.equal(resB.body.asin, 'B000BYO-key-B', 'ユーザーBが自分のキーで取得した結果を受け取っていない');
+
+    t.after(() => routes.searchCache.clear());
+  });
+});
+
+test('/api/search: 共有キーでのPro同時リクエストと無料同時リクエストはコアレッシングされず、各々のpriorityでスロットルされる', async (t) => {
+  await withEnv({ ...NO_SPAPI, KEEPA_API_KEY: 'shared-key' }, async () => {
+    const routes = freshRoutes();
+    const keepa = require('../src/keepa/client');
+    throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_REFILL_PER_MIN: '5' });
+
+    const acquiredPriorities = [];
+    const originalAcquire = keepaThrottle.acquire;
+    keepaThrottle.acquire = async (priority, instance) => {
+      acquiredPriorities.push(priority);
+      return originalAcquire(priority, instance);
+    };
+    t.after(() => {
+      keepaThrottle.acquire = originalAcquire;
+    });
+
+    let callCount = 0;
+    keepa.getProduct = async () => {
+      callCount += 1;
+      await new Promise((r) => setTimeout(r, 30)); // 同時実行の窓を作る
+      return {
+        product: { asin: 'B000PRIOMIX', title: 'プライオリティ混在テスト', csv: [] },
+        tokensLeft: 9,
+      };
+    };
+
+    const proReq = {
+      query: { code: '9784873119045' },
+      headers: { 'x-app-plan': 'pro', 'x-device-id': 'dev-prio-pro' },
+    };
+    const freeReq = {
+      query: { code: '9784873119045' },
+      headers: { 'x-app-plan': 'free', 'x-device-id': 'dev-prio-free' },
+    };
+
+    const [proRes, freeRes] = await Promise.all([
+      (async () => {
+        const res = createMockRes();
+        await routes.match('GET', '/api/search').handler(proReq, res);
+        return res;
+      })(),
+      (async () => {
+        const res = createMockRes();
+        await routes.match('GET', '/api/search').handler(freeReq, res);
+        return res;
+      })(),
+    ]);
+
+    // 修正前はpriorityがコアレッシングkeyに含まれず(共有キーkeyは`${instance}:${coalesceKey}`のみ)、
+    // 先着1件だけが実際にacquireを呼び、後着はその結果へただ相乗りしていた。すなわち先着がfreeなら
+    // Proが無料側の適応ブレーキ(BRAKE_SAFE_TTE_MIN_FREE=10)を、先着がProならfreeがProの
+    // ブレーキ免除(BRAKE_SAFE_TTE_MIN_PRO=2)を、それぞれ誤って引き継いでいた。
+    assert.equal(callCount, 2, `Keepaへの実呼び出しはpro用/free用で2回のはず(実際: ${callCount}回)`);
+    assert.equal(
+      acquiredPriorities.length,
+      2,
+      `スロットルへの問い合わせはpro用/free用で2回のはず(実際: ${JSON.stringify(acquiredPriorities)})`
+    );
+    assert.ok(acquiredPriorities.includes('pro'), 'priority=proでacquireが呼ばれていない');
+    assert.ok(acquiredPriorities.includes('free'), 'priority=freeでacquireが呼ばれていない');
+
+    assert.equal(proRes.statusCode, 200);
+    assert.equal(freeRes.statusCode, 200);
+
+    t.after(() => {
+      routes.searchCache.clear();
+      routes.deviceQuota._reset();
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 無料枠ユニットの事前チェック(コアレッシング導入に伴い追加。tryConsumeより前に走る)
+// ---------------------------------------------------------------------------
+
+test('/api/search: 無料枠ユニット0の事前チェックでKeepaを呼ばずに429 quota_exceededを返す', async (t) => {
+  await withEnv({ ...NO_SPAPI, KEEPA_API_KEY: 'shared-key' }, async () => {
+    const routes = freshRoutes();
+    const keepa = require('../src/keepa/client');
+    throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_REFILL_PER_MIN: '5' });
+
+    let getProductCallCount = 0;
+    keepa.getProduct = async () => {
+      getProductCallCount += 1;
+      return { product: { asin: 'B000SHOULDNOTCALL1', csv: [] }, tokensLeft: 9 };
+    };
+
+    const deviceId = 'dev-quota-zero-search';
+    const zeroQuota = {
+      unitsRemaining: 0,
+      baseRemaining: 0,
+      unitsUsed: 5,
+      adGrantsToday: 0,
+      adAvailable: true,
+      capReached: false,
+      limit: 5,
+    };
+    const originalComputeQuota = routes.deviceQuota.computeQuota;
+    routes.deviceQuota.computeQuota = async (id) => {
+      assert.equal(id, deviceId);
+      return zeroQuota;
+    };
+    t.after(() => {
+      routes.deviceQuota.computeQuota = originalComputeQuota;
+    });
+
+    const req = {
+      query: { code: '9784873119045' },
+      headers: { 'x-app-plan': 'free', 'x-device-id': deviceId },
+    };
+    const res = createMockRes();
+    await routes.match('GET', '/api/search').handler(req, res);
+
+    assert.equal(res.statusCode, 429);
+    assert.equal(res.body.error, 'quota_exceeded');
+    assert.equal(res.body.message, '本日の無料スキャン上限に達しました。');
+    assert.equal(
+      getProductCallCount,
+      0,
+      '枠切れのはずなのにKeepaトークンを消費してしまっている(事前チェックが機能していない)'
+    );
+
+    t.after(() => routes.searchCache.clear());
+  });
+});
+
+test('/api/graph-data: 無料枠ユニット0の事前チェックでKeepaを呼ばずに429 quota_exceededを返す', async (t) => {
+  await withEnv({ ...NO_SPAPI, KEEPA_API_KEY: 'shared-key' }, async () => {
+    const routes = freshRoutes();
+    const keepa = require('../src/keepa/client');
+    throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_REFILL_PER_MIN: '5' });
+
+    let getProductCallCount = 0;
+    keepa.getProduct = async () => {
+      getProductCallCount += 1;
+      return { product: { asin: 'B000SHOULDNOTCALL2', csv: [] }, tokensLeft: 9 };
+    };
+
+    const deviceId = 'dev-quota-zero-graphdata';
+    const zeroQuota = {
+      unitsRemaining: 0,
+      baseRemaining: 0,
+      unitsUsed: 5,
+      adGrantsToday: 0,
+      adAvailable: true,
+      capReached: false,
+      limit: 5,
+    };
+    const originalComputeQuota = routes.deviceQuota.computeQuota;
+    routes.deviceQuota.computeQuota = async (id) => {
+      assert.equal(id, deviceId);
+      return zeroQuota;
+    };
+    t.after(() => {
+      routes.deviceQuota.computeQuota = originalComputeQuota;
+    });
+
+    const req = {
+      query: { asin: 'B000QUOTAZERO1' },
+      headers: { 'x-app-plan': 'free', 'x-device-id': deviceId },
+    };
+    const res = createMockRes();
+    await routes.match('GET', '/api/graph-data').handler(req, res);
+
+    assert.equal(res.statusCode, 429);
+    assert.equal(res.body.error, 'quota_exceeded');
+    assert.equal(res.body.message, '本日の無料スキャン上限に達しました。');
+    assert.equal(
+      getProductCallCount,
+      0,
+      '枠切れのはずなのにKeepaトークンを消費してしまっている(事前チェックが機能していない)'
+    );
+
+    t.after(() => routes.graphDataCache.clear());
+  });
+});
+
+for (const shape of [{ unlimited: true }, { unknown: true }]) {
+  const shapeLabel = Object.keys(shape)[0];
+
+  test(`/api/search: quotaが${shapeLabel}:trueの事前チェックはゼロ扱いにせず素通しする(可用性優先)`, async (t) => {
+    await withEnv({ ...NO_SPAPI, KEEPA_API_KEY: 'shared-key' }, async () => {
+      const routes = freshRoutes();
+      const keepa = require('../src/keepa/client');
+      throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_REFILL_PER_MIN: '5' });
+
+      let getProductCallCount = 0;
+      keepa.getProduct = async () => {
+        getProductCallCount += 1;
+        return { product: { asin: `B000QUOTA-${shapeLabel}`, csv: [] }, tokensLeft: 9 };
+      };
+
+      const deviceId = `dev-quota-${shapeLabel}-search`;
+      const originalComputeQuota = routes.deviceQuota.computeQuota;
+      routes.deviceQuota.computeQuota = async () => shape;
+      t.after(() => {
+        routes.deviceQuota.computeQuota = originalComputeQuota;
+      });
+
+      const req = {
+        query: { code: '9784873119045' },
+        headers: { 'x-app-plan': 'free', 'x-device-id': deviceId },
+      };
+      const res = createMockRes();
+      await routes.match('GET', '/api/search').handler(req, res);
+
+      assert.equal(
+        res.statusCode,
+        200,
+        `quota={${shapeLabel}:true}(unitsRemainingフィールド無し)がゼロ残量扱いされている`
+      );
+      assert.equal(getProductCallCount, 1, '事前チェックを通過したのにKeepaが呼ばれていない');
+
+      t.after(() => {
+        routes.searchCache.clear();
+        routes.deviceQuota._reset();
+      });
+    });
+  });
+
+  test(`/api/graph-data: quotaが${shapeLabel}:trueの事前チェックはゼロ扱いにせず素通しする(可用性優先)`, async (t) => {
+    await withEnv({ ...NO_SPAPI, KEEPA_API_KEY: 'shared-key' }, async () => {
+      const routes = freshRoutes();
+      const keepa = require('../src/keepa/client');
+      throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_REFILL_PER_MIN: '5' });
+
+      let getProductCallCount = 0;
+      keepa.getProduct = async ({ asin }) => {
+        getProductCallCount += 1;
+        return { product: { asin, csv: [] }, tokensLeft: 9 };
+      };
+
+      const deviceId = `dev-quota-${shapeLabel}-graphdata`;
+      const originalComputeQuota = routes.deviceQuota.computeQuota;
+      routes.deviceQuota.computeQuota = async () => shape;
+      t.after(() => {
+        routes.deviceQuota.computeQuota = originalComputeQuota;
+      });
+
+      const req = {
+        query: { asin: `B000QUOTA${shapeLabel.toUpperCase()}` },
+        headers: { 'x-app-plan': 'free', 'x-device-id': deviceId },
+      };
+      const res = createMockRes();
+      await routes.match('GET', '/api/graph-data').handler(req, res);
+
+      assert.equal(
+        res.statusCode,
+        200,
+        `quota={${shapeLabel}:true}(unitsRemainingフィールド無し)がゼロ残量扱いされている`
+      );
+      assert.equal(getProductCallCount, 1, '事前チェックを通過したのにKeepaが呼ばれていない');
+
+      t.after(() => {
+        routes.graphDataCache.clear();
+        routes.deviceQuota._reset();
+      });
+    });
+  });
+}

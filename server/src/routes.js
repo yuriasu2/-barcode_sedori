@@ -278,6 +278,9 @@ function sendKeepaBusy(res) {
   return res.status(429).json({ error: 'keepa_busy', message: KEEPA_BUSY_MESSAGE });
 }
 
+/** 無料枠ユニット切れ時の共通メッセージ(KEEPA_BUSY_MESSAGEと同じく文言は正確にこの通りとする)。 */
+const QUOTA_EXCEEDED_MESSAGE = '本日の無料スキャン上限に達しました。';
+
 /**
  * X-Keepa-Demoヘッダー(非空)が付いたリクエストか。デモモードでは、スロットルの
  * 判定(許可/ブレーキ/キュー待ち/お断り)だけを本番と隔離された'demo'インスタンスに
@@ -360,8 +363,22 @@ async function fetchKeepaProductCoalesced({ instance, coalesceKey, fetchParams, 
 /**
  * ヘッダーからBYO/デバッグ/デモの各判定を行い、fetchKeepaProductCoalescedを呼ぶ。
  * X-Keepa-Debug有効時のみ実測(waitedMs)とスナップショットを添えたdebug情報を返す。
- * デモモード(instance='demo')・BYOのコアレッシングkeyはinstance/'byo'を必ず含め、
- * 本番共有('global')と絶対に混ざらないようにする(隔離の安全設計。設計書§2.1)。
+ *
+ * コアレッシングkeyの組み立て方針(隔離の安全設計。設計書§2.1・keepaCoalesce.jsのJSDoc
+ * `${instanceName}:${byoKeyOrShared}:${productCode}` に従う):
+ * - 必ずinstance('global'/'demo')を含める。デモモード・本番共有が絶対に混ざらないようにするため。
+ * - 共有キー(非BYO)は更にpriority('pro'/'free')を含める。含めないと、Proと無料の同時
+ *   リクエストが束ねられたとき先着側のpriorityが後着側にも適用されてしまい、
+ *   keepaThrottleの適応ブレーキ(§2.6。BRAKE_SAFE_TTE_MIN_PRO=2 vs FREE=10)で
+ *   Proが受けるはずの短い安全圏を、無料が先着だと丸ごと失う(その逆も同様)。
+ *   トレードオフとして、同一商品への同時Keepa呼び出しが最悪でも「pro用1本+free用1本」の
+ *   最大2本まで増えうるが、束ねずにNリクエストがそのまま飛ぶよりは遥かに少なく、
+ *   Pro優先という設計意図(§1)を保つ方を優先する。
+ * - BYOキーは更に「BYOキー自体のハッシュ」を含める(priorityは含めない: BYOはスロットルを
+ *   一切経由しないため、priorityの取り違えという問題自体がそもそも発生しない)。
+ *   異なるKeepaキーを持つBYO利用者同士が束ねられると、片方のキーだけが実際にKeepaへ送られ、
+ *   もう片方の課金・失敗(無効キーなら502)が無関係な利用者に伝播してしまうため
+ *   (credentialsHashPrefixと同じ考え方で、生のAPIキーそのものはキーに含めない)。
  * @param {object} headers
  * @param {{coalesceKey: string, fetchParams: object, priority: 'pro'|'free'}} params
  * @returns {Promise<{product: {product: object, tokensLeft: number|undefined}, debug: object|null}>}
@@ -373,8 +390,12 @@ async function fetchKeepaProductWithDebug(headers, { coalesceKey, fetchParams, p
   const debugEnabled = hasKeepaDebugHeader(headers);
 
   if (isByo) {
+    // isByoがtrueのとき、fetchParams.apiKeyは必ずresolveKeepaApiKey()がX-Keepa-Keyヘッダー
+    // (trim後・非空)をそのまま返したもの(hasByoKeepaKeyと同じヘッダーを見て判定しているため)。
+    // 生のキーそのものはコアレッシングkeyに含めず、ハッシュ化した値のみを混ぜる。
+    const byoKeyHash = keepaByoKeyHashPrefix(fetchParams.apiKey);
     const product = await fetchKeepaProductCoalesced({
-      instance, coalesceKey: `byo:${coalesceKey}`, fetchParams, priority, isByo: true, isDemo,
+      instance, coalesceKey: `${instance}:byo:${byoKeyHash}:${coalesceKey}`, fetchParams, priority, isByo: true, isDemo,
     });
     return {
       product,
@@ -384,7 +405,7 @@ async function fetchKeepaProductWithDebug(headers, { coalesceKey, fetchParams, p
 
   if (!debugEnabled) {
     const product = await fetchKeepaProductCoalesced({
-      instance, coalesceKey: `${instance}:${coalesceKey}`, fetchParams, priority, isByo: false, isDemo,
+      instance, coalesceKey: `${instance}:${priority}:${coalesceKey}`, fetchParams, priority, isByo: false, isDemo,
     });
     return { product, debug: null };
   }
@@ -393,7 +414,7 @@ async function fetchKeepaProductWithDebug(headers, { coalesceKey, fetchParams, p
   const snapshot = await keepaThrottle.debugSnapshot(instance);
   const startedAt = Date.now();
   const product = await fetchKeepaProductCoalesced({
-    instance, coalesceKey: `${instance}:${coalesceKey}`, fetchParams, priority, isByo: false, isDemo,
+    instance, coalesceKey: `${instance}:${priority}:${coalesceKey}`, fetchParams, priority, isByo: false, isDemo,
   });
   const waitedMs = Date.now() - startedAt;
   return { product, debug: { bypass: null, waitedMs, allowed: true, reason: null, snapshot } };
@@ -410,6 +431,18 @@ function credentialsHashPrefix(credentials) {
     .createHash('sha256')
     .update(`${credentials.clientId}:${credentials.refreshToken}`)
     .digest('hex');
+  return hash.slice(0, 8);
+}
+
+/**
+ * BYO Keepaキー(X-Keepa-Key)から、コアレッシングkeyに混ぜて使うためのハッシュ(先頭8文字)を
+ * 生成する。credentialsHashPrefixと同じ考え方: 異なるKeepaキーを持つBYO利用者同士のリクエストが
+ * 同一のin-flight呼び出しへコアレッシングされてしまう事故(片方のキーだけがKeepaへ送られ、
+ * 他方の課金・失敗が無関係な利用者に伝播する)を防ぐ目的であり、生のAPIキーそのものは
+ * キーに含めない。
+ */
+function keepaByoKeyHashPrefix(byoKey) {
+  const hash = crypto.createHash('sha256').update(String(byoKey || '')).digest('hex');
   return hash.slice(0, 8);
 }
 
@@ -824,7 +857,7 @@ router.get('/api/search', async (req, res) => {
       if (preCheckQuota && preCheckQuota.unitsRemaining !== undefined && preCheckQuota.unitsRemaining <= 0) {
         return res.status(429).json({
           error: 'quota_exceeded',
-          message: '本日の無料スキャン上限に達しました。',
+          message: QUOTA_EXCEEDED_MESSAGE,
           quota: preCheckQuota,
         });
       }
@@ -846,12 +879,19 @@ router.get('/api/search', async (req, res) => {
       if (!consumeResult.allowed) {
         return res.status(429).json({
           error: 'quota_exceeded',
-          message: '本日の無料スキャン上限に達しました。',
+          message: QUOTA_EXCEEDED_MESSAGE,
           quota: consumeResult.quota,
         });
       }
       attachQuota(res, consumeResult.quota);
-      return respondKeepaSearchResult(res, converted, isbn13, fetched.product.product, cacheKey, fetched.debug);
+      try {
+        return respondKeepaSearchResult(res, converted, isbn13, fetched.product.product, cacheKey, fetched.debug);
+      } catch (err) {
+        // mapProductToSearchResult以降のレスポンス構築で例外が起きても、素の500ではなく
+        // handleSearchViaSpApi/旧handleSearchViaKeepaと同じ502 search_failedへ揃える。
+        console.error(`[search:keepa] code=${code} response construction failed:`, err.message);
+        return res.status(502).json({ error: 'search_failed', message: err.message });
+      }
     }
 
     if (cached) {
@@ -878,7 +918,12 @@ router.get('/api/search', async (req, res) => {
       console.error(`[search:keepa] code=${code} failed:`, err.message);
       return res.status(502).json({ error: 'search_failed', message: err.message });
     }
-    return respondKeepaSearchResult(res, converted, isbn13, fetched.product.product, cacheKey, fetched.debug);
+    try {
+      return respondKeepaSearchResult(res, converted, isbn13, fetched.product.product, cacheKey, fetched.debug);
+    } catch (err) {
+      console.error(`[search:keepa] code=${code} response construction failed:`, err.message);
+      return res.status(502).json({ error: 'search_failed', message: err.message });
+    }
   }
 
   return res.status(503).json({ error: 'spapi_credentials_missing', message: SPAPI_CREDENTIALS_MISSING_MESSAGE });
@@ -1110,7 +1155,7 @@ router.get('/api/graph-data', async (req, res) => {
     if (preCheckQuota && preCheckQuota.unitsRemaining !== undefined && preCheckQuota.unitsRemaining <= 0) {
       return res.status(429).json({
         error: 'quota_exceeded',
-        message: '本日の無料スキャン上限に達しました。',
+        message: QUOTA_EXCEEDED_MESSAGE,
         quota: preCheckQuota,
       });
     }
@@ -1135,7 +1180,7 @@ router.get('/api/graph-data', async (req, res) => {
     if (!consumeResult.allowed) {
       return res.status(429).json({
         error: 'quota_exceeded',
-        message: '本日の無料スキャン上限に達しました。',
+        message: QUOTA_EXCEEDED_MESSAGE,
         quota: consumeResult.quota,
       });
     }
