@@ -938,6 +938,49 @@ test('/api/graph-data: 無料枠を使い切っていると429 quota_exceeded', 
   });
 });
 
+test('/api/graph-data: tryConsumeが事前チェックとの競合で失敗しても、取得済みの結果はgraphDataCacheへ救済され無駄にならない(M-4)', async (t) => {
+  await withEnv({ KEEPA_API_KEY: 'test-keepa-key' }, async () => {
+    const routes = freshRoutes();
+    const keepa = require('../src/keepa/client');
+    routes.deviceQuota._reset();
+
+    keepa.getProduct = async ({ asin }) => {
+      const csv = [];
+      csv[1] = [5000000, 1500];
+      return { product: { asin, csv } };
+    };
+
+    // 事前チェック(preCheckQuota)は通す(このデバイスはまだ未消費)一方、実際のtryConsumeだけ
+    // 強制的に失敗させることで、「preCheckQuota通過後・tryConsume直前に他リクエストが枠を
+    // 使い切った」レースを再現する。
+    const originalTryConsume = routes.deviceQuota.tryConsume;
+    routes.deviceQuota.tryConsume = async () => ({ allowed: false, quota: { unitsRemaining: 0 } });
+    t.after(() => {
+      routes.deviceQuota.tryConsume = originalTryConsume;
+      routes.deviceQuota._reset();
+      routes.graphDataCache.clear();
+    });
+
+    const req = { query: { asin: 'B000RACEGRAPH' }, headers: { 'x-device-id': 'DEV-RACE-GRAPH' } };
+    const res = createMockRes();
+    const route = routes.match('GET', '/api/graph-data');
+    await route.handler(req, res);
+
+    // 呼び出し元自身は429 quota_exceededを受け取り、商品データは渡らない
+    // (キャッシュへ救済されていても、この呼び出し自身にはデータを返さない)。
+    assert.equal(res.statusCode, 429);
+    assert.equal(res.body.error, 'quota_exceeded');
+    assert.equal(res.body.series, undefined, '枠切れで拒否されたレスポンスに商品データが含まれてはいけない');
+
+    // 取得済みの結果は既にgraphDataCacheへ書き込まれているはず(取得済みのKeepaトークンを
+    // 無駄にしない。修正前はtryConsume失敗時にキャッシュへ一切書き込まれず、取得結果が
+    // 丸ごと捨てられていた)。
+    const cached = routes.graphDataCache.get('graphdata:B000RACEGRAPH');
+    assert.ok(cached, 'tryConsume失敗時もgraphDataCacheへ結果が救済されているべき');
+    assert.ok(cached.series, 'キャッシュされた内容にseriesが含まれているべき');
+  });
+});
+
 test('/api/graph-data: asin未指定は400', async () => {
   await withEnv({ KEEPA_API_KEY: 'test-keepa-key' }, async () => {
     const routes = freshRoutes();

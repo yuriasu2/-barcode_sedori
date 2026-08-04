@@ -875,6 +875,11 @@ router.get('/api/search', async (req, res) => {
         return res.status(502).json({ error: 'search_failed', message: err.message });
       }
 
+      // M-3: 無料枠ユニットはKeepa呼び出し成功後・レスポンス構築(respondKeepaSearchResult)の
+      // 前に消費する。直後のrespondKeepaSearchResultが失敗して502になっても、この消費は
+      // 取り消さない(意図的: Keepaトークンは既に実際に使ってしまっているため、無料枠ユニット
+      // 側もそれに合わせて消費して回収する。/api/graph-dataはM-4の都合でこの順序を入れ替えて
+      // いるため挙動が異なる点に注意)。
       const consumeResult = await deviceQuota.tryConsume(deviceId, 1);
       if (!consumeResult.allowed) {
         return res.status(429).json({
@@ -1175,7 +1180,29 @@ router.get('/api/graph-data', async (req, res) => {
   }
   const keepaDebug = fetched.debug;
 
+  // レビュー指摘(M-4): レスポンス本体の構築とgraphDataCacheへの書き込みは、
+  // tryConsume(無料枠ユニット消費)より前に行う。tryConsumeは事前チェック(preCheckQuota)との
+  // 競合でまれに失敗しうるが(残ユニットぎりぎりの並行リクエスト)、その場合でも既にKeepa
+  // トークンを消費して取得済みの結果をここで先にキャッシュへ書いておけば、この呼び出し自身は
+  // 429を返して破棄されても、直後の別リクエスト(キャッシュヒット)がその結果を無駄にせず
+  // 使い回せる(取得済みのKeepaトークンを腐らせない)。
+  let responseBody;
+  try {
+    responseBody = { series: keepa.extractGraphSeries(fetched.product.product) };
+  } catch (err) {
+    // extractGraphSeriesでの構築失敗は、素の500ではなく/api/searchのresponse construction
+    // failedと同じ502 graph_data_failedへ揃える。ここはtryConsumeより前なので、この経路では
+    // 無料枠ユニットはまだ消費していない。
+    console.error(`[graph-data] asin=${asin} response construction failed:`, err.message);
+    return res.status(502).json({ error: 'graph_data_failed', message: err.message });
+  }
+  graphDataCache.set(cacheKey, responseBody);
+
   if (!isPro) {
+    // M-3: 無料枠ユニットはKeepaトークンを消費した後に消費する。ここでtryConsumeが失敗しても
+    // (quota_exceeded)、直前のgraphDataCache.setで結果は既に救済済みなので、このリクエスト自身が
+    // 429で終わってもKeepaトークンを無駄にしない(拒否された呼び出しへユニットを課さない原則も
+    // そのまま維持: 429を返すこの呼び出し自体は無料枠ユニットを消費していない)。
     const consumeResult = await deviceQuota.tryConsume(deviceId, 1);
     if (!consumeResult.allowed) {
       return res.status(429).json({
@@ -1187,16 +1214,7 @@ router.get('/api/graph-data', async (req, res) => {
     attachQuota(res, consumeResult.quota);
   }
 
-  try {
-    const responseBody = { series: keepa.extractGraphSeries(fetched.product.product) };
-    graphDataCache.set(cacheKey, responseBody);
-    return res.json(attachKeepaDebug(responseBody, keepaDebug));
-  } catch (err) {
-    // extractGraphSeries以降のレスポンス構築で例外が起きても、素の500ではなく
-    // /api/searchのresponse construction failedと同じ502 graph_data_failedへ揃える。
-    console.error(`[graph-data] asin=${asin} response construction failed:`, err.message);
-    return res.status(502).json({ error: 'graph_data_failed', message: err.message });
-  }
+  return res.json(attachKeepaDebug(responseBody, keepaDebug));
 });
 
 /**

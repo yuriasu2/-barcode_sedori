@@ -713,6 +713,57 @@ test('/api/search: X-Keepa-Demoでdemoをseedし残量0にすると、demo付き
   });
 });
 
+test('/api/search: X-Keepa-Demo付きリクエストと通常(global)リクエストを同一商品コードへ同時に投げても、コアレッシングkeyのinstance軸で分離されKeepaは2回呼ばれる(M-5b)', async (t) => {
+  await withEnv({ ...NO_SPAPI, KEEPA_API_KEY: 'shared-key' }, async () => {
+    const routes = freshRoutes();
+    const keepa = require('../src/keepa/client');
+    throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_REFILL_PER_MIN: '5' });
+
+    let callCount = 0;
+    keepa.getProduct = async () => {
+      callCount += 1;
+      await new Promise((r) => setTimeout(r, 30)); // 同時実行の窓を作る
+      return {
+        product: { asin: 'B000DEMOGLOBALCONCUR', title: 'demo/global同時隔離テスト', csv: [] },
+        tokensLeft: 9,
+      };
+    };
+
+    // 既存の「demoをseedして枯渇させ、demo無しのリクエストは影響を受けない」テスト(直上)は
+    // 2つのリクエストを逐次実行しているため、コアレッシングkeyにinstance軸が抜けて
+    // 'global'と'demo'が束ねられてしまう事故は検出できない(逐次なら同時にin-flightにならない)。
+    // ここでは同一商品コードへdemo付き/demo無しを同時に発火し、Keepaへの実呼び出しが
+    // 束ねられず2回になることまで見て、instance軸の分離をコアレッシングkeyレベルで保証する。
+    const demoReq = {
+      query: { code: '9784873119045' },
+      headers: { 'x-app-plan': 'pro', 'x-device-id': 'dev-demo-concur', 'x-keepa-demo': '1' },
+    };
+    const normalReq = {
+      query: { code: '9784873119045' },
+      headers: { 'x-app-plan': 'pro', 'x-device-id': 'dev-normal-concur' },
+    };
+
+    const [demoRes, normalRes] = await Promise.all([
+      (async () => {
+        const res = createMockRes();
+        await routes.match('GET', '/api/search').handler(demoReq, res);
+        return res;
+      })(),
+      (async () => {
+        const res = createMockRes();
+        await routes.match('GET', '/api/search').handler(normalReq, res);
+        return res;
+      })(),
+    ]);
+
+    assert.equal(callCount, 2, `demo/globalが束ねられずKeepaは2回呼ばれるはず(実際: ${callCount}回)`);
+    assert.equal(demoRes.statusCode, 200);
+    assert.equal(normalRes.statusCode, 200);
+
+    t.after(() => routes.searchCache.clear());
+  });
+});
+
 test('/api/search: X-Keepa-Demo付きでもBYOキーが優先されスロットル自体をバイパスする', async (t) => {
   await withEnv({ ...NO_SPAPI, KEEPA_API_KEY: undefined }, async () => {
     const routes = freshRoutes();

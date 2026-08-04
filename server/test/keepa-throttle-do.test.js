@@ -74,6 +74,25 @@ test('KeepaThrottleDO: /seed-demoで残量0にすると、/acquireは即拒否(e
   assert.deepEqual(await res.json(), { allowed: false, reason: 'exhausted' });
 });
 
+test('KeepaThrottleDO: 一度もdemoとしてseedされていないインスタンス(=本番の"global"相当)は、/acquire・/report・/exhaustedを呼んでもstorageへ一切書き込まない(M-5a)', async () => {
+  const backingMap = new Map();
+  const doInstance = await makeDo({ KEEPA_BUCKET_CAPACITY: '10', KEEPA_REFILL_PER_MIN: '5' }, backingMap);
+
+  await doInstance.fetch(new Request('https://do/acquire?priority=free', { method: 'POST' }));
+  await doInstance.fetch(new Request('https://do/acquire?priority=pro', { method: 'POST' }));
+  await doInstance.fetch(new Request('https://do/report?tokensLeft=5', { method: 'POST' }));
+  await doInstance.fetch(new Request('https://do/exhausted', { method: 'POST' }));
+
+  // isDemoInstanceは/seed-demoを経由して初めてtrueになる(keepaThrottleDurableObject.jsの
+  // isDemoInstanceフラグ参照)。'global'は/seed-demoを絶対に呼ばれないため、この一連の呼び出しで
+  // backingMapが空のままであることが、無料枠の書き込み上限を保護する安全設計の核心。
+  assert.equal(
+    backingMap.size,
+    0,
+    'demoとして一度もseedされていないDOインスタンスはstorageへ絶対に書き込んではいけない(無料枠書き込み上限の保護)'
+  );
+});
+
 test('KeepaThrottleDO: 不明なパスは404', async () => {
   const doInstance = await makeDo({});
   const res = await doInstance.fetch(new Request('https://do/unknown', { method: 'POST' }));
