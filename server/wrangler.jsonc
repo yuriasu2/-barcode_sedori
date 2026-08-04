@@ -22,19 +22,11 @@
     "BASE_DAILY_UNITS": "5",
     "UNITS_PER_AD": "5",
     "MAX_DAILY_UNITS": "100",
-    // Keepaスロットル(keepaThrottle.js)。契約プランの毎分トークン数 / キュー深さ上限 /
-    // キュー待ちの最大ミリ秒。KEEPA_QUEUE_TIMEOUT_MSはiOSのURLSessionタイムアウト
-    // (APIClient.swiftのtimeoutInterval=10秒)より短くする必要がある。これより長いと、
-    // iOS側が先に切断した後にサーバー側で許可が出て「誰も受け取らないレスポンス」の
-    // ためだけにユニット・トークンを消費する経路が生まれる。
-    // 8000msで運用したところ本番実測で応答に8.1秒以上かかり(DNS・TLS・Cloudflareの
-    // ルーティング分のオーバーヘッドが乗るため)、iOSの10秒タイムアウトとの余裕が
-    // 2秒未満しか無く実機で先にiOS側がタイムアウトする不具合が発生した(2026-08-02)。
-    // 6000msにして4秒前後の余裕を確保する。
-    // プランを20トークン/分へ上げたらKEEPA_REFILL_PER_MINだけ更新してデプロイする。
-    "KEEPA_REFILL_PER_MIN": "5",
-    "KEEPA_QUEUE_DEPTH": "10",
-    "KEEPA_QUEUE_TIMEOUT_MS": "6000"
+    // Keepaスロットル(keepaThrottle.js)。契約プランの毎分トークン数。
+    // 枯渇時に待たせるキューは撤去済み(2026-08-03)なので、キュー深さ/タイムアウトの
+    // 環境変数は無い。適応ブレーキの上限はコード内定数(BRAKE_CAP_MS)。
+    // プランを20トークン/分へ上げたらここだけ更新してデプロイする。
+    "KEEPA_REFILL_PER_MIN": "5"
   },
   // 広告配信設定(/api/ads)を置くKV namespace。id は namespace 作成後に埋める
   // (`wrangler kv namespace create ADS_CONFIG`)。id未設定(プレースホルダ)のままでも
