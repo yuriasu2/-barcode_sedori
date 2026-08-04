@@ -42,7 +42,7 @@ test('KeepaThrottleDO: /reportで残量0にすると、depth=0の/acquireは即�
   });
   await doInstance.fetch(new Request('https://do/report?tokensLeft=0', { method: 'POST' }));
   const res = await doInstance.fetch(new Request('https://do/acquire?priority=pro', { method: 'POST' }));
-  assert.deepEqual(await res.json(), { allowed: false, reason: 'depth' });
+  assert.deepEqual(await res.json(), { allowed: false, reason: 'exhausted' });
 });
 
 test('KeepaThrottleDO: /exhaustedで残量0になる', async () => {
@@ -53,7 +53,7 @@ test('KeepaThrottleDO: /exhaustedで残量0になる', async () => {
   });
   await doInstance.fetch(new Request('https://do/exhausted', { method: 'POST' }));
   const res = await doInstance.fetch(new Request('https://do/acquire?priority=free', { method: 'POST' }));
-  assert.deepEqual(await res.json(), { allowed: false, reason: 'depth' });
+  assert.deepEqual(await res.json(), { allowed: false, reason: 'exhausted' });
 });
 
 test('KeepaThrottleDO: /seed-demoはtokens/ratePerMinを注入しスナップショットを返す', async () => {
@@ -74,7 +74,7 @@ test('KeepaThrottleDO: /seed-demoで残量0にすると、depth=0の/acquireは�
   });
   await doInstance.fetch(new Request('https://do/seed-demo?tokens=0', { method: 'POST' }));
   const res = await doInstance.fetch(new Request('https://do/acquire?priority=free', { method: 'POST' }));
-  assert.deepEqual(await res.json(), { allowed: false, reason: 'depth' });
+  assert.deepEqual(await res.json(), { allowed: false, reason: 'exhausted' });
 });
 
 test('KeepaThrottleDO: 不明なパスは404', async () => {
@@ -98,7 +98,7 @@ test('KeepaThrottleDO: DOが退避されてconstructorから作り直されて�
   const res = await after.fetch(new Request('https://do/acquire?priority=free', { method: 'POST' }));
   // seedしたtokens=0がstorageから復元されていれば、depth=0のため即座にNG(depth)になるはず。
   // 復元されず満タン(capacity=10)で作り直されていたら誤ってallowed:trueになってしまう。
-  assert.deepEqual(await res.json(), { allowed: false, reason: 'depth' });
+  assert.deepEqual(await res.json(), { allowed: false, reason: 'exhausted' });
 });
 
 test('KeepaThrottleDO: 退避→再構築をまたいでも、経過時間ぶんの補充が正しく引き継がれる', async () => {
