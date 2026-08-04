@@ -11,6 +11,7 @@ const oauth = require('./oauth');
 const keepa = require('./keepa/client');
 const deviceQuota = require('./deviceQuota');
 const keepaThrottle = require('./keepaThrottle');
+const keepaCoalesce = require('./keepaCoalesce');
 const admobSsv = require('./admobSsv');
 const listings = require('./spapi/listings');
 const spapiClient = require('./spapi/client');
@@ -21,7 +22,7 @@ const graphDataCache = new LruCache({ ttlMs: 60 * 60 * 1000, maxSize: 200 }); //
 const adsConfigCache = new LruCache({ ttlMs: 60 * 1000, maxSize: 1 }); // 広告配信設定: 60秒キャッシュ(KV読み取り抑制)
 
 /**
- * /api/graph-dataのキャッシュキー。handleSearchViaKeepaでの先入れとエンドポイント本体で
+ * /api/graph-dataのキャッシュキー。respondKeepaSearchResultでの先入れとエンドポイント本体で
  * 同一キーになるよう共通化する。
  */
 function graphDataCacheKey(asin) {
@@ -78,7 +79,7 @@ function deviceIdOf(headers) {
 
 /**
  * 非Proリクエスト専用: res.json()呼び出し時にquotaフィールドを注入するよう
- * res.jsonを差し替える。handleSearchViaKeepa/graph-dataのフェッチ後のres.json呼び出し
+ * res.jsonを差し替える。respondKeepaSearchResult/graph-dataのフェッチ後のres.json呼び出し
  * (成功・エラー問わず)を変更せずに済ませるため、resオブジェクト自体を差し替えるのではなく
  * jsonメソッドだけ一時的に上書きする(resはリクエストごとに新規生成されるため他リクエストへの
  * 影響はない)。
@@ -297,18 +298,6 @@ function keepaThrottleInstanceFor(headers) {
 }
 
 /**
- * 共有Keepaキーを使う直前の通行許可。BYOキーはスロットル外(即許可)。
- * 待ち行列はkeepaThrottle(DO)側が持ち、この呼び出しは許可が出るか
- * 拒否(深さ超過/タイムアウト)が確定するまで解決しない。
- * X-Keepa-Demoヘッダーが付いていれば、判定だけを'demo'インスタンスに対して行う
- * (実際のKeepa API呼び出し自体は今までどおり行う。スロットル判定のみ隔離する)。
- */
-async function acquireKeepaSlot(headers) {
-  if (hasByoKeepaKey(headers)) return { allowed: true };
-  return keepaThrottle.acquire(isProRequest(headers) ? 'pro' : 'free', keepaThrottleInstanceFor(headers));
-}
-
-/**
  * X-Keepa-Debugヘッダー(非空)が付いたリクエストか。開発者が実行時にスロットルの
  * 内部状態(待ち時間・推定残量など)をアプリ上で見るためのデバッグ機能を有効化する
  * (hasByoKeepaKeyと同じ形)。
@@ -329,30 +318,85 @@ function attachKeepaDebug(body, debug) {
 }
 
 /**
- * デバッグヘッダーが無いときは通常のacquireKeepaSlotと完全に同じ(挙動もレスポンスも変えない)。
- * ヘッダーがある場合のみ、acquire呼び出しの前後で実測してdebug情報を組み立てる。
- * BYOキー経路はスロットルを一切呼ばない(bypass:'byo')ので、実測もスナップショットも無し。
+ * 共有Keepaキーのスロットル許可+Keepa本体呼び出しを1つの単位として扱い、
+ * 同一商品への同時リクエストをコアレッシングでまとめる(設計書2026-08-03改訂)。
+ * BYOキーはスロットルを経由しない(束ねる意味はあるので、コアレッシング自体は行う)。
+ * @param {{instance: string, coalesceKey: string, fetchParams: object,
+ *   priority: 'pro'|'free', isByo: boolean, isDemo: boolean}} params
+ * @returns {Promise<{product: object, tokensLeft: number|undefined}>}
  */
-async function acquireKeepaSlotWithDebug(headers) {
-  if (!hasKeepaDebugHeader(headers)) {
-    return { slot: await acquireKeepaSlot(headers), debug: null };
-  }
-  if (hasByoKeepaKey(headers)) {
+async function fetchKeepaProductCoalesced({ instance, coalesceKey, fetchParams, priority, isByo, isDemo }) {
+  return keepaCoalesce.coalesce(coalesceKey, async () => {
+    if (!isByo) {
+      const acquired = await keepaThrottle.acquire(priority, instance);
+      if (!acquired.allowed) {
+        const err = new Error('keepa throttle busy');
+        err.code = 'keepa_busy';
+        throw err;
+      }
+    }
+    try {
+      const result = await keepa.getProduct(fetchParams);
+      // 共有キーのときだけ実残量をスロットルへ報告する(BYOキーの残量で共有側の推定を
+      // 壊さないようにする)。デモモードのときも報告しない(seedした値を維持するため)。
+      if (!isByo && !isDemo && Number.isFinite(result.tokensLeft)) {
+        await keepaThrottle.reportTokensLeft(result.tokensLeft, instance);
+      }
+      return result;
+    } catch (err) {
+      if (err.code === 'keepa_tokens_exhausted') {
+        // 推定より実残量が少なかった稀なケース。残量0へ補正し、キュー拒否と同じ
+        // 文言で返す(体験を1種類に揃える。設計書§2.1)。
+        if (!isByo && !isDemo) await keepaThrottle.reportExhausted(instance);
+        const busyErr = new Error('keepa throttle busy');
+        busyErr.code = 'keepa_busy';
+        throw busyErr;
+      }
+      throw err;
+    }
+  });
+}
+
+/**
+ * ヘッダーからBYO/デバッグ/デモの各判定を行い、fetchKeepaProductCoalescedを呼ぶ。
+ * X-Keepa-Debug有効時のみ実測(waitedMs)とスナップショットを添えたdebug情報を返す。
+ * デモモード(instance='demo')・BYOのコアレッシングkeyはinstance/'byo'を必ず含め、
+ * 本番共有('global')と絶対に混ざらないようにする(隔離の安全設計。設計書§2.1)。
+ * @param {object} headers
+ * @param {{coalesceKey: string, fetchParams: object, priority: 'pro'|'free'}} params
+ * @returns {Promise<{product: {product: object, tokensLeft: number|undefined}, debug: object|null}>}
+ */
+async function fetchKeepaProductWithDebug(headers, { coalesceKey, fetchParams, priority }) {
+  const isByo = hasByoKeepaKey(headers);
+  const isDemo = hasKeepaDemoHeader(headers);
+  const instance = keepaThrottleInstanceFor(headers);
+  const debugEnabled = hasKeepaDebugHeader(headers);
+
+  if (isByo) {
+    const product = await fetchKeepaProductCoalesced({
+      instance, coalesceKey: `byo:${coalesceKey}`, fetchParams, priority, isByo: true, isDemo,
+    });
     return {
-      slot: { allowed: true },
-      debug: { bypass: 'byo', waitedMs: 0, allowed: true, reason: null, snapshot: null },
+      product,
+      debug: debugEnabled ? { bypass: 'byo', waitedMs: 0, allowed: true, reason: null, snapshot: null } : null,
     };
   }
-  // 判定直前(=acquireが見る状態そのもの)のスナップショットを取ってから実測する。
-  // デモモードのときは'demo'インスタンスのスナップショットを見る(acquireと同じインスタンス)。
-  const snapshot = await keepaThrottle.debugSnapshot(keepaThrottleInstanceFor(headers));
+
+  if (!debugEnabled) {
+    const product = await fetchKeepaProductCoalesced({
+      instance, coalesceKey: `${instance}:${coalesceKey}`, fetchParams, priority, isByo: false, isDemo,
+    });
+    return { product, debug: null };
+  }
+
+  // 判定直前のスナップショットを取ってから実測する(束ねられて待つ時間も含めて計測する)。
+  const snapshot = await keepaThrottle.debugSnapshot(instance);
   const startedAt = Date.now();
-  const slot = await acquireKeepaSlot(headers);
+  const product = await fetchKeepaProductCoalesced({
+    instance, coalesceKey: `${instance}:${coalesceKey}`, fetchParams, priority, isByo: false, isDemo,
+  });
   const waitedMs = Date.now() - startedAt;
-  return {
-    slot,
-    debug: { bypass: null, waitedMs, allowed: slot.allowed, reason: slot.reason || null, snapshot },
-  };
+  return { product, debug: { bypass: null, waitedMs, allowed: true, reason: null, snapshot } };
 }
 
 /**
@@ -446,7 +490,7 @@ function estimatePoints() {
 /**
  * Keepa Product本体の手数料情報からbreakEven(手数料控除後の売値)を計算する。
  * referralFeePercent/fbaFees.pickAndPackFeeはProduct本体の属性でoffersパラメータ不要なため、
- * handleSearchViaKeepaのprofitInputs算出にそのまま使える。
+ * respondKeepaSearchResultのprofitInputs算出にそのまま使える。
  * 取得できなければ書籍フォールバック(15%+80円、pricing.fallbackFeesと同一料率)で近似する。
  * @param {object|null} product Keepa Product Object
  * @param {number} landed 送料込み価格
@@ -626,130 +670,99 @@ async function handleSearchViaSpApi(req, res, code, credentials, cacheKey) {
 }
 
 /**
- * Keepa経路での/api/search処理(第1段階・offersなし=1トークン)。source:"keepa"を付与する。
- * SP-API認証情報が無い場合のフォールバック(KEEPA_API_KEYまたはBYOキーが必要)。
- * @param {string} apiKey resolveKeepaApiKeyで解決済みのKeepaキー(ヘッダーのBYOキー、または環境変数)。
- * @param {object|null} [keepaDebug] X-Keepa-Debug有効時のみ非null。レスポンスの_keepaDebugへ混ぜる。
+ * 取得済みのKeepa product(または未取得=convertCode段階での早期リターン)から
+ * レスポンスを組み立てて送信する。handleSearchViaKeepaの後継(2026-08-03、
+ * コアレッシング導入に伴い「Keepa呼び出し」と「レスポンス構築」を分離した)。
+ * @param {import('express').Response} res
+ * @param {{codeType: string, isbn13?: string|null, jan?: string|null, reason?: string}} converted convertCodeの戻り値
+ * @param {string|null} isbn13
+ * @param {object|null} product willCallKeepaがfalseの場合はnull(unresolved/no_identifierを返す)
+ * @param {string} cacheKey
+ * @param {object|null} keepaDebug
  */
-async function handleSearchViaKeepa(req, res, code, cacheKey, apiKey, keepaDebug) {
-  try {
-    const converted = convertCode(code);
-
-    if (converted.codeType === CODE_TYPES.UNRESOLVED) {
-      return res.json(attachKeepaDebug({
-        codeType: CODE_TYPES.UNRESOLVED,
-        asin: null,
-        title: null,
-        isbn13: null,
-        imageUrl: null,
-        salesRank: null,
-        releaseDate: null,
-        // Keepa経路は型番を取得できない(Keepa APIが型番情報を返さないため)ので常にnull。
-        modelNumber: null,
-        prices: null,
-        profitInputs: null,
-        reason: converted.reason || 'unresolved',
-        source: 'keepa',
-      }, keepaDebug));
-    }
-
-    const isbn13 = converted.isbn13 || null;
-    const janOrIsbn = converted.isbn13 || converted.jan;
-
-    if (!janOrIsbn) {
-      return res.json(attachKeepaDebug({
-        codeType: CODE_TYPES.UNRESOLVED,
-        asin: null,
-        title: null,
-        isbn13,
-        imageUrl: null,
-        salesRank: null,
-        releaseDate: null,
-        modelNumber: null,
-        prices: null,
-        profitInputs: null,
-        reason: 'no_identifier',
-        source: 'keepa',
-      }, keepaDebug));
-    }
-
-    // history:1で取得してもトークン消費はhistory:0と同じ1個(実測済み)。
-    // ここで取得したproductからグラフ生データも抽出しgraphDataCacheへ先入れすることで、
-    // Keepa経路で検索した商品のグラフ(/api/graph-data)はトークン追加消費ゼロで返せる。
-    const { product, tokensLeft } = await keepa.getProduct({ code: janOrIsbn, history: 1, apiKey });
-    // 共有キーのときだけ実残量をスロットルへ報告する(BYOキーの残量で共有側の推定を
-    // 壊さないようにする)。報告は補正であり本処理の成否に影響させない。
-    // デモモード(X-Keepa-Demo)のときは報告しない: demoインスタンスの状態は利用者が
-    // 明示的にseedした値のまま維持すべきで、実Keepaの残量で上書きすると意味が無くなる。
-    if (!hasByoKeepaKey(req.headers) && !hasKeepaDemoHeader(req.headers) && Number.isFinite(tokensLeft)) {
-      await keepaThrottle.reportTokensLeft(tokensLeft);
-    }
-    const mapped = keepa.mapProductToSearchResult(product);
-
-    if (!mapped) {
-      return res.json(attachKeepaDebug({
-        codeType: converted.codeType,
-        asin: null,
-        title: null,
-        isbn13,
-        imageUrl: null,
-        salesRank: null,
-        releaseDate: null,
-        modelNumber: null,
-        prices: null,
-        profitInputs: null,
-        reason: 'catalog_not_found',
-        source: 'keepa',
-      }, keepaDebug));
-    }
-
-    if (mapped.asin) {
-      const series = keepa.extractGraphSeries(product);
-      graphDataCache.set(graphDataCacheKey(mapped.asin), { series });
-    }
-
-    // breakEvenはstats最安値(送料不明のためlandedとみなす)から算出する。
-    const profitInputs = {
-      listPrice: mapped.listPrice,
-      sellerCounts: mapped.sellerCounts,
-      breakEven: {
-        new: mapped.prices.new != null ? computeKeepaBreakEven(product, mapped.prices.new) : null,
-        used: mapped.prices.used != null ? computeKeepaBreakEven(product, mapped.prices.used) : null,
-      },
-    };
-
-    const responseBody = {
-      codeType: converted.codeType,
-      asin: mapped.asin,
-      title: mapped.title,
-      isbn13,
-      imageUrl: mapped.imageUrl,
-      salesRank: mapped.salesRank,
-      releaseDate: mapped.releaseDate,
-      // Keepa経路は型番を取得できないため常にnull(iOS側はタイトル検索へ自動フォールバックする)。
+function respondKeepaSearchResult(res, converted, isbn13, product, cacheKey, keepaDebug) {
+  if (converted.codeType === CODE_TYPES.UNRESOLVED) {
+    return res.json(attachKeepaDebug({
+      codeType: CODE_TYPES.UNRESOLVED,
+      asin: null,
+      title: null,
+      isbn13: null,
+      imageUrl: null,
+      salesRank: null,
+      releaseDate: null,
       modelNumber: null,
-      prices: mapped.prices,
-      profitInputs,
+      prices: null,
+      profitInputs: null,
+      reason: converted.reason || 'unresolved',
       source: 'keepa',
-    };
-
-    // Keepa結果は長め(30分)にキャッシュしトークン消費を抑える(共有コスト削減)。
-    // _keepaDebugはこの1回のレスポンスにだけ付けるため、キャッシュへ入れる前(=素の
-    // responseBody)にsetし、レスポンス送出はattachKeepaDebugしたコピーで行う
-    // (キャッシュに混ぜると、後続のデバッグ無効リクエストにまで古いdebug値が漏れてしまう)。
-    searchCache.set(cacheKey, responseBody, KEEPA_CACHE_TTL_MS);
-    res.json(attachKeepaDebug(responseBody, keepaDebug));
-  } catch (err) {
-    if (err.code === 'keepa_tokens_exhausted') {
-      // 推定より実残量が少なかった稀なケース。残量0へ補正し、ユーザーには
-      // キュー拒否と同じ文言で返す(体験を1種類に揃える。設計書§2.1)。
-      // デモモードのときは報告しない(理由は上のreportTokensLeft呼び出しと同じ)。
-      if (!hasByoKeepaKey(req.headers) && !hasKeepaDemoHeader(req.headers)) await keepaThrottle.reportExhausted();
-      return sendKeepaBusy(res);
-    }
-    console.error(`[search:keepa] code=${code} failed:`, err.message);
-    res.status(502).json({ error: 'search_failed', message: err.message });
+    }, keepaDebug));
   }
+
+  const janOrIsbn = converted.isbn13 || converted.jan;
+  if (!janOrIsbn) {
+    return res.json(attachKeepaDebug({
+      codeType: CODE_TYPES.UNRESOLVED,
+      asin: null,
+      title: null,
+      isbn13,
+      imageUrl: null,
+      salesRank: null,
+      releaseDate: null,
+      modelNumber: null,
+      prices: null,
+      profitInputs: null,
+      reason: 'no_identifier',
+      source: 'keepa',
+    }, keepaDebug));
+  }
+
+  const mapped = keepa.mapProductToSearchResult(product);
+  if (!mapped) {
+    return res.json(attachKeepaDebug({
+      codeType: converted.codeType,
+      asin: null,
+      title: null,
+      isbn13,
+      imageUrl: null,
+      salesRank: null,
+      releaseDate: null,
+      modelNumber: null,
+      prices: null,
+      profitInputs: null,
+      reason: 'catalog_not_found',
+      source: 'keepa',
+    }, keepaDebug));
+  }
+
+  if (mapped.asin) {
+    graphDataCache.set(graphDataCacheKey(mapped.asin), { series: keepa.extractGraphSeries(product) });
+  }
+
+  const profitInputs = {
+    listPrice: mapped.listPrice,
+    sellerCounts: mapped.sellerCounts,
+    breakEven: {
+      new: mapped.prices.new != null ? computeKeepaBreakEven(product, mapped.prices.new) : null,
+      used: mapped.prices.used != null ? computeKeepaBreakEven(product, mapped.prices.used) : null,
+    },
+  };
+
+  const responseBody = {
+    codeType: converted.codeType,
+    asin: mapped.asin,
+    title: mapped.title,
+    isbn13,
+    imageUrl: mapped.imageUrl,
+    salesRank: mapped.salesRank,
+    releaseDate: mapped.releaseDate,
+    modelNumber: null,
+    prices: mapped.prices,
+    profitInputs,
+    source: 'keepa',
+  };
+
+  searchCache.set(cacheKey, responseBody, KEEPA_CACHE_TTL_MS);
+  res.json(attachKeepaDebug(responseBody, keepaDebug));
 }
 
 // GET /api/search?code=
@@ -788,42 +801,57 @@ router.get('/api/search', async (req, res) => {
     if (!isPro) {
       // 冒頭では消費せず、Keepa経路(サーバーのAPIキー消費)が確定してから判定する。
       if (cached) {
-        // キャッシュヒットは消費なし。ただし最新のquotaはクライアントへ返す。
         attachQuota(res, await deviceQuota.computeQuota(deviceId));
         return res.json(
           hasKeepaDebugHeader(req.headers) ? attachKeepaDebug(cached, cacheBypassKeepaDebug()) : cached
         );
       }
-      // handleSearchViaKeepaはコードを識別子へ変換できない場合、Keepaを呼ばずに
-      // unresolved/no_identifierを返す。基本枠は5しかないため、その空振りで1枠失うと
-      // 体感が悪い。Keepa呼び出しが発生する見込みのときだけ消費する。
-      // convertCodeはI/Oの無い純粋関数なのでこことhandleSearchViaKeepa内で二重に呼んでも問題ない。
       const converted = convertCode(code);
-      const willCallKeepa =
-        converted.codeType !== CODE_TYPES.UNRESOLVED && Boolean(converted.isbn13 || converted.jan);
-      let keepaDebug = null;
-      if (willCallKeepa) {
-        // 共有Keepaキーの通行許可を先に取る。拒否時にユニットを消費しない順序が重要
-        // (設計書§2.2: 「エラーになったのに枠だけ減った」を作らない)。
-        const acquired = await acquireKeepaSlotWithDebug(req.headers);
-        if (!acquired.slot.allowed) return sendKeepaBusy(res);
-        keepaDebug = acquired.debug;
+      const isbn13 = converted.isbn13 || null;
+      const janOrIsbn = converted.isbn13 || converted.jan;
+      const willCallKeepa = converted.codeType !== CODE_TYPES.UNRESOLVED && Boolean(janOrIsbn);
 
-        const consumeResult = await deviceQuota.tryConsume(deviceId, 1);
-        if (!consumeResult.allowed) {
-          return res.status(429).json({
-            error: 'quota_exceeded',
-            message: '本日の無料スキャン上限に達しました。',
-            quota: consumeResult.quota,
-          });
-        }
-        // 消費済みのquotaをそのまま使う(DOへの追加アクセスを避けるため)。
-        attachQuota(res, consumeResult.quota);
-      } else {
-        // Keepaを呼ばない(unresolved)場合でも、quotaは返す(消費はしない)。
+      if (!willCallKeepa) {
         attachQuota(res, await deviceQuota.computeQuota(deviceId));
+        return respondKeepaSearchResult(res, converted, isbn13, null, cacheKey, null);
       }
-      return handleSearchViaKeepa(req, res, code, cacheKey, keepaApiKey, keepaDebug);
+
+      // 残ユニットの事前チェック(消費はしない)。コアレッシング導入でKeepa呼び出しが
+      // tryConsumeより前に来るため、これが無いと枠切れユーザーのリクエストでKeepaトークン
+      // だけが消費される。実際の消費は従来どおり成功後のtryConsumeで行う(拒否された処理に
+      // ユニットを消費させない原則は維持)。
+      const preCheckQuota = await deviceQuota.computeQuota(deviceId);
+      if (preCheckQuota && preCheckQuota.unitsRemaining !== undefined && preCheckQuota.unitsRemaining <= 0) {
+        return res.status(429).json({
+          error: 'quota_exceeded',
+          message: '本日の無料スキャン上限に達しました。',
+          quota: preCheckQuota,
+        });
+      }
+
+      let fetched;
+      try {
+        fetched = await fetchKeepaProductWithDebug(req.headers, {
+          coalesceKey: cacheKey,
+          fetchParams: { code: janOrIsbn, history: 1, apiKey: keepaApiKey },
+          priority: 'free',
+        });
+      } catch (err) {
+        if (err.code === 'keepa_busy') return sendKeepaBusy(res);
+        console.error(`[search:keepa] code=${code} failed:`, err.message);
+        return res.status(502).json({ error: 'search_failed', message: err.message });
+      }
+
+      const consumeResult = await deviceQuota.tryConsume(deviceId, 1);
+      if (!consumeResult.allowed) {
+        return res.status(429).json({
+          error: 'quota_exceeded',
+          message: '本日の無料スキャン上限に達しました。',
+          quota: consumeResult.quota,
+        });
+      }
+      attachQuota(res, consumeResult.quota);
+      return respondKeepaSearchResult(res, converted, isbn13, fetched.product.product, cacheKey, fetched.debug);
     }
 
     if (cached) {
@@ -831,9 +859,26 @@ router.get('/api/search', async (req, res) => {
         hasKeepaDebugHeader(req.headers) ? attachKeepaDebug(cached, cacheBypassKeepaDebug()) : cached
       );
     }
-    const acquired = await acquireKeepaSlotWithDebug(req.headers);
-    if (!acquired.slot.allowed) return sendKeepaBusy(res);
-    return handleSearchViaKeepa(req, res, code, cacheKey, keepaApiKey, acquired.debug);
+    const converted = convertCode(code);
+    const isbn13 = converted.isbn13 || null;
+    const janOrIsbn = converted.isbn13 || converted.jan;
+    if (converted.codeType === CODE_TYPES.UNRESOLVED || !janOrIsbn) {
+      return respondKeepaSearchResult(res, converted, isbn13, null, cacheKey, null);
+    }
+
+    let fetched;
+    try {
+      fetched = await fetchKeepaProductWithDebug(req.headers, {
+        coalesceKey: cacheKey,
+        fetchParams: { code: janOrIsbn, history: 1, apiKey: keepaApiKey },
+        priority: 'pro',
+      });
+    } catch (err) {
+      if (err.code === 'keepa_busy') return sendKeepaBusy(res);
+      console.error(`[search:keepa] code=${code} failed:`, err.message);
+      return res.status(502).json({ error: 'search_failed', message: err.message });
+    }
+    return respondKeepaSearchResult(res, converted, isbn13, fetched.product.product, cacheKey, fetched.debug);
   }
 
   return res.status(503).json({ error: 'spapi_credentials_missing', message: SPAPI_CREDENTIALS_MISSING_MESSAGE });
@@ -1029,7 +1074,7 @@ router.get('/api/graph', async (req, res) => {
 // GET /api/graph-data?asin= — Keepa価格履歴の生データ(グラフを画像でなくアプリ側で描画するため)
 // キャッシュヒットは誰であっても消費なしで最優先返却。ミス時は無料枠ユニットを消費する
 // (Pro/連携済みは無制限。無料はここでKeepa鍵を消費するため)。
-// handleSearchViaKeepa経由の検索で既にgraphDataCacheへ先入れされていれば、
+// /api/search(Keepa経由)の検索で既にgraphDataCacheへ先入れされていれば、
 // ここでKeepaを追加で呼ぶことはない。
 router.get('/api/graph-data', async (req, res) => {
   const asin = String(req.query.asin || '').trim();
@@ -1059,15 +1104,33 @@ router.get('/api/graph-data', async (req, res) => {
     );
   }
 
-  // 共有Keepaキーの通行許可(キャッシュヒット時は不要なのでこの位置)。
-  // 無料枠ユニットの消費より前に取る(拒否時にユニットを失わせないため)。
-  const acquired = await acquireKeepaSlotWithDebug(req.headers);
-  if (!acquired.slot.allowed) return sendKeepaBusy(res);
-  const keepaDebug = acquired.debug;
+  // 残ユニットの事前チェック(消費はしない)。理由は/api/searchの同等処理と同じ。
+  if (!isPro) {
+    const preCheckQuota = await deviceQuota.computeQuota(deviceId);
+    if (preCheckQuota && preCheckQuota.unitsRemaining !== undefined && preCheckQuota.unitsRemaining <= 0) {
+      return res.status(429).json({
+        error: 'quota_exceeded',
+        message: '本日の無料スキャン上限に達しました。',
+        quota: preCheckQuota,
+      });
+    }
+  }
+
+  let fetched;
+  try {
+    fetched = await fetchKeepaProductWithDebug(req.headers, {
+      coalesceKey: cacheKey,
+      fetchParams: { asin, history: 1, apiKey: keepaApiKey },
+      priority: isPro ? 'pro' : 'free',
+    });
+  } catch (err) {
+    if (err.code === 'keepa_busy') return sendKeepaBusy(res);
+    console.error(`[graph-data] asin=${asin} failed:`, err.message);
+    return res.status(502).json({ error: 'graph_data_failed', message: err.message });
+  }
+  const keepaDebug = fetched.debug;
 
   if (!isPro) {
-    // 無料枠ユニットの消費ロジックは変更しない(Keepa連携はPro限定機能のため実質影響しないが、
-    // 無料ユーザーがBYOキーを送ってきた場合も従来どおり消費する。安全側の判断)。
     const consumeResult = await deviceQuota.tryConsume(deviceId, 1);
     if (!consumeResult.allowed) {
       return res.status(429).json({
@@ -1076,35 +1139,12 @@ router.get('/api/graph-data', async (req, res) => {
         quota: consumeResult.quota,
       });
     }
-    // 消費済みのquotaをそのまま使う(DOへの追加アクセスを避けるため)。
     attachQuota(res, consumeResult.quota);
   }
 
-  try {
-    const { product, tokensLeft } = await keepa.getProduct({ asin, history: 1, apiKey: keepaApiKey });
-    // 共有キーのときだけ実残量をスロットルへ報告する(BYOキーの残量で共有側の推定を
-    // 壊さないようにする)。報告は補正であり本処理の成否に影響させない。
-    // デモモード(X-Keepa-Demo)のときは報告しない: demoインスタンスの状態は利用者が
-    // 明示的にseedした値のまま維持すべきで、実Keepaの残量で上書きすると意味が無くなる。
-    if (!hasByoKeepaKey(req.headers) && !hasKeepaDemoHeader(req.headers) && Number.isFinite(tokensLeft)) {
-      await keepaThrottle.reportTokensLeft(tokensLeft);
-    }
-    const responseBody = { series: keepa.extractGraphSeries(product) };
-    // _keepaDebugはキャッシュへ入れる前(素のresponseBody)にsetし、レスポンスだけ
-    // attachKeepaDebugしたコピーで返す(理由はhandleSearchViaKeepaと同じ)。
-    graphDataCache.set(cacheKey, responseBody);
-    res.json(attachKeepaDebug(responseBody, keepaDebug));
-  } catch (err) {
-    if (err.code === 'keepa_tokens_exhausted') {
-      // 推定より実残量が少なかった稀なケース。残量0へ補正し、ユーザーには
-      // キュー拒否と同じ文言で返す(体験を1種類に揃える。設計書§2.1)。
-      // デモモードのときは報告しない(理由は上のreportTokensLeft呼び出しと同じ)。
-      if (!hasByoKeepaKey(req.headers) && !hasKeepaDemoHeader(req.headers)) await keepaThrottle.reportExhausted();
-      return sendKeepaBusy(res);
-    }
-    console.error(`[graph-data] asin=${asin} failed:`, err.message);
-    res.status(502).json({ error: 'graph_data_failed', message: err.message });
-  }
+  const responseBody = { series: keepa.extractGraphSeries(fetched.product.product) };
+  graphDataCache.set(cacheKey, responseBody);
+  res.json(attachKeepaDebug(responseBody, keepaDebug));
 });
 
 /**

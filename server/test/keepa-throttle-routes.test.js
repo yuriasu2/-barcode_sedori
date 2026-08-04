@@ -83,7 +83,7 @@ const NO_SPAPI = {
 test('/api/graph-data: スロットル拒否(depth=0,残量0)は429 keepa_busyで、指定文言を返す', async (t) => {
   await withEnv({ ...NO_SPAPI, KEEPA_API_KEY: 'shared-key' }, async () => {
     const routes = freshRoutes();
-    throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_QUEUE_DEPTH: '0', KEEPA_REFILL_PER_MIN: '1' });
+    throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_REFILL_PER_MIN: '1' });
     await keepaThrottle.reportTokensLeft(0); // 枯渇状態を作る
 
     const req = {
@@ -105,7 +105,7 @@ test('/api/graph-data: スロットル拒否(depth=0,残量0)は429 keepa_busy�
 test('/api/search: スロットル拒否時は無料枠ユニットを消費しない', async (t) => {
   await withEnv({ ...NO_SPAPI, KEEPA_API_KEY: 'shared-key' }, async () => {
     const routes = freshRoutes();
-    throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_QUEUE_DEPTH: '0', KEEPA_REFILL_PER_MIN: '1' });
+    throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_REFILL_PER_MIN: '1' });
     await keepaThrottle.reportTokensLeft(0);
     routes.deviceQuota._reset();
 
@@ -137,7 +137,7 @@ test('/api/search: BYOキー(X-Keepa-Key)はスロットル枯渇中でも素通
   await withEnv({ ...NO_SPAPI, KEEPA_API_KEY: undefined }, async () => {
     const routes = freshRoutes();
     const keepa = require('../src/keepa/client');
-    throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_QUEUE_DEPTH: '0', KEEPA_REFILL_PER_MIN: '1' });
+    throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_REFILL_PER_MIN: '1' });
     await keepaThrottle.reportTokensLeft(0); // 共有側は枯渇状態
 
     keepa.getProduct = async ({ apiKey }) => {
@@ -167,7 +167,7 @@ test('/api/graph-data: 成功時はtokensLeftがスロットルへ報告され�
     const routes = freshRoutes();
     const keepa = require('../src/keepa/client');
     // 容量10・報告でtokensLeft=0になる → 次のacquireが拒否されることで「報告された」ことを検証
-    throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_QUEUE_DEPTH: '0', KEEPA_REFILL_PER_MIN: '1' });
+    throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_REFILL_PER_MIN: '1' });
     keepa.getProduct = async ({ asin }) => ({ product: { asin, csv: [] }, tokensLeft: 0 });
 
     const headers = { 'x-app-plan': 'pro', 'x-device-id': 'dev-report-1' };
@@ -196,7 +196,7 @@ test('/api/search: X-Keepa-Debugヘッダー付き(通常経路)は_keepaDebug�
   await withEnv({ ...NO_SPAPI, KEEPA_API_KEY: 'shared-key' }, async () => {
     const routes = freshRoutes();
     const keepa = require('../src/keepa/client');
-    throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_QUEUE_DEPTH: '10', KEEPA_REFILL_PER_MIN: '5' });
+    throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_REFILL_PER_MIN: '5' });
     keepa.getProduct = async () => ({
       product: { asin: 'B000DEBUG01', title: 'デバッグテスト', csv: [] },
       tokensLeft: 9,
@@ -218,7 +218,6 @@ test('/api/search: X-Keepa-Debugヘッダー付き(通常経路)は_keepaDebug�
     assert.ok(res.body._keepaDebug.snapshot, 'snapshotが入ること');
     assert.equal(res.body._keepaDebug.snapshot.capacity, 10);
     assert.equal(res.body._keepaDebug.snapshot.refillPerMin, 5);
-    assert.equal(res.body._keepaDebug.snapshot.depth, 10);
 
     t.after(() => routes.searchCache.clear());
   });
@@ -228,7 +227,7 @@ test('/api/search: X-Keepa-Debug+BYOキーはbypass=byoでスロットルに触�
   await withEnv({ ...NO_SPAPI, KEEPA_API_KEY: undefined }, async () => {
     const routes = freshRoutes();
     const keepa = require('../src/keepa/client');
-    throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_QUEUE_DEPTH: '0', KEEPA_REFILL_PER_MIN: '1' });
+    throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_REFILL_PER_MIN: '1' });
     await keepaThrottle.reportTokensLeft(0); // 共有側は枯渇状態(BYOはこの影響を受けないことも確認)
 
     keepa.getProduct = async ({ apiKey }) => {
@@ -265,7 +264,7 @@ test('/api/search: X-Keepa-Debug+キャッシュヒットはbypass=cacheで、�
   await withEnv({ ...NO_SPAPI, KEEPA_API_KEY: 'shared-key' }, async () => {
     const routes = freshRoutes();
     const keepa = require('../src/keepa/client');
-    throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_QUEUE_DEPTH: '10', KEEPA_REFILL_PER_MIN: '5' });
+    throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_REFILL_PER_MIN: '5' });
     keepa.getProduct = async () => ({
       product: { asin: 'B000DEBUG03', title: 'キャッシュデバッグ', csv: [] },
       tokensLeft: 9,
@@ -311,7 +310,7 @@ test('/api/search: X-Keepa-Debugヘッダーが無ければ_keepaDebugは一切�
   await withEnv({ ...NO_SPAPI, KEEPA_API_KEY: 'shared-key' }, async () => {
     const routes = freshRoutes();
     const keepa = require('../src/keepa/client');
-    throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_QUEUE_DEPTH: '10', KEEPA_REFILL_PER_MIN: '5' });
+    throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_REFILL_PER_MIN: '5' });
     keepa.getProduct = async () => ({
       product: { asin: 'B000DEBUG04', title: '通常', csv: [] },
       tokensLeft: 9,
@@ -335,7 +334,7 @@ test('/api/graph-data: X-Keepa-Debugヘッダー付き(通常経路)は_keepaDeb
   await withEnv({ ...NO_SPAPI, KEEPA_API_KEY: 'shared-key' }, async () => {
     const routes = freshRoutes();
     const keepa = require('../src/keepa/client');
-    throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_QUEUE_DEPTH: '10', KEEPA_REFILL_PER_MIN: '5' });
+    throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_REFILL_PER_MIN: '5' });
     keepa.getProduct = async () => ({
       product: { asin: 'B000GDDEBUG1', csv: [] },
       tokensLeft: 9,
@@ -357,7 +356,6 @@ test('/api/graph-data: X-Keepa-Debugヘッダー付き(通常経路)は_keepaDeb
     assert.ok(res.body._keepaDebug.snapshot, 'snapshotが入ること');
     assert.equal(res.body._keepaDebug.snapshot.capacity, 10);
     assert.equal(res.body._keepaDebug.snapshot.refillPerMin, 5);
-    assert.equal(res.body._keepaDebug.snapshot.depth, 10);
 
     t.after(() => routes.graphDataCache.clear());
   });
@@ -367,7 +365,7 @@ test('/api/graph-data: X-Keepa-Debug+BYOキーはbypass=byoでスロットルに
   await withEnv({ ...NO_SPAPI, KEEPA_API_KEY: undefined }, async () => {
     const routes = freshRoutes();
     const keepa = require('../src/keepa/client');
-    throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_QUEUE_DEPTH: '0', KEEPA_REFILL_PER_MIN: '1' });
+    throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_REFILL_PER_MIN: '1' });
     await keepaThrottle.reportTokensLeft(0); // 共有側は枯渇状態(BYOはこの影響を受けないことも確認)
 
     keepa.getProduct = async ({ apiKey }) => {
@@ -404,7 +402,7 @@ test('/api/graph-data: X-Keepa-Debug+キャッシュヒットはbypass=cacheで�
   await withEnv({ ...NO_SPAPI, KEEPA_API_KEY: 'shared-key' }, async () => {
     const routes = freshRoutes();
     const keepa = require('../src/keepa/client');
-    throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_QUEUE_DEPTH: '10', KEEPA_REFILL_PER_MIN: '5' });
+    throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_REFILL_PER_MIN: '5' });
     keepa.getProduct = async () => ({
       product: { asin: 'B000GDDEBUG3', csv: [] },
       tokensLeft: 9,
@@ -450,7 +448,7 @@ test('/api/graph-data: X-Keepa-Debugヘッダーが無ければ_keepaDebugは一
   await withEnv({ ...NO_SPAPI, KEEPA_API_KEY: 'shared-key' }, async () => {
     const routes = freshRoutes();
     const keepa = require('../src/keepa/client');
-    throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_QUEUE_DEPTH: '10', KEEPA_REFILL_PER_MIN: '5' });
+    throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_REFILL_PER_MIN: '5' });
     keepa.getProduct = async () => ({
       product: { asin: 'B000GDDEBUG4', csv: [] },
       tokensLeft: 9,
@@ -476,7 +474,7 @@ test('/api/graph-data: X-Keepa-Debugヘッダーが無ければ_keepaDebugは一
 
 test('POST /api/keepa-throttle-demo/seed: tokens/ratePerMinどちらもseedしスナップショットを返す', async (t) => {
   const routes = freshRoutes();
-  throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_QUEUE_DEPTH: '10', KEEPA_REFILL_PER_MIN: '5' });
+  throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_REFILL_PER_MIN: '5' });
 
   const req = { query: { tokens: '3', ratePerMin: '8' }, headers: {} };
   const res = createMockRes();
@@ -490,7 +488,7 @@ test('POST /api/keepa-throttle-demo/seed: tokens/ratePerMinどちらもseedし�
 
 test('POST /api/keepa-throttle-demo/seed: パラメータ無しは400', async (t) => {
   const routes = freshRoutes();
-  throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_QUEUE_DEPTH: '10', KEEPA_REFILL_PER_MIN: '5' });
+  throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_REFILL_PER_MIN: '5' });
 
   const req = { query: {}, headers: {} };
   const res = createMockRes();
@@ -502,7 +500,7 @@ test('POST /api/keepa-throttle-demo/seed: パラメータ無しは400', async (t
 
 test('POST /api/keepa-throttle-demo/seed: tokensが数値でなければ400', async (t) => {
   const routes = freshRoutes();
-  throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_QUEUE_DEPTH: '10', KEEPA_REFILL_PER_MIN: '5' });
+  throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_REFILL_PER_MIN: '5' });
 
   const req = { query: { tokens: 'abc' }, headers: {} };
   const res = createMockRes();
@@ -514,7 +512,7 @@ test('POST /api/keepa-throttle-demo/seed: tokensが数値でなければ400', as
 
 test('POST /api/keepa-throttle-demo/seed: ratePerMinが負なら400', async (t) => {
   const routes = freshRoutes();
-  throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_QUEUE_DEPTH: '10', KEEPA_REFILL_PER_MIN: '5' });
+  throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_REFILL_PER_MIN: '5' });
 
   const req = { query: { ratePerMin: '-1' }, headers: {} };
   const res = createMockRes();
@@ -526,7 +524,7 @@ test('POST /api/keepa-throttle-demo/seed: ratePerMinが負なら400', async (t) 
 
 test('POST /api/keepa-throttle-demo/seed: refillPerMinを明示指定すると時間経過でトークンが実際に補充される', async (t) => {
   const routes = freshRoutes();
-  throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_QUEUE_DEPTH: '10', KEEPA_REFILL_PER_MIN: '5' });
+  throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_REFILL_PER_MIN: '5' });
 
   // tokens=0・refillPerMin=600(1秒に10個)でseed → 100ms待てば1個以上戻っているはず。
   const req = { query: { tokens: '0', refillPerMin: '600' }, headers: {} };
@@ -543,7 +541,7 @@ test('POST /api/keepa-throttle-demo/seed: refillPerMinを明示指定すると�
 
 test('POST /api/keepa-throttle-demo/seed: refillPerMin未指定なら従来通り0固定される(後方互換)', async (t) => {
   const routes = freshRoutes();
-  throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_QUEUE_DEPTH: '10', KEEPA_REFILL_PER_MIN: '5' });
+  throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_REFILL_PER_MIN: '5' });
 
   const req = { query: { tokens: '0' }, headers: {} };
   const res = createMockRes();
@@ -558,7 +556,7 @@ test('POST /api/keepa-throttle-demo/seed: refillPerMin未指定なら従来通�
 
 test('POST /api/keepa-throttle-demo/seed: refillPerMinが負なら400', async (t) => {
   const routes = freshRoutes();
-  throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_QUEUE_DEPTH: '10', KEEPA_REFILL_PER_MIN: '5' });
+  throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_REFILL_PER_MIN: '5' });
 
   const req = { query: { tokens: '1', refillPerMin: '-3' }, headers: {} };
   const res = createMockRes();
@@ -570,7 +568,7 @@ test('POST /api/keepa-throttle-demo/seed: refillPerMinが負なら400', async (t
 
 test('POST /api/keepa-throttle-demo/seed: refillPerMinが数値でなければ400', async (t) => {
   const routes = freshRoutes();
-  throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_QUEUE_DEPTH: '10', KEEPA_REFILL_PER_MIN: '5' });
+  throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_REFILL_PER_MIN: '5' });
 
   const req = { query: { tokens: '1', refillPerMin: 'abc' }, headers: {} };
   const res = createMockRes();
@@ -586,7 +584,7 @@ test('POST /api/keepa-throttle-demo/seed: refillPerMinが数値でなければ40
 
 test('POST /api/keepa-throttle-demo/probe: 実Keepa(global.fetch)を一切呼ばない', async (t) => {
   const routes = freshRoutes();
-  throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_QUEUE_DEPTH: '10', KEEPA_REFILL_PER_MIN: '5' });
+  throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_REFILL_PER_MIN: '5' });
   await keepaThrottle.seedDemoState({ tokens: 5 });
 
   const originalFetch = global.fetch;
@@ -611,7 +609,7 @@ test('POST /api/keepa-throttle-demo/probe: 実Keepa(global.fetch)を一切呼ば
 
 test('POST /api/keepa-throttle-demo/probe: priority省略時はfree扱い、レスポンスにwaitedMs/snapshotが入る', async (t) => {
   const routes = freshRoutes();
-  throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_QUEUE_DEPTH: '10', KEEPA_REFILL_PER_MIN: '5' });
+  throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_REFILL_PER_MIN: '5' });
   await keepaThrottle.seedDemoState({ tokens: 5 });
 
   const req = { query: {}, headers: {} };
@@ -626,9 +624,9 @@ test('POST /api/keepa-throttle-demo/probe: priority省略時はfree扱い、レ�
   assert.ok(res.body.snapshot, 'snapshotが入ること');
 });
 
-test('POST /api/keepa-throttle-demo/probe: seedした残量ぶんはallowed:true、それ以降はallowed:false(depth)になる', async (t) => {
+test('POST /api/keepa-throttle-demo/probe: seedした残量ぶんはallowed:true、それ以降はallowed:false(exhausted)になる', async (t) => {
   const routes = freshRoutes();
-  throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_QUEUE_DEPTH: '0', KEEPA_REFILL_PER_MIN: '5' });
+  throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_REFILL_PER_MIN: '5' });
   await keepaThrottle.seedDemoState({ tokens: 2 }); // refillPerMinは0固定なので自然回復しない
 
   const route = routes.match('POST', '/api/keepa-throttle-demo/probe');
@@ -643,16 +641,16 @@ test('POST /api/keepa-throttle-demo/probe: seedした残量ぶんはallowed:true
   assert.equal(results[0].allowed, true);
   assert.equal(results[1].allowed, true);
   assert.equal(results[2].allowed, false);
-  assert.equal(results[2].reason, 'depth');
+  assert.equal(results[2].reason, 'exhausted');
   assert.equal(results[3].allowed, false);
-  assert.equal(results[3].reason, 'depth');
+  assert.equal(results[3].reason, 'exhausted');
 });
 
 test('/api/search: X-Keepa-Demoでdemoをseedし残量0にすると、demo付き検索はkeepa_busyになるが、同時にdemo無しの通常検索(global)は影響を受けず成功する(安全設計の核心)', async (t) => {
   await withEnv({ ...NO_SPAPI, KEEPA_API_KEY: 'shared-key' }, async () => {
     const routes = freshRoutes();
     const keepa = require('../src/keepa/client');
-    throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_QUEUE_DEPTH: '0', KEEPA_REFILL_PER_MIN: '5' });
+    throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_REFILL_PER_MIN: '5' });
     keepa.getProduct = async () => ({
       product: { asin: 'B000DEMOSAFE', title: 'デモ隔離テスト', csv: [] },
       tokensLeft: 9,
@@ -688,7 +686,7 @@ test('/api/search: X-Keepa-Demo付きでもBYOキーが優先されスロット�
   await withEnv({ ...NO_SPAPI, KEEPA_API_KEY: undefined }, async () => {
     const routes = freshRoutes();
     const keepa = require('../src/keepa/client');
-    throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_QUEUE_DEPTH: '0', KEEPA_REFILL_PER_MIN: '5' });
+    throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_REFILL_PER_MIN: '5' });
     await keepaThrottle.seedDemoState({ tokens: 0 }); // demoは枯渇状態
 
     keepa.getProduct = async ({ apiKey }) => {
@@ -721,7 +719,7 @@ test('/api/graph-data: X-Keepa-Demo経路の成功時は実Keepaのtokens Left�
   await withEnv({ ...NO_SPAPI, KEEPA_API_KEY: 'shared-key' }, async () => {
     const routes = freshRoutes();
     const keepa = require('../src/keepa/client');
-    throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_QUEUE_DEPTH: '10', KEEPA_REFILL_PER_MIN: '5' });
+    throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_REFILL_PER_MIN: '5' });
     // demoを明示的に残量5にseedする。
     await keepaThrottle.seedDemoState({ tokens: 5 });
     // 実Keepaは残量0を返す(通常経路ならreportTokensLeftでdemoが0に上書きされてしまうはず)。
@@ -741,5 +739,70 @@ test('/api/graph-data: X-Keepa-Demo経路の成功時は実Keepaのtokens Left�
     assert.ok(snapshot.tokensEstimate > 0, `demoが実Keepaの残量で上書きされている(tokensEstimate=${snapshot.tokensEstimate})`);
 
     t.after(() => routes.graphDataCache.clear());
+  });
+});
+
+test('/api/search: 同一コードへの同時リクエストはKeepaを1回しか呼ばない(コアレッシング)', async (t) => {
+  await withEnv({ ...NO_SPAPI, KEEPA_API_KEY: 'shared-key' }, async () => {
+    const routes = freshRoutes();
+    const keepa = require('../src/keepa/client');
+    throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_REFILL_PER_MIN: '5' });
+
+    let callCount = 0;
+    keepa.getProduct = async () => {
+      callCount += 1;
+      await new Promise((r) => setTimeout(r, 30));
+      return {
+        product: { asin: 'B000COALESCE1', title: 'コアレッシングテスト', csv: [] },
+        tokensLeft: 9,
+      };
+    };
+
+    const makeReq = (deviceId) => ({
+      query: { code: '9784873119045' },
+      headers: { 'x-app-plan': 'pro', 'x-device-id': deviceId },
+    });
+
+    const responses = await Promise.all(
+      ['dev-a', 'dev-b', 'dev-c'].map(async (deviceId) => {
+        const req = makeReq(deviceId);
+        const res = createMockRes();
+        await routes.match('GET', '/api/search').handler(req, res);
+        return res;
+      })
+    );
+
+    assert.equal(callCount, 1, 'Keepaへの実呼び出しは1回だけのはず');
+    for (const res of responses) {
+      assert.equal(res.statusCode, 200);
+      assert.equal(res.body.asin, 'B000COALESCE1');
+    }
+  });
+});
+
+test('/api/search: コアレッシングされたリクエストがスロットル拒否されたら、束ねられた全員がkeepa_busyになる', async (t) => {
+  await withEnv({ ...NO_SPAPI, KEEPA_API_KEY: 'shared-key' }, async () => {
+    const routes = freshRoutes();
+    throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_REFILL_PER_MIN: '5' });
+    await keepaThrottle.reportTokensLeft(0); // 枯渇状態を作る
+
+    const makeReq = (deviceId) => ({
+      query: { code: '9784873119045' },
+      headers: { 'x-app-plan': 'pro', 'x-device-id': deviceId },
+    });
+
+    const responses = await Promise.all(
+      ['dev-a', 'dev-b'].map(async (deviceId) => {
+        const req = makeReq(deviceId);
+        const res = createMockRes();
+        await routes.match('GET', '/api/search').handler(req, res);
+        return res;
+      })
+    );
+
+    for (const res of responses) {
+      assert.equal(res.statusCode, 429);
+      assert.equal(res.body.error, 'keepa_busy');
+    }
   });
 });

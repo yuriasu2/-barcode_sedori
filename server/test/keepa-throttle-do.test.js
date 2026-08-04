@@ -34,11 +34,10 @@ test('KeepaThrottleDO: /acquireは残量があればallowed:true', async () => {
   assert.deepEqual(await res.json(), { allowed: true });
 });
 
-test('KeepaThrottleDO: /reportで残量0にすると、depth=0の/acquireは即拒否', async () => {
+test('KeepaThrottleDO: /reportで残量0にすると、/acquireは即拒否(exhausted)', async () => {
   const doInstance = await makeDo({
     KEEPA_BUCKET_CAPACITY: '10',
     KEEPA_REFILL_PER_MIN: '1',
-    KEEPA_QUEUE_DEPTH: '0',
   });
   await doInstance.fetch(new Request('https://do/report?tokensLeft=0', { method: 'POST' }));
   const res = await doInstance.fetch(new Request('https://do/acquire?priority=pro', { method: 'POST' }));
@@ -49,7 +48,6 @@ test('KeepaThrottleDO: /exhaustedで残量0になる', async () => {
   const doInstance = await makeDo({
     KEEPA_BUCKET_CAPACITY: '10',
     KEEPA_REFILL_PER_MIN: '1',
-    KEEPA_QUEUE_DEPTH: '0',
   });
   await doInstance.fetch(new Request('https://do/exhausted', { method: 'POST' }));
   const res = await doInstance.fetch(new Request('https://do/acquire?priority=free', { method: 'POST' }));
@@ -66,11 +64,10 @@ test('KeepaThrottleDO: /seed-demoはtokens/ratePerMinを注入しスナップシ
   assert.equal(body.consumeRatePerMin, 8);
 });
 
-test('KeepaThrottleDO: /seed-demoで残量0にすると、depth=0の/acquireは即拒否', async () => {
+test('KeepaThrottleDO: /seed-demoで残量0にすると、/acquireは即拒否(exhausted)', async () => {
   const doInstance = await makeDo({
     KEEPA_BUCKET_CAPACITY: '10',
     KEEPA_REFILL_PER_MIN: '1',
-    KEEPA_QUEUE_DEPTH: '0',
   });
   await doInstance.fetch(new Request('https://do/seed-demo?tokens=0', { method: 'POST' }));
   const res = await doInstance.fetch(new Request('https://do/acquire?priority=free', { method: 'POST' }));
@@ -84,7 +81,7 @@ test('KeepaThrottleDO: 不明なパスは404', async () => {
 });
 
 test('KeepaThrottleDO: DOが退避されてconstructorから作り直されても、seedした値(demoCheckpoint)がstorageから復元される', async () => {
-  const env = { KEEPA_BUCKET_CAPACITY: '10', KEEPA_REFILL_PER_MIN: '1', KEEPA_QUEUE_DEPTH: '0' };
+  const env = { KEEPA_BUCKET_CAPACITY: '10', KEEPA_REFILL_PER_MIN: '1' };
   // 同じbackingMapを共有する2つの別インスタンスで、DOの退避→再構築(constructorのやり直し)を再現する。
   const backingMap = new Map();
 
@@ -96,13 +93,13 @@ test('KeepaThrottleDO: DOが退避されてconstructorから作り直されて�
   // ここでbeforeを使い捨て、evictされた後の新しいDOオブジェクトを模す。
   const after = await makeDo(env, backingMap);
   const res = await after.fetch(new Request('https://do/acquire?priority=free', { method: 'POST' }));
-  // seedしたtokens=0がstorageから復元されていれば、depth=0のため即座にNG(depth)になるはず。
+  // seedしたtokens=0がstorageから復元されていれば、残量0のため即座にNG(exhausted)になるはず。
   // 復元されず満タン(capacity=10)で作り直されていたら誤ってallowed:trueになってしまう。
   assert.deepEqual(await res.json(), { allowed: false, reason: 'exhausted' });
 });
 
 test('KeepaThrottleDO: 退避→再構築をまたいでも、経過時間ぶんの補充が正しく引き継がれる', async () => {
-  const env = { KEEPA_BUCKET_CAPACITY: '10', KEEPA_REFILL_PER_MIN: '1', KEEPA_QUEUE_DEPTH: '0' };
+  const env = { KEEPA_BUCKET_CAPACITY: '10', KEEPA_REFILL_PER_MIN: '1' };
   const backingMap = new Map();
 
   const before = await makeDo(env, backingMap);
@@ -116,6 +113,6 @@ test('KeepaThrottleDO: 退避→再構築をまたいでも、経過時間ぶん
   const after = await makeDo(env, backingMap); // 退避→再構築を模した別インスタンス
   const res = await after.fetch(new Request('https://do/acquire?priority=free', { method: 'POST' }));
   // refillPerMin=60(1秒に1個)で3秒経過している想定なので、3個分補充されて許可されるはず。
-  // 退避のたびにtokens=0へ巻き戻るバグが直っていなければ、depth=0のため即座にNG(depth)になる。
+  // 退避のたびにtokens=0へ巻き戻るバグが直っていなければ、残量0のため即座にNG(exhausted)になる。
   assert.deepEqual(await res.json(), { allowed: true });
 });
