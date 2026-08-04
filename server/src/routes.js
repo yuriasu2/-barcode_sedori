@@ -1187,9 +1187,16 @@ router.get('/api/graph-data', async (req, res) => {
     attachQuota(res, consumeResult.quota);
   }
 
-  const responseBody = { series: keepa.extractGraphSeries(fetched.product.product) };
-  graphDataCache.set(cacheKey, responseBody);
-  res.json(attachKeepaDebug(responseBody, keepaDebug));
+  try {
+    const responseBody = { series: keepa.extractGraphSeries(fetched.product.product) };
+    graphDataCache.set(cacheKey, responseBody);
+    return res.json(attachKeepaDebug(responseBody, keepaDebug));
+  } catch (err) {
+    // extractGraphSeries以降のレスポンス構築で例外が起きても、素の500ではなく
+    // /api/searchのresponse construction failedと同じ502 graph_data_failedへ揃える。
+    console.error(`[graph-data] asin=${asin} response construction failed:`, err.message);
+    return res.status(502).json({ error: 'graph_data_failed', message: err.message });
+  }
 });
 
 /**

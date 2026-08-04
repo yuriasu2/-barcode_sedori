@@ -194,6 +194,30 @@ test('/api/graph-data: 成功時はtokensLeftがスロットルへ報告され�
   });
 });
 
+test('/api/graph-data: レスポンス構築(extractGraphSeries)で例外が起きても素の500ではなく502 graph_data_failedを返す', async (t) => {
+  await withEnv({ ...NO_SPAPI, KEEPA_API_KEY: 'shared-key' }, async () => {
+    const routes = freshRoutes();
+    const keepa = require('../src/keepa/client');
+    throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_REFILL_PER_MIN: '5' });
+    keepa.getProduct = async ({ asin }) => ({ product: { asin, csv: [] }, tokensLeft: 9 });
+    keepa.extractGraphSeries = () => {
+      throw new Error('boom');
+    };
+
+    const req = {
+      query: { asin: 'B000CONSTRUCT1' },
+      headers: { 'x-app-plan': 'pro', 'x-device-id': 'dev-construct-1' },
+    };
+    const res = createMockRes();
+    await routes.match('GET', '/api/graph-data').handler(req, res);
+
+    assert.equal(res.statusCode, 502);
+    assert.equal(res.body.error, 'graph_data_failed');
+
+    t.after(() => routes.graphDataCache.clear());
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Keepaスロットルのデバッグ表示(X-Keepa-Debug)
 // docs/superpowers/specs/2026-08-02-keepa-token-depletion-design.md §2.1・§2.6
