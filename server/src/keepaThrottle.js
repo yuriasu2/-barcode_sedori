@@ -1,17 +1,19 @@
 'use strict';
 
 /**
- * 共有Keepaキーのトークン残量推定と優先度付き待ち行列(スロットル)。
+ * 共有Keepaキーのトークン残量推定とスロットル。
  * 設計書: docs/superpowers/specs/2026-08-02-keepa-token-depletion-design.md §2.1
  *
  * なぜ必要か:
  * 共有Keepaキーは全ユーザーで1つのトークンバケット(補充は毎分KEEPA_REFILL_PER_MIN個)を
- * 共有する。枯渇時に即503で失敗させると「回復トークンの早い者勝ち」になり体験が悪いため、
- * 有限のキューで補充ペースに合わせて順番に流し、あふれた分だけを即座に断る(load shedding)。
+ * 共有する。枯渇時は即座にreason=exhaustedで拒否する(load shedding)。かつてはキューで
+ * 補充ペースに合わせて順番に流していたが、現行5トークン/分の低速プランでは待ちがUX上
+ * ほぼ無意味なうえ、Cloudflare Durable Objects環境ではキューの自己タイマーが信頼できる
+ * タイミングで発火しないことが判明したため撤去した。適応ブレーキ(§2.6)は維持する。
  *
  * 2経路のファサード(deviceQuota.jsと同じ流儀):
  * - Workers本番: globalThis.__keepaThrottleDO(worker.jsが橋渡し)経由でKeepaThrottleDOへ委譲。
- *   キューと残量推定はグローバルに1つのDOが一元管理する(isolate間で状態共有するため)。
+ *   残量推定はグローバルに1つのDOが一元管理する(isolate間で状態共有するため)。
  * - Node/Render/テスト: インメモリのThrottleCoreへフォールバック。
  *
  * DO障害時の方針: deviceQuotaと同じく「許可」で倒す(可用性優先)。スロットルが一時的に
@@ -30,11 +32,6 @@ function readThrottleConfig(env) {
   return {
     refillPerMin,
     capacity: Number.isFinite(capacityRaw) && capacityRaw > 0 ? capacityRaw : refillPerMin * 60,
-    depth: (env && Number.isFinite(parseInt(env.KEEPA_QUEUE_DEPTH, 10))) ? parseInt(env.KEEPA_QUEUE_DEPTH, 10) : 10,
-    // iOSの通信タイムアウト(APIClient.swiftのtimeoutInterval=10秒)より短くする必要がある。
-    // これより長いと、iOS側が先に切断した後にサーバー側で許可が出て「誰も受け取らない
-    // レスポンス」のためだけにユニット・トークンを消費する経路が生まれる。
-    timeoutMs: (env && parseInt(env.KEEPA_QUEUE_TIMEOUT_MS, 10)) || 6000,
   };
 }
 
@@ -45,6 +42,13 @@ const BRAKE_SAFE_TTE_MIN_FREE = 10;
 const BRAKE_SAFE_TTE_MIN_PRO = 2;
 // 消費レートを測る観測窓(ミリ秒)。直近60秒のgrant件数がconsumeRatePerMin。
 const BRAKE_WINDOW_MS = 60000;
+
+// 適応ブレーキの遅延上限(ms)。キュー撤去に伴い、KEEPA_QUEUE_TIMEOUT_MS(廃止)から独立させた
+// 固定値。iOSの通信タイムアウト(APIClient.swiftのtimeoutInterval=10秒)に対し、実際のKeepa
+// API呼び出し(数百ms〜1-2秒程度)+DNS/TLS/Cloudflareルーティングのオーバーヘッド分の余裕を
+// 十分残す必要がある。4000msなら残り6秒の余裕があり、キュー撤去前(6000msの待ち"の後に"
+// Keepa呼び出しが乗っていた)より総待ち時間は短くなる。コード内定数とする(環境変数化しない。YAGNI)。
+const BRAKE_CAP_MS = 4000;
 
 /**
  * スロットル本体。インメモリ経路とKeepaThrottleDOの両方がこのクラスを使う
@@ -59,10 +63,6 @@ class ThrottleCore {
     this.config = config;
     this.tokens = config.capacity; // 起動直後は満タンと仮定(最初のreportで補正される)
     this.lastRefillAt = Date.now();
-    /** @type {Array<{resolve: Function, timeoutTimer: any}>} */
-    this.proQueue = [];
-    this.freeQueue = [];
-    this.grantTimer = null;
     // 適応ブレーキ(設計書§2.6)用: 直近許可(grant)のタイムスタンプ。60秒窓でprune。
     /** @type {number[]} */
     this.grantTimestamps = [];
@@ -78,9 +78,7 @@ class ThrottleCore {
     return {
       date: new Date().toISOString().slice(0, 10),
       granted: 0,
-      queued: 0,
-      shedDepth: 0,
-      shedTimeout: 0,
+      shedExhausted: 0,
       braked: 0,
       lastTokensLeft: null,
       // 直近のconsumeRatePerMin(設計書§2.6)。logShed時に計算した値を格納するのみ
@@ -114,10 +112,6 @@ class ThrottleCore {
     const elapsed = now - this.lastRefillAt;
     if (elapsed <= 0) return this.tokens;
     return Math.min(this.config.capacity, this.tokens + (elapsed * this.config.refillPerMin) / 60000);
-  }
-
-  queueLength() {
-    return this.proQueue.length + this.freeQueue.length;
   }
 
   /** 許可(grant)の実績を記録する(適応ブレーキの消費レート計測用。設計書§2.6)。 */
@@ -158,13 +152,10 @@ class ThrottleCore {
     if (tteMin >= safeMin) return 0;
 
     // floorMs=補充間隔(補充と同速まで遅延させれば、そこで消費≦補充となり均衡する)。
-    // ただし低速プラン(現行本番=5トークン/分ではfloorMs=12000ms)ではfloorMsだけで
-    // 既に config.timeoutMs(既定6000ms)を超えてしまい、ブレーキ単体でiOSの通信
-    // タイムアウトに抵触しかねない。そのためcapは「floorMsとtimeoutMs-1秒(=キュー
-    // 経路に最低1秒分の予算を残す)の小さい方」にクランプする。20/分ならfloor=3000msで
-    // timeoutMs-1000(既定7000ms)より十分小さいため挙動は変わらない。
+    // capはBRAKE_CAP_MSで頭打ちにする(キュー撤去によりKEEPA_QUEUE_TIMEOUT_MSへの依存が
+    // 無くなったため、固定の安全上限を使う)。
     const floorMs = 60000 / this.config.refillPerMin;
-    const cap = Math.min(floorMs, Math.max(0, this.config.timeoutMs - 1000));
+    const cap = Math.min(floorMs, BRAKE_CAP_MS);
     return Math.round(Math.min(cap, cap * (1 - tteMin / safeMin)));
   }
 
@@ -187,40 +178,28 @@ class ThrottleCore {
   }
 
   /**
-   * トークン1個の通行許可を求める。
+   * トークン1個の通行許可を求める。キューは無い: 即時許可 or 即時拒否のみ。
    * @param {'pro'|'free'} priority
-   * @returns {Promise<{allowed: boolean, reason?: 'depth'|'timeout'}>}
+   * @returns {Promise<{allowed: boolean, reason?: 'exhausted'}>}
    */
   async acquire(priority) {
     this.rollStatsDate();
     let now = Date.now();
     this.refill(now);
 
-    // キューに待機者がいるのにトークンがあるからと新参を先に通すと、残量補正
-    // (reportTokensLeft/reportExhausted)直後などの窓で新参が待機中のPro/freeを
-    // 追い越せてしまう。自分の判定に進む前に、先にキューを流しておく。
-    if (this.queueLength() > 0 && this.tokens >= 1) {
-      this.grantTick();
-    }
-
     // 適応ブレーキ(設計書§2.6): 即時許可できる状況でも、消費速度が枯渇へ向かっている
     // 場合は補充間隔を上限に遅延を入れる。1回のacquireにつき最大1回だけ適用する。
-    let brakeMs = 0;
     if (this.tokens >= 1) {
-      brakeMs = this.computeBrakeMs(priority, now);
+      const brakeMs = this.computeBrakeMs(priority, now);
       if (brakeMs > 0) {
         this.stats.braked += 1;
         const completedNormally = await this.sleepForBrake(brakeMs);
         if (!completedNormally) {
           // destroy()による強制解除。テストがぶら下がらないよう即座に拒否で返す。
-          return { allowed: false, reason: 'timeout' };
+          return { allowed: false, reason: 'exhausted' };
         }
         now = Date.now();
         this.refill(now);
-        // 待っている間に他の待機者がいれば先に流す(既存の追い越し防止ルールと同じ理由)。
-        if (this.queueLength() > 0 && this.tokens >= 1) {
-          this.grantTick();
-        }
       }
     }
 
@@ -231,66 +210,9 @@ class ThrottleCore {
       return { allowed: true };
     }
 
-    if (this.queueLength() >= this.config.depth) {
-      this.stats.shedDepth += 1;
-      this.logShed('depth');
-      return { allowed: false, reason: 'depth' };
-    }
-
-    this.stats.queued += 1;
-    // ブレーキで既に使った時間の分だけキュー待ちの上限を短くし、合計がtimeoutMsを
-    // 超えないようにする(設計書§2.6: iOSの通信タイムアウトより短く保つ必要があるため)。
-    const remainingTimeoutMs = Math.max(0, this.config.timeoutMs - brakeMs);
-    return new Promise((resolve) => {
-      const waiter = { resolve, timeoutTimer: null };
-      waiter.timeoutTimer = setTimeout(() => {
-        this.removeWaiter(waiter);
-        this.stats.shedTimeout += 1;
-        this.logShed('timeout');
-        resolve({ allowed: false, reason: 'timeout' });
-      }, remainingTimeoutMs);
-      // Node環境でプロセスの終了を妨げないようにする(Workers/DOにはunrefが無い)。
-      if (typeof waiter.timeoutTimer.unref === 'function') waiter.timeoutTimer.unref();
-
-      (priority === 'pro' ? this.proQueue : this.freeQueue).push(waiter);
-      this.scheduleGrant();
-    });
-  }
-
-  removeWaiter(waiter) {
-    for (const queue of [this.proQueue, this.freeQueue]) {
-      const i = queue.indexOf(waiter);
-      if (i >= 0) queue.splice(i, 1);
-    }
-  }
-
-  /** 次の1トークンが貯まる時刻にgrantTickを予約する(多重予約はしない)。 */
-  scheduleGrant() {
-    if (this.grantTimer || this.queueLength() === 0) return;
-    const now = Date.now();
-    this.refill(now);
-    const deficit = Math.max(0, 1 - this.tokens);
-    const waitMs = Math.ceil((deficit * 60000) / this.config.refillPerMin);
-    this.grantTimer = setTimeout(() => {
-      this.grantTimer = null;
-      this.grantTick();
-    }, waitMs);
-    if (typeof this.grantTimer.unref === 'function') this.grantTimer.unref();
-  }
-
-  /** 貯まったトークンぶんだけ、Pro優先でキュー先頭から許可する。 */
-  grantTick() {
-    const now = Date.now();
-    this.refill(now);
-    while (this.tokens >= 1 && this.queueLength() > 0) {
-      const waiter = this.proQueue.shift() || this.freeQueue.shift();
-      clearTimeout(waiter.timeoutTimer);
-      this.tokens -= 1;
-      this.recordGrant(now);
-      this.stats.granted += 1;
-      waiter.resolve({ allowed: true });
-    }
-    this.scheduleGrant();
+    this.stats.shedExhausted += 1;
+    this.logShed();
+    return { allowed: false, reason: 'exhausted' };
   }
 
   /** Keepaレスポンスの実残量で推定を上書きする。 */
@@ -299,7 +221,6 @@ class ThrottleCore {
     this.lastRefillAt = Date.now();
     this.tokens = Math.max(0, Math.min(this.config.capacity, tokensLeft));
     this.stats.lastTokensLeft = tokensLeft;
-    this.reflowQueueAfterCorrection();
   }
 
   /** Keepaがkeepa_tokens_exhausted(503)を返した=実残量0。 */
@@ -307,22 +228,6 @@ class ThrottleCore {
     this.lastRefillAt = Date.now();
     this.tokens = 0;
     this.stats.lastTokensLeft = 0;
-    this.reflowQueueAfterCorrection();
-  }
-
-  /**
-   * 残量補正(reportTokensLeft/reportExhausted)の直後に呼ぶ。
-   * 補正前の残量見積もりを前提に予約されたgrantTimerを一度破棄してgrantTickを
-   * やり直すことで、上方補正なら待機者を即座に流し、下方補正なら現在の残量から
-   * 正しい待ち時間で再予約されるようにする(古いタイマーを放置すると、上方補正時に
-   * 補充ペース分だけ余計に待たされたり、下方補正時に時期尚早な許可が起きたりする)。
-   */
-  reflowQueueAfterCorrection() {
-    if (this.grantTimer) {
-      clearTimeout(this.grantTimer);
-      this.grantTimer = null;
-    }
-    if (this.queueLength() > 0) this.grantTick();
   }
 
   /**
@@ -336,18 +241,14 @@ class ThrottleCore {
       capacity: this.config.capacity,
       consumeRatePerMin: this.consumeRatePerMin(now),
       refillPerMin: this.config.refillPerMin,
-      queueLength: this.queueLength(),
-      depth: this.config.depth,
     };
   }
 
   /** shedding発生時の構造化ログ(wrangler tailで確認する。設計書§2.4)。直近消費レートも出す(§2.6)。 */
-  logShed(kind) {
+  logShed() {
     const rate = this.consumeRatePerMin(Date.now());
     this.stats.consumeRatePerMin = rate;
-    console.log(
-      `[keepaThrottle] shed kind=${kind} rate=${rate} stats=${JSON.stringify(this.stats)} queue=${this.queueLength()}`
-    );
+    console.log(`[keepaThrottle] shed reason=exhausted rate=${rate} stats=${JSON.stringify(this.stats)}`);
   }
 
   /**
@@ -400,23 +301,14 @@ class ThrottleCore {
     }
   }
 
-  /** テスト用: 保留中のタイマーを全て破棄し、待機中はallowed:falseで解決する。 */
+  /** テスト用: 保留中のタイマーを全て破棄し、ブレーキ待ちはallowed:falseで解決する。 */
   destroy() {
-    if (this.grantTimer) clearTimeout(this.grantTimer);
-    this.grantTimer = null;
     // ブレーキ待ち(sleep)中のacquireも、destroy中に取り残されないよう強制解除する。
     for (const entry of this.brakeWaiters) {
       clearTimeout(entry.timer);
       entry.resolve();
     }
     this.brakeWaiters.clear();
-    for (const queue of [this.proQueue, this.freeQueue]) {
-      for (const waiter of queue) {
-        clearTimeout(waiter.timeoutTimer);
-        waiter.resolve({ allowed: false, reason: 'timeout' });
-      }
-      queue.length = 0;
-    }
   }
 }
 
@@ -479,7 +371,7 @@ function getCore(instance = 'global') {
  * 共有Keepaキーでの1回の呼び出しの通行許可を求める。
  * @param {'pro'|'free'} priority
  * @param {string} [instance] 既定'global'(本番共有インスタンス)。デモモードでは'demo'を渡す。
- * @returns {Promise<{allowed: boolean, reason?: 'depth'|'timeout'}>}
+ * @returns {Promise<{allowed: boolean, reason?: 'exhausted'}>}
  */
 async function acquire(priority, instance = 'global') {
   const binding = getDurableBinding();
