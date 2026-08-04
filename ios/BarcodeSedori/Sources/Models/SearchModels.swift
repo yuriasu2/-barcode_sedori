@@ -92,7 +92,7 @@ struct KeepaDebugInfo: Codable, Equatable {
     let waitedMs: Int
     /// acquireの結果(BYO/キャッシュ時はtrue固定)。
     let allowed: Bool
-    /// 拒否理由("depth"|"timeout")。許可時・BYO・キャッシュ時はnil。
+    /// 拒否理由("exhausted")。許可時・BYO・キャッシュ時はnil。
     let reason: String?
     let snapshot: Snapshot?
 
@@ -101,8 +101,6 @@ struct KeepaDebugInfo: Codable, Equatable {
         let capacity: Int
         let consumeRatePerMin: Int
         let refillPerMin: Int
-        let queueLength: Int
-        let depth: Int
     }
 }
 
@@ -115,14 +113,13 @@ struct KeepaThrottleDemoSeedResult: Codable, Equatable {
 
 /// POST /api/keepa-throttle-demo/probe の応答(開発者向けデモモード)。
 /// 実際のKeepa呼び出しを一切行わず、'demo'インスタンスのスロットル判定(acquire)だけを
-/// 実行した結果。複数を同時発火して完了順を見ることでキューの挙動(補充で順に許可される
-/// 様子・Pro優先で先に通る様子)を確認するために使う。
+/// 実行した結果。適応ブレーキによる遅延(waitedMs)や、残量枯渇時の即時拒否を確認するために使う。
 struct KeepaThrottleProbeResult: Codable, Equatable {
     let priority: String
     /// acquire呼び出しにかかった実測ミリ秒。
     let waitedMs: Int
     let allowed: Bool
-    /// 拒否理由("depth"|"timeout")。許可時はnil。
+    /// 拒否理由("exhausted")。許可時はnil。
     let reason: String?
     let snapshot: KeepaDebugInfo.Snapshot?
 }

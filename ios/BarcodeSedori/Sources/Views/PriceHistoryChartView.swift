@@ -323,7 +323,7 @@ struct PriceHistoryChartView: View {
     /// SearchTabViewのkeepaDebugViewと同じ形式(bypass/待ち時間/allowed/reason/snapshot)。
     private func keepaDebugView(_ debug: KeepaDebugInfo) -> some View {
         let snapshotText = debug.snapshot.map {
-            "残量≈\($0.tokensEstimate) 消費\($0.consumeRatePerMin)/分 補充\($0.refillPerMin)/分 キュー\($0.queueLength)/\($0.depth)"
+            "残量≈\($0.tokensEstimate) 消費\($0.consumeRatePerMin)/分 補充\($0.refillPerMin)/分"
         } ?? "スナップショット無し"
         return Text("[Keepa Debug] bypass=\(debug.bypass ?? "-") 待ち\(debug.waitedMs)ms allowed=\(debug.allowed) reason=\(debug.reason ?? "-") \(snapshotText)")
             .font(.system(size: 9, design: .monospaced))
