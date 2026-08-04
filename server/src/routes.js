@@ -272,7 +272,7 @@ function hasByoKeepaKey(headers) {
   return Boolean(headerKey && String(headerKey).trim());
 }
 
-/** キュー拒否・Keepa枯渇時の共通レスポンス(設計書§2.1。文言は正確にこの通りとする)。 */
+/** スロットル拒否(残量0による即時拒否)・Keepa枯渇時の共通レスポンス(設計書§2.1・§8。文言は正確にこの通りとする)。 */
 const KEEPA_BUSY_MESSAGE = '混み合っているので時間を空けてお試しください。';
 function sendKeepaBusy(res) {
   return res.status(429).json({ error: 'keepa_busy', message: KEEPA_BUSY_MESSAGE });
@@ -283,8 +283,8 @@ const QUOTA_EXCEEDED_MESSAGE = '本日の無料スキャン上限に達しまし
 
 /**
  * X-Keepa-Demoヘッダー(非空)が付いたリクエストか。デモモードでは、スロットルの
- * 判定(許可/ブレーキ/キュー待ち/お断り)だけを本番と隔離された'demo'インスタンスに
- * 対して行う(hasByoKeepaKey/hasKeepaDebugHeaderと同じ形)。
+ * 判定(許可/適応ブレーキによる遅延/お断り。キューは無い)だけを本番と隔離された
+ * 'demo'インスタンスに対して行う(hasByoKeepaKey/hasKeepaDebugHeaderと同じ形)。
  */
 function hasKeepaDemoHeader(headers) {
   const headerValue = headers && (headers['x-keepa-demo'] || headers['X-Keepa-Demo']);
@@ -348,8 +348,8 @@ async function fetchKeepaProductCoalesced({ instance, coalesceKey, fetchParams, 
       return result;
     } catch (err) {
       if (err.code === 'keepa_tokens_exhausted') {
-        // 推定より実残量が少なかった稀なケース。残量0へ補正し、キュー拒否と同じ
-        // 文言で返す(体験を1種類に揃える。設計書§2.1)。
+        // 推定より実残量が少なかった稀なケース。残量0へ補正し、スロットル拒否
+        // (残量0による即時拒否)と同じ文言で返す(体験を1種類に揃える。設計書§2.1・§8)。
         if (!isByo && !isDemo) await keepaThrottle.reportExhausted(instance);
         const busyErr = new Error('keepa throttle busy');
         busyErr.code = 'keepa_busy';
@@ -1230,10 +1230,12 @@ router.post('/api/keepa-throttle-demo/seed', async (req, res) => {
 /**
  * POST /api/keepa-throttle-demo/probe?priority=pro|free — デモ専用: 実際のKeepa呼び出し・
  * キャッシュ・履歴記録を一切行わず、'demo'インスタンスのスロットル判定(acquire)だけを試す。
- * 複数を同時発火してキューの挙動(補充で順に許可される様子・Pro優先で先に通る様子)を
- * 観察するためのテスト専用エンドポイント。X-Keepa-Debug/X-Keepa-Demoヘッダーの有無に
- * 関わらず常に'demo'インスタンス限定で動く(実験用のデバッグ機能でありヘッダー切り替えの
- * 対象にする意味が無いため。'global'には一切作用しない)。
+ * キューは無い(2026-08-03改訂で撤去済み。設計書§8)ため、1回のprobeが観察できるのは
+ * 「即座に許可されるか、即座に拒否(exhausted)されるか」と、許可された場合の適応ブレーキ
+ * (§2.6)による遅延(waitedMs)のみ。curlでの本番検証に引き続き使うため、エンドポイント自体は
+ * 維持する。X-Keepa-Debug/X-Keepa-Demoヘッダーの有無に関わらず常に'demo'インスタンス限定で
+ * 動く(実験用のデバッグ機能でありヘッダー切り替えの対象にする意味が無いため。'global'には
+ * 一切作用しない)。
  */
 router.post('/api/keepa-throttle-demo/probe', async (req, res) => {
   const priority = req.query.priority === 'pro' ? 'pro' : 'free';

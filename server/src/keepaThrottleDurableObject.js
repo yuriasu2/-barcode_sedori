@@ -92,7 +92,8 @@ export class KeepaThrottleDO {
     if (request.method === 'POST' && url.pathname === '/acquire') {
       const priority = url.searchParams.get('priority') === 'pro' ? 'pro' : 'free';
       // DOは同一オブジェクトへのリクエストを直列化するが、awaitで待つ間は他リクエストを
-      // 受け付ける(input gateはstorage操作間のみ排他)ため、キュー待ちで詰まらない。
+      // 受け付ける(input gateはstorage操作間のみ排他)ため、適応ブレーキ(sleepForBrake)の
+      // 待ち中でも他リクエストの処理が詰まらない。
       const result = await this.core.acquire(priority);
       // 'demo'として使われたことがあるDOだけ、直近状態をチェックポイントする。
       // 'global'ではisDemoInstanceが常にfalseなので早期returnし、追加のstorage

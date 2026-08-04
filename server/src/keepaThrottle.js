@@ -254,7 +254,7 @@ class ThrottleCore {
   }
 
   /**
-   * デモ専用: 任意の残量・消費レートを人為的に作る(観測目的でブレーキ/キュー/sheddingの
+   * デモ専用: 任意の残量・消費レートを人為的に作る(観測目的で適応ブレーキ/sheddingの
    * 挙動を検証者が意図的に再現できるようにするため)。本番相当のacquire等とは異なり、
    * 呼び出し元がこのメソッドを'demo'インスタンスのコアに対してのみ呼ぶことで
    * 本番の共有インスタンス('global')には作用しない設計にする(routes.js側で保証)。
@@ -267,8 +267,8 @@ class ThrottleCore {
    * 止めるのは受動的な時間経過による自然回復だけ)。
    *
    * refillPerMinが明示的に指定された場合(0以上の有限数)は、その値を使う
-   * (「時間経過でキューが補充されて順に許可されていく様子」を人が見える速さで
-   * 検証者に見せたい場合のため)。未指定・不正値なら従来通り0固定(上記の安全策)。
+   * (「時間経過で残量が補充され、枯渇(exhausted)状態から回復していく様子」を
+   * 人が見える速さで検証者に見せたい場合のため)。未指定・不正値なら従来通り0固定(上記の安全策)。
    * @param {{tokens?: number, ratePerMin?: number, refillPerMin?: number}} params
    */
   seedDemoState({ tokens, ratePerMin, refillPerMin } = {}) {
@@ -334,7 +334,7 @@ function getDurableBinding() {
 
 /**
  * 指定インスタンス名のDOへfetchする(既定"global")。
- * キューと残量は全ユーザー共通の状態なので、通常はdeviceQuotaのようにIDごとに分けないが、
+ * 残量は全ユーザー共通の状態なので、通常はdeviceQuotaのようにIDごとに分けないが、
  * デモモード(instance='demo')だけは本番('global')と完全に独立した状態を持たせるために
  * 別IDのDOインスタンスへ振り分ける(idFromNameが異なれば別オブジェクトになるため、
  * 実装(KeepaThrottleDO)側は何も意識しなくてよい)。

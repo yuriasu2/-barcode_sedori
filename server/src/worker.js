@@ -11,7 +11,7 @@
 // Durable Object本体を再エクスポートする(Workersランタイムがクラスを見つけるために必須。
 // wrangler.jsonc の durable_objects.bindings[].class_name と一致させている)。
 export { DeviceQuotaDO } from './quotaDurableObject.js';
-// Keepaスロットル(共有キーのトークン推定+優先度キュー)のDO。グローバルに1つ。
+// Keepaスロットル(共有キーのトークン推定+適応ブレーキ)のDO。グローバルに1つ。
 export { KeepaThrottleDO } from './keepaThrottleDurableObject.js';
 
 let routesPromise = null;
