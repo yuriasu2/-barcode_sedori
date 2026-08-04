@@ -338,22 +338,6 @@ final class APIClient {
         return try await perform(request, as: KeepaThrottleDemoSeedResult.self)
     }
 
-    /// POST /api/keepa-throttle-demo/probe?priority=pro|free
-    /// デモ専用: 実際のKeepa呼び出し・キャッシュ・履歴記録を一切行わず、'demo'インスタンスの
-    /// スロットル判定(acquire)だけを試す。複数を同時発火してキューの挙動(補充で順に許可される
-    /// 様子・Pro優先で先に通る様子)を観察するためのテスト専用メソッド。
-    /// このエンドポイントはヘッダー(X-Keepa-Debug/X-Keepa-Demo)の有無に関わらずサーバー側で
-    /// 常に'demo'インスタンス限定で動くため、ここでもそれらのヘッダーは付けない
-    /// (呼び出し側=SettingsViewのDEBUG専用セクションという#if DEBUGガードで十分守られている)。
-    func probeKeepaThrottleDemo(priority: String) async throws -> KeepaThrottleProbeResult {
-        var request = try makeRequest(
-            path: "/api/keepa-throttle-demo/probe",
-            queryItems: [URLQueryItem(name: "priority", value: priority)]
-        )
-        request.httpMethod = "POST"
-        return try await perform(request, as: KeepaThrottleProbeResult.self)
-    }
-
     /// 接続テスト用。GET /api/health があれば利用し、失敗した場合は /api/search を軽く叩いて疎通確認する。
     func testConnection() async throws {
         do {
