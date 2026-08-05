@@ -240,7 +240,7 @@ test('/api/search: SP-API未設定・KEEPA_API_KEYありならKeepa経路にフ�
         };
       };
 
-      const req = { query: { code: '9784471103644' }, headers: {} };
+      const req = { query: { code: '9784471103644' }, headers: { 'x-device-id': 'device-keepa-fallback' } };
       const res = createMockRes();
       const route = routes.match('GET', '/api/search');
       await route.handler(req, res);
@@ -275,7 +275,7 @@ test('/api/search: keepa経路のprofitInputsはunresolved等の早期returnで�
     async () => {
       const routes = freshRoutes();
       // convertCodeがunresolvedになる不正なコードを渡す。
-      const req = { query: { code: 'not-a-valid-code' }, headers: {} };
+      const req = { query: { code: 'not-a-valid-code' }, headers: { 'x-device-id': 'device-keepa-unresolved' } };
       const res = createMockRes();
       const route = routes.match('GET', '/api/search');
       await route.handler(req, res);
@@ -305,7 +305,7 @@ test('/api/search: keepa経路でproduct未取得(catalog_not_found)でもprofit
       const keepa = require('../src/keepa/client');
       keepa.getProduct = async () => ({ product: null });
 
-      const req = { query: { code: '9784471103644' }, headers: {} };
+      const req = { query: { code: '9784471103644' }, headers: { 'x-device-id': 'device-keepa-catalog-not-found' } };
       const res = createMockRes();
       const route = routes.match('GET', '/api/search');
       await route.handler(req, res);
@@ -1148,7 +1148,7 @@ test('/api/search(keepa経路): history:1でgetProductを呼び、graphDataCache
         };
       };
 
-      const req = { query: { code: '9784471103644' }, headers: {} };
+      const req = { query: { code: '9784471103644' }, headers: { 'x-device-id': 'device-keepa-prefill' } };
       const res = createMockRes();
       const route = routes.match('GET', '/api/search');
       await route.handler(req, res);
@@ -1288,7 +1288,7 @@ test('/api/search: BYOキーヘッダー付きのとき、環境変数KEEPA_API_
 
       const req = {
         query: { code: '9784471103644' },
-        headers: { 'x-keepa-key': 'user-search-key' },
+        headers: { 'x-keepa-key': 'user-search-key', 'x-device-id': 'device-byo-search-key' },
       };
       const res = createMockRes();
       const route = routes.match('GET', '/api/search');

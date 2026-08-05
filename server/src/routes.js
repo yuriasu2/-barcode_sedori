@@ -78,6 +78,22 @@ function deviceIdOf(headers) {
 }
 
 /**
+ * デバイスID(X-Device-Id)が必須の経路で、ヘッダーが無いときの応答。
+ *
+ * 以前はdeviceIdが無い場合を「無制限」として扱っていた(deviceIdを取れないクライアントを
+ * 誤ってブロックしないための安全側)。しかしこれは、ヘッダーを付けないだけで無料枠を
+ * 無制限に使えるという迂回路そのものだったため必須へ変更した。
+ * アプリはKeychain永続のUUID(iOS側DeviceIdentifier)を必ず送るため、
+ * 正規クライアントがここで弾かれることはない。
+ */
+function sendDeviceIdRequired(res) {
+  return res.status(400).json({
+    error: 'device_id_required',
+    message: 'デバイス識別子が取得できませんでした。アプリを再起動してお試しください。',
+  });
+}
+
+/**
  * 非Proリクエスト専用: res.json()呼び出し時にquotaフィールドを注入するよう
  * res.jsonを差し替える。respondKeepaSearchResult/graph-dataのフェッチ後のres.json呼び出し
  * (成功・エラー問わず)を変更せずに済ませるため、resオブジェクト自体を差し替えるのではなく
@@ -833,6 +849,8 @@ router.get('/api/search', async (req, res) => {
 
     if (!isPro) {
       // 冒頭では消費せず、Keepa経路(サーバーのAPIキー消費)が確定してから判定する。
+      // 無料枠を数える経路なので端末IDは必須(無ければ枠が無制限になる)。
+      if (!deviceId) return sendDeviceIdRequired(res);
       if (cached) {
         attachQuota(res, await deviceQuota.computeQuota(deviceId));
         return res.json(
@@ -1142,6 +1160,9 @@ router.get('/api/graph-data', async (req, res) => {
   const isPro = isProRequest(req.headers);
   const deviceId = deviceIdOf(req.headers);
 
+  // 無料枠を数える経路なので端末IDは必須。Proは消費対象外のため要求しない。
+  if (!isPro && !deviceId) return sendDeviceIdRequired(res);
+
   const cacheKey = graphDataCacheKey(asin);
   const cached = graphDataCache.get(cacheKey);
   if (cached) {
@@ -1271,6 +1292,7 @@ router.get('/api/quota', async (req, res) => {
     return res.json({ unlimited: true, reason: 'pro' });
   }
   const deviceId = deviceIdOf(req.headers);
+  if (!deviceId) return sendDeviceIdRequired(res);
   res.json(await deviceQuota.computeQuota(deviceId));
 });
 
@@ -1730,6 +1752,8 @@ router.hasByoKeepaKey = hasByoKeepaKey;
 router.hasKeepaDemoHeader = hasKeepaDemoHeader;
 // テスト用途にデバイスID抽出関数、deviceQuotaモジュール本体を公開する。
 router.deviceIdOf = deviceIdOf;
+// テスト用途にデバイスID必須エラーの応答関数を公開する。
+router.sendDeviceIdRequired = sendDeviceIdRequired;
 router.deviceQuota = deviceQuota;
 router.attachQuota = attachQuota;
 // テスト用途に定価抽出ヘルパーを公開する。

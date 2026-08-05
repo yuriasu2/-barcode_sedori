@@ -38,11 +38,11 @@ test('tryConsume: 基本枠5まで消費でき、6回目はallowed=false。quota
   });
 });
 
-test('tryConsume: deviceId空/未指定は常にallowed=true・消費なし・quotaは{unlimited:true}', async () => {
+test('tryConsume: deviceId空/未指定は常にallowed=false・消費なし・quotaは{unknown:true}(ヘッダー省略による無制限迂回を防ぐ)', async () => {
   deviceQuota._reset();
-  assert.deepEqual(await deviceQuota.tryConsume(null, 1), { allowed: true, quota: { unlimited: true } });
-  assert.deepEqual(await deviceQuota.tryConsume(undefined, 1), { allowed: true, quota: { unlimited: true } });
-  assert.deepEqual(await deviceQuota.tryConsume('', 1), { allowed: true, quota: { unlimited: true } });
+  assert.deepEqual(await deviceQuota.tryConsume(null, 1), { allowed: false, quota: { unknown: true } });
+  assert.deepEqual(await deviceQuota.tryConsume(undefined, 1), { allowed: false, quota: { unknown: true } });
+  assert.deepEqual(await deviceQuota.tryConsume('', 1), { allowed: false, quota: { unknown: true } });
   // 消費されていないことを確認(登録すらされない)
   assert.equal(deviceQuota._entries.size, 0);
 });
@@ -126,9 +126,9 @@ test('computeQuota: 副作用なし(呼び出しても内部状態は変化し�
   assert.equal(quota1.unitsUsed, 2);
 });
 
-test('computeQuota: deviceId空は{unlimited:true}のみを返す', async () => {
-  assert.deepEqual(await deviceQuota.computeQuota(null), { unlimited: true });
-  assert.deepEqual(await deviceQuota.computeQuota(''), { unlimited: true });
+test('computeQuota: deviceId空は{unknown:true}を返す(unlimitedは返さない)', async () => {
+  assert.deepEqual(await deviceQuota.computeQuota(null), { unknown: true });
+  assert.deepEqual(await deviceQuota.computeQuota(''), { unknown: true });
 });
 
 // ---------------------------------------------------------------------------

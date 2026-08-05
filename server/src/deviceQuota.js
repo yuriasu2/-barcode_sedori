@@ -21,6 +21,12 @@
  * 公開APIは(DO経路がfetchベースの非同期I/Oのため)すべてasync化した。戻り値の形は
  * 旧同期版と同一に保っている(呼び出し側routes.jsの契約を変えないため)。
  *
+ * deviceIdが無い場合の方針(2026-08-05変更):
+ * かつては「無制限扱い(unlimited)」で倒していたが、X-Device-Idヘッダーを付けないだけで
+ * 無料枠を無制限に使えるという迂回路になっていたため、拒否(tryConsumeはallowed:false)へ
+ * 変更した。本来の防御はroutes.js側が400 device_id_requiredで先に弾くことであり、
+ * ここは多層防御の位置づけ。
+ *
  * DO障害時の方針(重要):
  * DOへのfetchが失敗した場合は「許可(可用性優先)」で倒す。無料枠ユニットを一時的に
  * 使いすぎられるリスクより、DO障害のたびに正当なユーザーまで「使えない」状態に
@@ -211,7 +217,11 @@ async function getState(deviceId) {
  * @param {string|null|undefined} deviceId
  */
 async function computeQuota(deviceId) {
-  if (!deviceId) return { unlimited: true };
+  // deviceIdが無い場合はかつて { unlimited: true } を返していたが、ヘッダーを省くだけで
+  // 無料枠が無制限になる迂回路だったため廃止した。呼び出し側(routes.js)が先に400で
+  // 弾くので通常ここには来ない。到達した場合は「残量不明」を返す(クライアントは
+  // unknownを見たらローカルの残量を維持し、上書きしない)。
+  if (!deviceId) return { unknown: true };
   const state = await getState(deviceId);
   if (!state) return { unknown: true };
   return quotaMath.buildQuota(state.unitsUsed, state.adGrants, limits());
@@ -226,7 +236,9 @@ async function computeQuota(deviceId) {
  * @returns {Promise<{allowed: boolean, quota: object}>}
  */
 async function tryConsume(deviceId, units = 1) {
-  if (!deviceId) return { allowed: true, quota: { unlimited: true } };
+  // computeQuotaと同じ理由で「deviceIdが無ければ許可」を廃止した(多層防御)。
+  // routes.js側が先に400で弾くため通常ここには来ない。
+  if (!deviceId) return { allowed: false, quota: { unknown: true } };
 
   const binding = getDurableBinding();
   if (!binding) return tryConsumeInMemory(deviceId, units);
@@ -261,7 +273,9 @@ async function tryConsume(deviceId, units = 1) {
  * @returns {Promise<{granted: boolean, duplicate?: boolean, quota: object}>}
  */
 async function grantAd(deviceId, transactionId) {
-  if (!deviceId) return { granted: false, quota: { unlimited: true } };
+  // 付与先が特定できないため付与しない(挙動は従来どおり)。quotaだけ
+  // computeQuota/tryConsumeと揃えて「無制限」を返さないようにする。
+  if (!deviceId) return { granted: false, quota: { unknown: true } };
 
   const binding = getDurableBinding();
   if (!binding) return grantAdInMemory(deviceId, transactionId);
