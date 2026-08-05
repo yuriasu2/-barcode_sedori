@@ -58,8 +58,8 @@ test('checkAndCount: インメモリ経路でIPごとに独立して数える', 
   ipRateLimit._reset();
   ipRateLimit._setDurableBinding(null); // インメモリ経路を強制
 
-  // 既定30回/分。同一IPで31回目が拒否される。
-  for (let i = 0; i < 30; i += 1) {
+  // 既定回数まで許可し、その次(既定+1回目)が拒否される。
+  for (let i = 0; i < ipRateLimit.DEFAULT_LIMIT_PER_MIN; i += 1) {
     const ok = await ipRateLimit.checkAndCount('1.2.3.4');
     assert.equal(ok.allowed, true, `${i + 1}回目は許可されるはず`);
   }
@@ -88,11 +88,11 @@ test('checkAndCount: DO障害時は許可で倒す(可用性優先)', async () =
   ipRateLimit._setDurableBinding(undefined);
 });
 
-test('readLimitPerMin: envの値を読み、無効なら既定30', () => {
-  assert.equal(ipRateLimit.readLimitPerMin({ IP_RATE_LIMIT_PER_MIN: '10' }), 10);
-  assert.equal(ipRateLimit.readLimitPerMin({}), 30);
-  assert.equal(ipRateLimit.readLimitPerMin({ IP_RATE_LIMIT_PER_MIN: 'abc' }), 30);
-  assert.equal(ipRateLimit.readLimitPerMin({ IP_RATE_LIMIT_PER_MIN: '0' }), 30);
+test('readLimitPerMin: envの値を読み、無効なら既定10', () => {
+  assert.equal(ipRateLimit.readLimitPerMin({ IP_RATE_LIMIT_PER_MIN: '15' }), 15);
+  assert.equal(ipRateLimit.readLimitPerMin({}), 10);
+  assert.equal(ipRateLimit.readLimitPerMin({ IP_RATE_LIMIT_PER_MIN: 'abc' }), 10);
+  assert.equal(ipRateLimit.readLimitPerMin({ IP_RATE_LIMIT_PER_MIN: '0' }), 10);
 });
 
 // --- rateLimitKeyFor: IPv6は/64、IPv4はそのまま ---
@@ -151,7 +151,7 @@ test('checkAndCount: 同一/64内でIPv6アドレスを変えても同じバケ�
   ipRateLimit._reset();
   ipRateLimit._setDurableBinding(null);
 
-  for (let i = 0; i < 30; i += 1) {
+  for (let i = 0; i < ipRateLimit.DEFAULT_LIMIT_PER_MIN; i += 1) {
     const ok = await ipRateLimit.checkAndCount('2001:db8:85a3:0:aaaa:bbbb:cccc:dddd');
     assert.equal(ok.allowed, true, `${i + 1}回目は許可されるはず`);
   }

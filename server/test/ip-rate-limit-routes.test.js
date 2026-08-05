@@ -24,8 +24,8 @@ test('/api/search: 同一IPが上限を超えると429 rate_limited(Keepa経路)
     'x-keepa-key': 'dummy-byo-key', // BYOでも除外されないことの確認を兼ねる
   };
 
-  // 上限(既定30)まで先に消費しておく。
-  for (let i = 0; i < 30; i += 1) {
+  // 上限(既定回数)まで先に消費しておく。
+  for (let i = 0; i < ipRateLimit.DEFAULT_LIMIT_PER_MIN; i += 1) {
     await ipRateLimit.checkAndCount('198.51.100.7');
   }
 

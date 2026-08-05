@@ -88,7 +88,7 @@ function rateLimitKeyFor(ip) {
 const WINDOW_MS = 60000;
 
 /** 環境変数が未設定・不正なときの既定値(回/分)。 */
-const DEFAULT_LIMIT_PER_MIN = 30;
+const DEFAULT_LIMIT_PER_MIN = 10;
 
 /**
  * 1分あたりの上限回数を解決する。
