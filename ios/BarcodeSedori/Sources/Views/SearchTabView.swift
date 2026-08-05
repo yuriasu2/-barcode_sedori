@@ -443,9 +443,21 @@ struct SearchTabView: View {
         offersPanels
     }
 
-    /// スキャン・手入力で共通のクールダウン秒数。未連携は検索1回ごとにKeepaトークンを
-    /// 1個消費するため長め(7秒)、連携済み(SP-API経路=消費ゼロ)は重複読み取り防止程度(1秒)。
-    private var searchCooldown: TimeInterval { settings.isSpApiLinkUsable ? 1.0 : 7.0 }
+    /// スキャン・手入力で共通のクールダウン秒数。
+    /// 長め(7秒)にするのは「共有Keepaキーのトークンを1回の検索ごとに1個消費する」場合だけ。
+    /// SP-API連携済み(Keepa経路を通らない)と、自前Keepaキー利用者(自分の枠を消費する)は
+    /// 共有トークンを消費しないため、重複読み取り防止程度(1秒)でよい。
+    private var searchCooldown: TimeInterval { consumesSharedKeepaToken ? 7.0 : 1.0 }
+
+    /// この端末の検索が共有Keepaキーのトークンを消費するか。
+    /// 自前キーの条件はAPIClient.addKeepaKeyHeaderIfNeededと一致させること
+    /// (Proかつキーが非空のときだけX-Keepa-Keyを送るため、無料プランではキーを
+    /// 設定していても共有トークンを消費する)。
+    private var consumesSharedKeepaToken: Bool {
+        if settings.isSpApiLinkUsable { return false }
+        if entitlements.isPro && settings.isKeepaKeyUsable { return false }
+        return true
+    }
 
     /// スキャン(カメラ/OCR)・手入力検索の共通ゲート。無料枠ユニットの残量を確認し、
     /// 残っていればローカルミラーを楽観的に1消費してから検索を実行する。

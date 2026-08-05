@@ -13,6 +13,9 @@ enum APIClientError: Error, LocalizedError {
     /// Keepa混雑(HTTP 429, error=="keepa_busy")。共有Keepaキーのキューがあふれた/待ちがタイムアウトした。
     /// messageはサーバーが返す文言(「混み合っているので時間を空けてお試しください。」)。
     case keepaBusy(message: String?)
+    /// IPレート制限(HTTP 429, error=="rate_limited")。共有Keepaキーを消費する検索が
+    /// 短時間に集中したときにサーバーが返す。正規の利用では通常到達しない。
+    case rateLimited(message: String?)
 
     var errorDescription: String? {
         switch self {
@@ -30,6 +33,8 @@ enum APIClientError: Error, LocalizedError {
             return message ?? "本日の無料スキャン上限に達しました。"
         case .keepaBusy(let message):
             return message ?? "混み合っているので時間を空けてお試しください。"
+        case .rateLimited(let message):
+            return message ?? "アクセスが集中しています。しばらく時間を空けてお試しください。"
         }
     }
 }
@@ -209,6 +214,12 @@ final class APIClient {
                let busyBody = try? decoder.decode(QuotaExceededBody.self, from: data),
                busyBody.error == "keepa_busy" {
                 throw APIClientError.keepaBusy(message: busyBody.message)
+            }
+            // IPレート制限(429)。keepa_busyと同じボディ形式のためQuotaExceededBodyを使い回す。
+            if httpResponse.statusCode == 429,
+               let limitedBody = try? decoder.decode(QuotaExceededBody.self, from: data),
+               limitedBody.error == "rate_limited" {
+                throw APIClientError.rateLimited(message: limitedBody.message)
             }
             let body = String(data: data, encoding: .utf8) ?? ""
             throw APIClientError.httpError(status: httpResponse.statusCode, body: body)
