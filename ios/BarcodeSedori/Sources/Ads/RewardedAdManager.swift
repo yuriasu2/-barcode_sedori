@@ -42,8 +42,9 @@ final class RewardedAdManager: ObservableObject {
     private var presentationHandler: RewardedPresentationHandler?
 
     /// SSVの付与先を特定するデバイス識別子。APIClientがサーバーへ送る `X-Device-Id` と
-    /// 同じ値(identifierForVendor)でなければ、SSVが届いても別デバイスの枠に加算されてしまう。
-    private var deviceId: String? { UIDevice.current.identifierForVendor?.uuidString }
+    /// 同じ値でなければ、SSVが届いても別デバイスの枠に加算されてしまうため、
+    /// 双方ともDeviceIdentifier(Keychain永続UUID)を唯一の出所とする。
+    private var deviceId: String { DeviceIdentifier.current }
 
     /// リワード広告を出してよい状態か。AdsConfig.enabled(全広告のマスタースイッチ)を尊重する。
     var isEnabled: Bool { AdsConfig.enabled && FreemiumFlags.rewardedAdsEnabled }
@@ -72,9 +73,7 @@ final class RewardedAdManager: ObservableObject {
     func show(from viewController: UIViewController?) async -> Bool {
         lastAttemptDidPresent = false
         guard isEnabled, !isPresenting else { return false }
-        // identifierForVendorがnilだとSSVの付与先を特定できず、視聴させても枠が増えない。
-        // 「見たのに増えない」体験を作らないため、この場合は広告を出さずfalseを返す。
-        guard let deviceId else { return false }
+        // DeviceIdentifierは常に値を返すため、旧来の「識別子がnilなら広告を出さない」ガードは不要。
 
         guard let ad = await loadIfNeeded() else { return false }
         // 1広告インスタンスは1回しか表示できないため、保持を解いてから表示する。

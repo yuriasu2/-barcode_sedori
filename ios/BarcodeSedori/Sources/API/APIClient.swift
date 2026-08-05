@@ -50,9 +50,10 @@ final class APIClient {
 
     private let session: URLSession
     private let decoder: JSONDecoder
-    /// 端末識別子(identifierForVendor)。サーバー側の無料デバイス日次バックストップに使う。
-    /// 端末ごとに安定・アンインストールでリセットされるランダムUUID(PIIではない)。
-    private let deviceId: String? = UIDevice.current.identifierForVendor?.uuidString
+    /// 端末識別子(Keychain永続のランダムUUID。DeviceIdentifier参照)。
+    /// サーバー側の無料枠クォータ(deviceQuota)がこの値でユニットを数える。
+    /// サーバーはこのヘッダーが無いリクエストを400で拒否するため、必ず送る(非Optional)。
+    private let deviceId: String = DeviceIdentifier.current
 
     init(session: URLSession = .shared) {
         self.session = session
@@ -116,11 +117,10 @@ final class APIClient {
         return request
     }
 
-    /// 端末識別子ヘッダー(X-Device-Id)を付与する。サーバー側の無料デバイス日次バックストップ用。
+    /// 端末識別子ヘッダー(X-Device-Id)を付与する。サーバー側の無料枠クォータ用。
+    /// DeviceIdentifierが常に値を返すため条件分岐は不要(以前はIDFVがnilのとき無付与だった)。
     private func addDeviceHeader(to request: inout URLRequest) {
-        if let deviceId {
-            request.setValue(deviceId, forHTTPHeaderField: "X-Device-Id")
-        }
+        request.setValue(deviceId, forHTTPHeaderField: "X-Device-Id")
     }
 
     /// フリーミアム: 自己申告のプランヘッダー(X-App-Plan)を付与する。
