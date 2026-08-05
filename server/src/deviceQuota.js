@@ -211,7 +211,7 @@ async function getState(deviceId) {
 
 /**
  * 現在のクォータ状態を返す(消費・広告付与ともに副作用なし)。
- * deviceIdが空/未指定の場合は無制限扱いを示す { unlimited: true } のみを返す。
+ * deviceIdが空/未指定の場合は { unknown: true } を返す(ヘッダーを省くだけで無料枠を回避できる迂回路だったため、無制限扱いを廃止した)。
  * DO障害で残量が分からない場合は { unknown: true } を返す(クライアントは
  * これを見たらローカルの残量を維持し、上書きしない)。
  * @param {string|null|undefined} deviceId
@@ -229,8 +229,7 @@ async function computeQuota(deviceId) {
 
 /**
  * ユニットを消費できるかを判定し、可能なら消費する。
- * deviceIdが空/未指定なら常にallowed=trueで消費しない(deviceIdが取れないクライアントを誤って
- * ブロックしないための安全側)。
+ * deviceIdが空/未指定なら allowed=false で拒否する(ヘッダーを省くだけで無料枠を回避できる迂回路だったため、常にallowed=true許可を廃止した)。
  * @param {string|null|undefined} deviceId
  * @param {number} [units=1]
  * @returns {Promise<{allowed: boolean, quota: object}>}
