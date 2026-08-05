@@ -27,7 +27,7 @@
 
 **Files:**
 - Create: `ios/BarcodeSedori/Sources/Store/DeviceIdentifier.swift`
-- Modify: `ios/BarcodeSedori/BarcodeSedori.xcodeproj/project.pbxproj`(新規Swiftファイルの登録)
+- (プロジェクトファイルの編集は**不要**。下記Step 2参照)
 - Modify: `ios/BarcodeSedori/Sources/API/APIClient.swift:53-55, 119-124`
 - Modify: `ios/BarcodeSedori/Sources/Ads/RewardedAdManager.swift:44-46, 74-77`
 
@@ -82,43 +82,22 @@ enum DeviceIdentifier {
 }
 ```
 
-- [ ] **Step 2: 新規ファイルをXcodeプロジェクトへ登録する**
+- [ ] **Step 2: プロジェクトへの登録は不要であることを確認する**
 
-このプロジェクトはXcode 16のファイルシステム同期グループを使っていない(`PBXFileSystemSynchronizedRootGroup` が0件)ため、新規Swiftファイルは `project.pbxproj` に手動登録が必要。既存の `KeychainStore.swift` と全く同じ4箇所に追記する。
+このプロジェクトのXcodeプロジェクトファイルはXcodeGenで生成され、gitでは追跡していない
+(`ios/BarcodeSedori/project.yml` の `sources: - path: Sources` が `Sources/` 配下を
+自動で取り込む)。したがって新規Swiftファイルを手動登録する必要はない。
 
-まず、使用するUUIDが既存と衝突しないことを確認する:
+次のコマンドで前提を確認するだけでよい:
 
 ```bash
-cd "/Users/yuyads/Claude/Projects/バーコードせどり (1)" && grep -c "7F3A9C1E4B2D8E6A05C11001\|7F3A9C1E4B2D8E6A05C11002" ios/BarcodeSedori/BarcodeSedori.xcodeproj/project.pbxproj
+cd "/Users/yuyads/Claude/Projects/バーコードせどり (1)" && git ls-files ios/BarcodeSedori/BarcodeSedori.xcodeproj/project.pbxproj | wc -l
 ```
 
-Expected: `0`(衝突なし)。もし0でなければ、末尾を変えた別の24桁16進を使うこと。
+Expected: `0`(非追跡=生成物)。
 
-次に4箇所へ追記する。**参照位置は行番号ではなく既存の `KeychainStore.swift` 行を目印にすること**(行番号は編集でずれるため)。
-
-(a) `PBXBuildFile` セクション — `DAD0131B5A93DBFD0918FFEC /* KeychainStore.swift in Sources */ = ...` の直後の行に追加:
-
-```
-		7F3A9C1E4B2D8E6A05C11001 /* DeviceIdentifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F3A9C1E4B2D8E6A05C11002 /* DeviceIdentifier.swift */; };
-```
-
-(b) `PBXFileReference` セクション — `8B946388D02102DEBD1B11E6 /* KeychainStore.swift */ = {isa = PBXFileReference; ...};` の直後の行に追加:
-
-```
-		7F3A9C1E4B2D8E6A05C11002 /* DeviceIdentifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceIdentifier.swift; sourceTree = "<group>"; };
-```
-
-(c) Storeグループの children — `				8B946388D02102DEBD1B11E6 /* KeychainStore.swift */,` の直後の行に追加:
-
-```
-				7F3A9C1E4B2D8E6A05C11002 /* DeviceIdentifier.swift */,
-```
-
-(d) Sources ビルドフェーズ — `				DAD0131B5A93DBFD0918FFEC /* KeychainStore.swift in Sources */,` の直後の行に追加:
-
-```
-				7F3A9C1E4B2D8E6A05C11001 /* DeviceIdentifier.swift in Sources */,
-```
+`xcodegen` が使える環境なら `cd ios/BarcodeSedori && xcodegen generate` を実行して
+プロジェクトを再生成しておくと確実。無ければStep 5のビルドが通ることで確認できる。
 
 - [ ] **Step 3: `APIClient` を新しい識別子へ切り替える**
 
