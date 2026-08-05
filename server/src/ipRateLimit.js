@@ -30,6 +30,60 @@
  * 落とすための仕組みであり、これが落ちたときに正規ユーザーまで止める価値はない。
  */
 
+/**
+ * レート制限のキーを正規化する。
+ *
+ * IPv4はそのまま使う(1台=1グローバルIPが基本のため)。IPv6はそのまま使うと、
+ * クライアントは通常/64(先頭4ブロック)を丸ごと保有しており下位64bitを回すだけで
+ * 制限を無料で回避できてしまう。加えてDO経路はidFromName(ip)でIPごとにDOインスタンスを
+ * 割り当てるため、アドレスを変えるたびにアカウント全体で共有しているDO予算
+ * (keepaThrottleDurableObjectと共有)を消費してしまう。そこでIPv6は/64プレフィックスへ
+ * 丸めてから使う。DO経路・インメモリ経路の双方がこの関数を通ることで、2経路が
+ * 別々のキー規則に乖離することを防ぐ。
+ * @param {string} ip CF-Connecting-IPの値(前後空白・ゾーンID付きも許容する)
+ * @returns {string} レート制限のバケットキー
+ */
+function rateLimitKeyFor(ip) {
+  const trimmed = String(ip || '').trim();
+  // ゾーンID(fe80::1%eth0など)はCloudflareからは来ない想定だが、念のため除去する。
+  const withoutZone = trimmed.split('%')[0];
+
+  if (!withoutZone.includes(':')) {
+    // IPv6を含まない(コロンが無い)ならIPv4としてそのまま使う。
+    return withoutZone;
+  }
+
+  // "::ffff:192.0.2.1" のようなIPv4射影アドレスは、素直に先頭4ブロックを取ると
+  // 無関係な他のIPv4射影アドレスと衝突しうる(先頭が0000:0000:0000:0000で揃うため)。
+  // 射影アドレスは実質IPv4なので、埋め込まれたIPv4部分をそのままキーにする。
+  const v4MappedMatch = withoutZone.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i);
+  if (v4MappedMatch) {
+    return `v4mapped:${v4MappedMatch[1]}`;
+  }
+
+  // "::" は0の連続を省略する記法。展開してから先頭4ブロック(/64)を取り出す。
+  let head = withoutZone;
+  let tail = '';
+  const doubleColonIndex = withoutZone.indexOf('::');
+  if (doubleColonIndex !== -1) {
+    head = withoutZone.slice(0, doubleColonIndex);
+    tail = withoutZone.slice(doubleColonIndex + 2);
+  }
+  const headParts = head ? head.split(':').filter(Boolean) : [];
+  const tailParts = tail ? tail.split(':').filter(Boolean) : [];
+  const missing = 8 - headParts.length - tailParts.length;
+  const expanded = missing > 0
+    ? [...headParts, ...Array(missing).fill('0'), ...tailParts]
+    : [...headParts, ...tailParts];
+
+  const first4 = expanded.slice(0, 4);
+  // 8ブロック未満(不正な形式)ならフォールバックとして元の値をそのまま使う
+  // (誤って過剰に緩いキーで束ねてしまうより安全側)。
+  if (first4.length < 4) return withoutZone;
+
+  return first4.map((block) => block.padStart(4, '0')).join(':');
+}
+
 /** 固定ウィンドウの長さ(ミリ秒)。 */
 const WINDOW_MS = 60000;
 
@@ -89,12 +143,12 @@ const cores = new Map();
 /** メモリ肥大化防止のしきい値。超えたら全消しする(レート制限なので取りこぼしても実害が小さい)。 */
 const MAX_CORES = 10000;
 
-function checkAndCountInMemory(ip) {
+function checkAndCountInMemory(key) {
   if (cores.size > MAX_CORES) cores.clear();
-  let core = cores.get(ip);
+  let core = cores.get(key);
   if (!core) {
     core = new RateLimitCore(readLimitPerMin(null));
-    cores.set(ip, core);
+    cores.set(key, core);
   }
   return core.check();
 }
@@ -132,11 +186,15 @@ function passthrough() {
 async function checkAndCount(ip) {
   if (!ip) return passthrough();
 
+  // DO経路・インメモリ経路の双方で同じキーを使う(片方だけIPv6を丸めると
+  // 経路によって回避可否が変わってしまうため)。
+  const key = rateLimitKeyFor(ip);
+
   const binding = getDurableBinding();
-  if (!binding) return checkAndCountInMemory(ip);
+  if (!binding) return checkAndCountInMemory(key);
 
   try {
-    const id = binding.idFromName(ip);
+    const id = binding.idFromName(key);
     const stub = binding.get(id);
     const res = await stub.fetch('https://do/check', { method: 'POST' });
     if (!res.ok) throw new Error(`ipRateLimit DO returned status ${res.status}`);
@@ -157,6 +215,7 @@ module.exports = {
   DEFAULT_LIMIT_PER_MIN,
   readLimitPerMin,
   RateLimitCore,
+  rateLimitKeyFor,
   checkAndCount,
   _reset,
   _setDurableBinding,

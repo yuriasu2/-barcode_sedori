@@ -5,8 +5,9 @@ import GoogleMobileAds
 /// リワード広告(視聴で無料枠+5)の読み込み・表示を担うマネージャ(Google Mobile Ads SDK v11系 / GAD API)。
 ///
 /// 付与の流れ:
-///   1. アプリが `serverSideVerificationOptions.customRewardString` に identifierForVendor を入れて広告を表示
-///   2. 視聴完了するとGoogleのサーバーが `GET /api/admob/ssv?...&custom_data=<identifierForVendor>` を叩く
+///   1. アプリが `serverSideVerificationOptions.customRewardString` に DeviceIdentifier.current
+///      (Keychain永続化されたUUID)を入れて広告を表示
+///   2. 視聴完了するとGoogleのサーバーが `GET /api/admob/ssv?...&custom_data=<DeviceIdentifier.current>` を叩く
 ///   3. サーバーが署名検証に成功した時点で当該デバイスの枠が+5される
 /// アプリからサーバーへ「広告を見た」と申告する経路は無い(自己申告は信頼しない設計)。
 /// そのため視聴完了後は `ScanQuotaStore.waitForAdGrant()` で /api/quota をポーリングして反映を待つ。

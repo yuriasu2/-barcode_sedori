@@ -411,9 +411,7 @@ struct SearchTabView: View {
             },
             isOCRMode: viewModel.scanMode.isOCRMode,
             isActive: isScannerActive,
-            // クールダウンはプランではなく「連携の有無」で決める。未連携の検索はProでも
-            // Keepaトークンを1回1個消費するため、高速連続スキャンを許すと数分でトークンが
-            // 枯れてしまう。連携済み(SP-API経路=消費ゼロ)のみ高速スキャンを許可する。
+            // クールダウンの判定根拠は searchCooldown / consumesSharedKeepaToken のドキュメントを参照。
             emitCooldown: searchCooldown,
             cooldownNotice: cooldownNotice
         )
