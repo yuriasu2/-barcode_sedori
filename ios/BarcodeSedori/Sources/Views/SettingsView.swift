@@ -37,10 +37,10 @@ final class SettingsViewModel: ObservableObject {
     }
 
 
-    @Published var spapiTestAlert: ConnectionTestAlert?
-    /// Keepa接続テストの結果アラート。SP-APIと同じ汎用アラート型(ConnectionTestAlert)を使い回す
-    /// (見た目・作法が完全に同じなため型を分ける理由が無い)。
-    @Published var keepaTestAlert: ConnectionTestAlert?
+    /// SP-API/Keepa共通の接続テスト結果アラート。
+    /// SwiftUIは同一ビューに複数の.alert(item:)を重ねると片方(内側)が表示されなくなる制限が
+    /// あるため、以前はspapiTestAlert/keepaTestAlertを別々に持っていたが1つに統合した。
+    @Published var connectionTestAlert: ConnectionTestAlert?
 
     /// 接続テスト結果アラート(タイトル+本文)。旧SpApiTestAlertから汎用化し、
     /// SP-API/Keepaの両方の接続テストで使い回す。
@@ -92,15 +92,15 @@ final class SettingsViewModel: ObservableObject {
         do {
             let result = try await apiClient.spapiTest()
             if result.ok {
-                spapiTestAlert = ConnectionTestAlert(title: "接続成功", message: "SP-APIに接続できました。")
+                connectionTestAlert = ConnectionTestAlert(title: "接続成功", message: "SP-APIに接続できました。")
             } else {
-                spapiTestAlert = ConnectionTestAlert(
+                connectionTestAlert = ConnectionTestAlert(
                     title: "接続失敗",
                     message: result.message ?? "SP-APIへの接続に失敗しました。"
                 )
             }
         } catch {
-            spapiTestAlert = ConnectionTestAlert(title: "接続失敗", message: error.localizedDescription)
+            connectionTestAlert = ConnectionTestAlert(title: "接続失敗", message: error.localizedDescription)
         }
         spapiTestState = .idle
     }
@@ -126,15 +126,15 @@ final class SettingsViewModel: ObservableObject {
             let result = try await apiClient.keepaTest()
             if result.ok {
                 let tokensMessage = result.tokensLeft.map { "残トークン数: \($0)" } ?? "Keepaに接続できました。"
-                keepaTestAlert = ConnectionTestAlert(title: "接続成功", message: tokensMessage)
+                connectionTestAlert = ConnectionTestAlert(title: "接続成功", message: tokensMessage)
             } else {
-                keepaTestAlert = ConnectionTestAlert(
+                connectionTestAlert = ConnectionTestAlert(
                     title: "接続失敗",
                     message: result.message ?? "Keepaへの接続に失敗しました。"
                 )
             }
         } catch {
-            keepaTestAlert = ConnectionTestAlert(title: "接続失敗", message: error.localizedDescription)
+            connectionTestAlert = ConnectionTestAlert(title: "接続失敗", message: error.localizedDescription)
         }
         keepaTestState = .idle
     }
@@ -357,14 +357,7 @@ struct SettingsView: View {
                 AdSlotView(slotId: "settings_bottom", fixedHeight: 50)
             }
             .toolbar(.hidden, for: .navigationBar)
-            .alert(item: $viewModel.spapiTestAlert) { alert in
-                Alert(
-                    title: Text(alert.title),
-                    message: Text(alert.message),
-                    dismissButton: .default(Text("OK"))
-                )
-            }
-            .alert(item: $viewModel.keepaTestAlert) { alert in
+            .alert(item: $viewModel.connectionTestAlert) { alert in
                 Alert(
                     title: Text(alert.title),
                     message: Text(alert.message),
