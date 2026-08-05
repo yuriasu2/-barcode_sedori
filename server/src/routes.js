@@ -12,6 +12,7 @@ const keepa = require('./keepa/client');
 const deviceQuota = require('./deviceQuota');
 const keepaThrottle = require('./keepaThrottle');
 const keepaCoalesce = require('./keepaCoalesce');
+const ipRateLimit = require('./ipRateLimit');
 const admobSsv = require('./admobSsv');
 const listings = require('./spapi/listings');
 const spapiClient = require('./spapi/client');
@@ -90,6 +91,25 @@ function sendDeviceIdRequired(res) {
   return res.status(400).json({
     error: 'device_id_required',
     message: 'デバイス識別子が取得できませんでした。アプリを再起動してお試しください。',
+  });
+}
+
+/**
+ * クライアントIPを取り出す。CloudflareがCF-Connecting-IPを必ず付与する。
+ * Node/Render経由やテストでは存在しないためnullになり、その場合レート制限は素通しする
+ * (Workers本番以外は攻撃対象ではないため)。
+ */
+function clientIpOf(headers) {
+  const ip = headers && (headers['cf-connecting-ip'] || headers['CF-Connecting-IP']);
+  return ip ? String(ip) : null;
+}
+
+/** IPレート制限に掛かったときの応答(429)。 */
+function sendRateLimited(res, retryAfterSec) {
+  return res.status(429).json({
+    error: 'rate_limited',
+    message: 'アクセスが集中しています。しばらく時間を空けてお試しください。',
+    retryAfterSec: retryAfterSec || 60,
   });
 }
 
@@ -400,6 +420,19 @@ async function fetchKeepaProductCoalesced({ instance, coalesceKey, fetchParams, 
  * @returns {Promise<{product: {product: object, tokensLeft: number|undefined}, debug: object|null}>}
  */
 async function fetchKeepaProductWithDebug(headers, { coalesceKey, fetchParams, priority }) {
+  // IPレート制限。実際にKeepaを呼ぶ経路だけを対象にするため、この関数の入口で判定する
+  // (キャッシュヒットはそもそもここへ到達せず、SP-API経路はこの関数を呼ばない)。
+  // BYOキー利用者も対象に含める: BYO判定はヘッダー値の有無だけで決まるため、除外すると
+  // デタラメなX-Keepa-Keyを付けるだけで制限を迂回できてしまう。
+  // 呼び出し元へはkeepa_busyと同じくerr.code付きの例外で伝える(3箇所のcatchが既にこの形)。
+  const rateLimitResult = await ipRateLimit.checkAndCount(clientIpOf(headers));
+  if (!rateLimitResult.allowed) {
+    const err = new Error('ip rate limited');
+    err.code = 'rate_limited';
+    err.retryAfterSec = rateLimitResult.retryAfterSec;
+    throw err;
+  }
+
   const isByo = hasByoKeepaKey(headers);
   const isDemo = hasKeepaDemoHeader(headers);
   const instance = keepaThrottleInstanceFor(headers);
@@ -888,6 +921,7 @@ router.get('/api/search', async (req, res) => {
           priority: 'free',
         });
       } catch (err) {
+        if (err.code === 'rate_limited') return sendRateLimited(res, err.retryAfterSec);
         if (err.code === 'keepa_busy') return sendKeepaBusy(res);
         console.error(`[search:keepa] code=${code} failed:`, err.message);
         return res.status(502).json({ error: 'search_failed', message: err.message });
@@ -937,6 +971,7 @@ router.get('/api/search', async (req, res) => {
         priority: 'pro',
       });
     } catch (err) {
+      if (err.code === 'rate_limited') return sendRateLimited(res, err.retryAfterSec);
       if (err.code === 'keepa_busy') return sendKeepaBusy(res);
       console.error(`[search:keepa] code=${code} failed:`, err.message);
       return res.status(502).json({ error: 'search_failed', message: err.message });
@@ -1195,6 +1230,7 @@ router.get('/api/graph-data', async (req, res) => {
       priority: isPro ? 'pro' : 'free',
     });
   } catch (err) {
+    if (err.code === 'rate_limited') return sendRateLimited(res, err.retryAfterSec);
     if (err.code === 'keepa_busy') return sendKeepaBusy(res);
     console.error(`[graph-data] asin=${asin} failed:`, err.message);
     return res.status(502).json({ error: 'graph_data_failed', message: err.message });
@@ -1754,6 +1790,8 @@ router.hasKeepaDemoHeader = hasKeepaDemoHeader;
 router.deviceIdOf = deviceIdOf;
 // テスト用途にデバイスID必須エラーの応答関数を公開する。
 router.sendDeviceIdRequired = sendDeviceIdRequired;
+// テスト用途にクライアントIP抽出関数を公開する。
+router.clientIpOf = clientIpOf;
 router.deviceQuota = deviceQuota;
 router.attachQuota = attachQuota;
 // テスト用途に定価抽出ヘルパーを公開する。

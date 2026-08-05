@@ -26,7 +26,12 @@
     // 枯渇時に待たせるキューは撤去済み(2026-08-03)なので、キュー深さ/タイムアウトの
     // 環境変数は無い。適応ブレーキの上限はコード内定数(BRAKE_CAP_MS)。
     // プランを20トークン/分へ上げたらここだけ更新してデプロイする。
-    "KEEPA_REFILL_PER_MIN": "5"
+    "KEEPA_REFILL_PER_MIN": "5",
+    // 共有Keepaキーを消費するリクエストの、クライアントIP単位のレート制限(回/分)。
+    // アプリ側の検索クールダウンはクライアント実装のためcurlには効かない。
+    // 未連携ユーザーの実効上限は7秒間隔=毎分8〜9件のため、CGNATで複数人が
+    // 同一IPを共有しても30なら巻き込まない。
+    "IP_RATE_LIMIT_PER_MIN": "30"
   },
   // 広告配信設定(/api/ads)を置くKV namespace。id は namespace 作成後に埋める
   // (`wrangler kv namespace create ADS_CONFIG`)。id未設定(プレースホルダ)のままでも
@@ -38,14 +43,16 @@
   "durable_objects": {
     "bindings": [
       { "name": "DEVICE_QUOTA", "class_name": "DeviceQuotaDO" },
-      { "name": "KEEPA_THROTTLE", "class_name": "KeepaThrottleDO" }
+      { "name": "KEEPA_THROTTLE", "class_name": "KeepaThrottleDO" },
+      { "name": "IP_RATE_LIMIT", "class_name": "IpRateLimitDO" }
     ]
   },
   // new_sqlite_classes を使う(new_classes ではない)。無料プランではSQLiteバックエンドの
   // Durable Objectsのみ利用可能なため(KVバックエンドは有料プラン専用)。
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["DeviceQuotaDO"] },
-    { "tag": "v2", "new_sqlite_classes": ["KeepaThrottleDO"] }
+    { "tag": "v2", "new_sqlite_classes": ["KeepaThrottleDO"] },
+    { "tag": "v3", "new_sqlite_classes": ["IpRateLimitDO"] }
   ]
   // Secrets(LWA_CLIENT_ID/LWA_CLIENT_SECRET/KEEPA_API_KEY/SPAPI_APP_ID)は
   // `wrangler secret put` で登録する(このファイルに書かない)。

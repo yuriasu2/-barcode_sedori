@@ -13,6 +13,8 @@
 export { DeviceQuotaDO } from './quotaDurableObject.js';
 // Keepaスロットル(共有キーのトークン推定+適応ブレーキ)のDO。グローバルに1つ。
 export { KeepaThrottleDO } from './keepaThrottleDurableObject.js';
+// クライアントIP単位のレート制限のDO。IPごとに1インスタンス。
+export { IpRateLimitDO } from './ipRateLimitDurableObject.js';
 
 let routesPromise = null;
 
@@ -45,6 +47,10 @@ export default {
     // Keepaスロットルのバインディング。keepaThrottle.js側がglobalThis経由で参照する
     // (__quotaDOと同じ簡易な受け渡し方式)。
     globalThis.__keepaThrottleDO = env.KEEPA_THROTTLE || null;
+
+    // IPレート制限のバインディング。ipRateLimit.js側がglobalThis経由で参照する
+    // (__quotaDO/__keepaThrottleDOと同じ簡易な受け渡し方式)。
+    globalThis.__ipRateLimitDO = env.IP_RATE_LIMIT || null;
 
     const url = new URL(request.url);
 
