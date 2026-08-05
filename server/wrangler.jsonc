@@ -34,7 +34,7 @@
     // 独占できてしまい抑止にならないため。トレードオフとして、CGNAT(同一IPを
     // 複数の正規ユーザーが共有する場合)や自前Keepaキー利用者の高速スキャンでは
     // この制限に当たり得ることを許容する。
-    "IP_RATE_LIMIT_PER_MIN": "10"
+    "IP_RATE_LIMIT_PER_MIN": "20"
   },
   // 広告配信設定(/api/ads)を置くKV namespace。id は namespace 作成後に埋める
   // (`wrangler kv namespace create ADS_CONFIG`)。id未設定(プレースホルダ)のままでも

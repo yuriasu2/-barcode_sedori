@@ -88,11 +88,11 @@ test('checkAndCount: DO障害時は許可で倒す(可用性優先)', async () =
   ipRateLimit._setDurableBinding(undefined);
 });
 
-test('readLimitPerMin: envの値を読み、無効なら既定10', () => {
+test('readLimitPerMin: envの値を読み、無効なら既定20', () => {
   assert.equal(ipRateLimit.readLimitPerMin({ IP_RATE_LIMIT_PER_MIN: '15' }), 15);
-  assert.equal(ipRateLimit.readLimitPerMin({}), 10);
-  assert.equal(ipRateLimit.readLimitPerMin({ IP_RATE_LIMIT_PER_MIN: 'abc' }), 10);
-  assert.equal(ipRateLimit.readLimitPerMin({ IP_RATE_LIMIT_PER_MIN: '0' }), 10);
+  assert.equal(ipRateLimit.readLimitPerMin({}), 20);
+  assert.equal(ipRateLimit.readLimitPerMin({ IP_RATE_LIMIT_PER_MIN: 'abc' }), 20);
+  assert.equal(ipRateLimit.readLimitPerMin({ IP_RATE_LIMIT_PER_MIN: '0' }), 20);
 });
 
 // --- rateLimitKeyFor: IPv6は/64、IPv4はそのまま ---
