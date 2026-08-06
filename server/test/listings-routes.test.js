@@ -714,6 +714,61 @@ test('fees-estimate: TaxAmountがある場合はその合計を消費税とし�
   });
 });
 
+test('fees-estimate: SP-APIがStatus:ClientError(FeesEstimate無し)を返したら502 fees_estimate_unavailable(0円で返さない)', async () => {
+  await withEnv(ENV, async () => {
+    const routes = freshRoutes();
+    const originalFetch = global.fetch;
+    global.fetch = mockFetch({
+      // FBA用の梱包サイズ・重量が未登録のASINなどで実際に返る形。
+      // HTTP自体は200 OKだが、この項目だけFeesEstimateが無くErrorが入る。
+      feesEstimate: (u, init, ok) =>
+        ok([
+          {
+            Status: 'ClientError',
+            Error: {
+              Type: 'Client',
+              Code: 'InvalidInput',
+              Message: 'FBA fulfillment fee could not be calculated because the required package dimensions and/or weight are missing.',
+            },
+          },
+        ]),
+    });
+    try {
+      const res = createMockRes();
+      const route = routes.match('GET', '/api/fees-estimate');
+      await route.handler({ query: { asin: 'B000TEST', price: '1500', fba: '1' }, headers: PRO_HEADERS }, res);
+      assert.equal(res.statusCode, 502);
+      assert.equal(res.body.error, 'fees_estimate_unavailable');
+      // Amazon側のエラーメッセージを埋め込んで案内する。
+      assert.match(res.body.message, /package dimensions/);
+      // 0円のtotal/breakdownを組み立てて返してはいけない。
+      assert.equal(res.body.total, undefined);
+      assert.equal(res.body.breakdown, undefined);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+});
+
+test('fees-estimate: SP-APIがStatus無し(異常応答)でFeesEstimateも無ければ502 fees_estimate_unavailable', async () => {
+  await withEnv(ENV, async () => {
+    const routes = freshRoutes();
+    const originalFetch = global.fetch;
+    global.fetch = mockFetch({
+      feesEstimate: (u, init, ok) => ok([{}]),
+    });
+    try {
+      const res = createMockRes();
+      const route = routes.match('GET', '/api/fees-estimate');
+      await route.handler({ query: { asin: 'B000TEST', price: '1500' }, headers: PRO_HEADERS }, res);
+      assert.equal(res.statusCode, 502);
+      assert.equal(res.body.error, 'fees_estimate_unavailable');
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+});
+
 test('fees-estimate: SP-API呼び出し失敗は502 fees_estimate_failed', async () => {
   await withEnv(ENV, async () => {
     const routes = freshRoutes();

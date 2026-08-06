@@ -1350,11 +1350,12 @@ function mapFeeDetailType(feeType) {
 }
 
 /**
- * getMyFeesEstimatesBatch(1件)の応答からFeesEstimate本体を取り出す。
+ * getMyFeesEstimatesBatch(1件)の応答からFeesEstimateResult相当のエントリを取り出す
+ * (Status/FeesEstimate/Errorをまとめて持つオブジェクト)。
  * 本番実機で確認済みの応答形はトップレベルが素の配列(各要素がFeesEstimateResult)。
  * payloadで包まれる形などは構造揺れに備えた防御的フォールバック。
  */
-function extractFeesEstimate(feesResp) {
+function extractFeesEstimateEntry(feesResp) {
   const payload = feesResp && feesResp.payload;
   const list = Array.isArray(feesResp)
     ? feesResp
@@ -1365,7 +1366,7 @@ function extractFeesEstimate(feesResp) {
     : null;
   const entry = list ? list[0] : payload;
   if (!entry) return null;
-  return (entry.FeesEstimateResult && entry.FeesEstimateResult.FeesEstimate) || entry.FeesEstimate || null;
+  return entry.FeesEstimateResult || entry;
 }
 
 /**
@@ -1464,8 +1465,25 @@ router.get('/api/fees-estimate', async (req, res) => {
       [{ asin, price, identifier: asin, isAmazonFulfilled: fba, shipping }],
       credentials
     );
-    const feesEstimate = extractFeesEstimate(feesResp);
-    const feeDetailList = (feesEstimate && feesEstimate.FeeDetailList) || [];
+    const entry = extractFeesEstimateEntry(feesResp);
+    // SP-APIはStatus(Success/ClientError等)を項目ごとに返す。例えばFBA用の梱包サイズ・重量が
+    // カタログに未登録のASINは、FBA見積り(fba=1)だけStatus:ClientErrorでFeesEstimateが
+    // 返らないことがある。ここを見ずにFeeDetailList欠落をそのまま処理すると「手数料0円」という
+    // 誤った正常応答になってしまう(実際に本番で確認された不具合)。
+    if (!entry || entry.Status !== 'Success' || !entry.FeesEstimate) {
+      const amazonMessage = entry && entry.Error && entry.Error.Message;
+      console.error(
+        `[fees-estimate] asin=${asin} fba=${fba} status=${entry && entry.Status}: SP-APIが手数料見積りを返さなかった`,
+        amazonMessage || '(Errorメッセージなし)'
+      );
+      return res.status(502).json({
+        error: 'fees_estimate_unavailable',
+        message: amazonMessage
+          ? `Amazonから手数料情報を取得できませんでした: ${amazonMessage}`
+          : 'この商品の手数料情報を取得できませんでした。FBA未登録などの理由で見積りが提供されない場合があります。',
+      });
+    }
+    const feeDetailList = entry.FeesEstimate.FeeDetailList || [];
     const { total, breakdown } = buildFeesBreakdown(feeDetailList);
     res.json({ total, breakdown });
   } catch (err) {
