@@ -16,6 +16,11 @@ enum APIClientError: Error, LocalizedError {
     /// IPレート制限(HTTP 429, error=="rate_limited")。共有Keepaキーを消費する検索が
     /// 短時間に集中したときにサーバーが返す。正規の利用では通常到達しない。
     case rateLimited(message: String?)
+    /// FBA手数料見積り不可(HTTP 502, error=="fees_estimate_unavailable")。
+    /// SP-API側がその商品の手数料見積りを返さなかった場合(例: FBA用の梱包サイズ・重量が
+    /// カタログに未登録)。呼び出し側(PurchaseFormView)はこれを検知したら概算フォールバックに
+    /// 逃がさず、取得できなかった旨をそのまま表示する(「概算」と誤認させないため)。
+    case feesEstimateUnavailable(message: String?)
 
     var errorDescription: String? {
         switch self {
@@ -35,6 +40,8 @@ enum APIClientError: Error, LocalizedError {
             return message ?? "混み合っているので時間を空けてお試しください。"
         case .rateLimited(let message):
             return message ?? "アクセスが集中しています。しばらく時間を空けてお試しください。"
+        case .feesEstimateUnavailable(let message):
+            return message ?? "この商品の手数料情報を取得できませんでした。"
         }
     }
 }
@@ -220,6 +227,12 @@ final class APIClient {
                let limitedBody = try? decoder.decode(QuotaExceededBody.self, from: data),
                limitedBody.error == "rate_limited" {
                 throw APIClientError.rateLimited(message: limitedBody.message)
+            }
+            // FBA手数料見積り不可(502)。同じくQuotaExceededBodyを使い回す(quotaフィールドは無し=nil)。
+            if httpResponse.statusCode == 502,
+               let unavailableBody = try? decoder.decode(QuotaExceededBody.self, from: data),
+               unavailableBody.error == "fees_estimate_unavailable" {
+                throw APIClientError.feesEstimateUnavailable(message: unavailableBody.message)
             }
             let body = String(data: data, encoding: .utf8) ?? ""
             throw APIClientError.httpError(status: httpResponse.statusCode, body: body)

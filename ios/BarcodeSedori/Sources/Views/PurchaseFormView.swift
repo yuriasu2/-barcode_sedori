@@ -90,6 +90,10 @@ final class PurchaseFormViewModel: ObservableObject {
         case idle
         case loading
         case loaded(FeesDisplay)
+        /// サーバーがfees_estimate_unavailableを返した(SP-APIがその商品の手数料見積りを
+        /// 返さなかった)場合。概算に逃がすと「概算」として誤った金額を信じさせてしまうため、
+        /// 他のエラー(通信断・quota等)とは別扱いにして取得できなかった旨をそのまま出す。
+        case unavailable(String)
     }
     /// 手数料表示用にAPI実額/アプリ内概算を統一した形。
     struct FeesDisplay: Equatable {
@@ -381,9 +385,17 @@ final class PurchaseFormViewModel: ObservableObject {
                     fbaRequiresLinkNote: nil
                 ))
             } catch {
-                // API失敗時も概算フォールバックに切り替える(「取得できません」で詰まらせない)。
                 guard sequence == self.feesCheckSequence else { return }
-                self.feesState = .loaded(Self.estimateFeesDisplay(price: checkPrice, shipping: checkShipping, fba: checkFba))
+                if case APIClientError.feesEstimateUnavailable(let message) = error {
+                    // SP-APIがその商品の手数料見積りを返さなかった(例: FBA用の梱包サイズ・重量が
+                    // カタログに未登録)。概算に逃がすと実際とは違う金額を「概算」として
+                    // 信じさせてしまうため、他のエラーとは別に取得できなかった旨をそのまま出す。
+                    self.feesState = .unavailable(message ?? "この商品の手数料情報を取得できませんでした。")
+                } else {
+                    // それ以外のAPI失敗(通信断・quota等)は概算フォールバックに切り替える
+                    // (「取得できません」で詰まらせない)。
+                    self.feesState = .loaded(Self.estimateFeesDisplay(price: checkPrice, shipping: checkShipping, fba: checkFba))
+                }
             }
         }
     }
@@ -732,6 +744,16 @@ struct PurchaseFormView: View {
                 Spacer()
                 ProgressView()
                     .controlSize(.small)
+            }
+        case .unavailable(let message):
+            HStack(alignment: .top) {
+                Text("手数料")
+                    .foregroundColor(.red)
+                Spacer()
+                Text(message)
+                    .font(.footnote)
+                    .foregroundColor(.red)
+                    .multilineTextAlignment(.trailing)
             }
         case .loaded(let display):
             DisclosureGroup {
