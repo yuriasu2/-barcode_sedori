@@ -31,7 +31,12 @@ final class PurchaseFormViewModel: ObservableObject {
             // 価格の自動提案(新品/中古バケット最安)は新規追加時のみ再計算する。
             // 編集時にコンディションを変えても、既に保存されている(またはユーザーが入力した)価格は保持する。
             if case .add(let draft) = mode {
-                price = ListingModels.bucketLowestPrice(offers: draft.offersResult, condition: condition)
+                price = ListingModels.autoFillListingPrice(
+                    offers: draft.offersResult,
+                    condition: condition,
+                    shippingIncome: shippingToSubtract,
+                    subtractShipping: subtractShippingFromLowest
+                )
             }
             regenerateSkuIfNotEdited()
             // コンディションが変われば制限判定も変わり得るため再チェックする。
@@ -70,6 +75,18 @@ final class PurchaseFormViewModel: ObservableObject {
             guard useFba != oldValue else { return }
             shippingIncome = useFba ? 0 : settings.purchaseShippingIncomeDefault
             shippingCost = useFba ? 0 : settings.purchaseShippingCostDefault
+            // FBAの切替で配送料を引くかどうかが変わるため、出品価格も入れ直す
+            // (コンディション変更時に再計算する既存の挙動と揃える)。
+            // startFeesFetchより前に置くこと: priceのdidSetが張るデバウンスを
+            // 直後のstartFeesFetchがキャンセルするので、新しい価格で1回だけ取得できる。
+            if case .add(let draft) = mode {
+                price = ListingModels.autoFillListingPrice(
+                    offers: draft.offersResult,
+                    condition: condition,
+                    shippingIncome: shippingToSubtract,
+                    subtractShipping: subtractShippingFromLowest
+                )
+            }
             startFeesFetch()
         }
     }
@@ -143,6 +160,20 @@ final class PurchaseFormViewModel: ObservableObject {
         }
     }
 
+    /// 出品価格から差し引く配送料。FBA利用時は0(Amazonが配送するため出品者に配送料収入が無く、
+    /// 引くと実際より安い価格で出品してしまう)。出品価格の下に表示する値もこれを使い、
+    /// 計算と表示で値がズレないようにする。
+    var shippingToSubtract: Int {
+        useFba ? 0 : settings.purchaseShippingIncomeDefault
+    }
+
+    /// 設定「配送料を引いた最安値自動入力」がオンか。出品価格の下の配送料行の表示条件に使う。
+    /// フォーム表示中に設定は変わらない(設定タブへ行くにはフォームを閉じる必要がある)ため、
+    /// スナップショット参照でよい。
+    var subtractShippingFromLowest: Bool {
+        settings.purchaseSubtractShippingFromLowest
+    }
+
     /// 商品セクションに表示するJANコード(ISBN-13があればそれ、無ければスキャンしたコード)。
     var janCode: String? {
         switch mode {
@@ -179,7 +210,13 @@ final class PurchaseFormViewModel: ObservableObject {
             self.condition = initialCondition
             self.conditionNote = settings.listingTemplate(for: initialCondition)
             self.quantity = 1
-            self.price = ListingModels.bucketLowestPrice(offers: draft.offersResult, condition: initialCondition)
+            // shippingToSubtractはself.useFba初期化前のため使えない。同じ判定をここで書く。
+            self.price = ListingModels.autoFillListingPrice(
+                offers: draft.offersResult,
+                condition: initialCondition,
+                shippingIncome: settings.purchaseUseFbaDefault ? 0 : settings.purchaseShippingIncomeDefault,
+                subtractShipping: settings.purchaseSubtractShippingFromLowest
+            )
             // SKUプレビュー: まだ仕入れリストへ登録していないため、連番は「消費せず覗き見る」だけにする
             // (実際の採番はadd()保存時にPurchaseListStore.add(_:)が行う)。
             let previewSequence = purchaseList.peekNextSequence(for: draft.addedAt)
@@ -551,6 +588,19 @@ struct PurchaseFormView: View {
                         .multilineTextAlignment(.trailing)
                         .frame(width: 120)
                         .focused($focusedField, equals: .price)
+                }
+
+                // 差し引いた配送料を出品価格の直下に示す(なぜその価格になったかを分かるようにする)。
+                // 値は設定「利益計算用送料」の配送料で、ここでは変更できない。
+                // トグルがオフのときは差し引き自体が起きないため行ごと出さない。
+                if viewModel.subtractShippingFromLowest {
+                    HStack {
+                        Text("配送料")
+                        Spacer()
+                        Text(Self.currencyText(viewModel.shippingToSubtract))
+                    }
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
                 }
 
                 Picker("コンディション", selection: $viewModel.condition) {
