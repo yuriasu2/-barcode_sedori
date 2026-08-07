@@ -35,8 +35,8 @@ struct ShippingSettingsView: View {
     /// (numberPadにはReturnキーが無いため。PurchaseFormViewと同方式)。
     @FocusState private var focusedField: ShippingSettingsField?
 
-    /// 追加シートの提示状態。**Sectionや行の中ではなくForm自体に付ける**こと。
-    /// Listの行からシートを提示するとSwiftUIが提示先を解決できず、タップしても何も起きない。
+    /// 追加ポップアップの提示状態。**Sectionや行の中ではなくForm自体に重ねる**こと。
+    /// Listの行から提示するとSwiftUIが提示先を解決できず、タップしても何も起きない。
     @State private var addTarget: ShippingAddTarget?
 
     var body: some View {
@@ -66,12 +66,17 @@ struct ShippingSettingsView: View {
                 Button("完了") { focusedField = nil }
             }
         }
-        .sheet(item: $addTarget) { target in
-            ShippingPresetAddSheet(
-                title: target.title,
-                existingNames: presets(for: target.kind).map(\.name)
-            ) { name, amount in
-                add(name: name, amount: amount, to: target.kind)
+        .overlay {
+            if let target = addTarget {
+                ShippingPresetAddPopup(
+                    title: target.title,
+                    existingNames: presets(for: target.kind).map(\.name),
+                    onCancel: { addTarget = nil },
+                    onAdd: { name, amount in
+                        add(name: name, amount: amount, to: target.kind)
+                        addTarget = nil
+                    }
+                )
             }
         }
     }
@@ -184,22 +189,20 @@ private struct ShippingPresetSection: View {
     }
 }
 
-/// 「+ 追加」で開く入力シート。
+/// 「+ 追加」で開く入力ポップアップ。
 ///
-/// システムのアラートではなくシートにしているのは、アラートが本文を赤文字にできず、
-/// ボタンを押すと必ず閉じてしまうため。「不正なら閉じずに、該当の入力欄の直下へ
-/// 赤文字で理由を出す」という要件を満たせるのはシートだけ。
+/// システムのアラートではなく自前のポップアップにしているのは、アラートが本文を赤文字に
+/// できず、ボタンを押すと必ず閉じてしまうため。「不正なら閉じずに、該当の入力欄の直下へ
+/// 赤文字で理由を出す」という要件を満たせない。見た目はアラートに寄せてある。
 ///
-/// フォーカスは親から受け取らずシート内に持つ。@FocusStateはシート境界をまたぐと
-/// 正しく働かないため。
-private struct ShippingPresetAddSheet: View {
+/// 中身は静的なビューを重ねるだけなので、シートや画面遷移のような描画コストは掛からない。
+private struct ShippingPresetAddPopup: View {
     let title: String
-    /// 重複判定に使う既存の名前。シートを開いた時点のスナップショットでよい
+    /// 重複判定に使う既存の名前。開いた時点のスナップショットでよい
     /// (開いている間に他所から増えることが無いため)。
     let existingNames: [String]
+    let onCancel: () -> Void
     let onAdd: (String, Int) -> Void
-
-    @Environment(\.dismiss) private var dismiss
 
     private enum Field: Hashable {
         case name
@@ -209,70 +212,77 @@ private struct ShippingPresetAddSheet: View {
 
     @State private var name = ""
     @State private var amountText = ""
-    /// 「追加」を押して検証に失敗したときだけ表示するメッセージ。
+    /// 「OK」を押して検証に失敗したときだけ表示するメッセージ。
     /// 該当の入力欄を編集し直したら消す(直したのに赤文字が残ると直っていないように見えるため)。
     @State private var nameError: String?
     @State private var amountError: String?
 
     var body: some View {
-        NavigationView {
-            Form {
-                Section {
-                    HStack {
-                        Text("名前")
-                        Spacer()
-                        TextField("名前", text: $name)
-                            .multilineTextAlignment(.trailing)
-                            .focused($focusedField, equals: .name)
-                            .onChange(of: name) { _ in nameError = nil }
-                    }
+        ZStack {
+            // 背景。タップしても閉じない(誤タップで入力中の内容が消えるのを防ぐ)。
+            Color.black.opacity(0.4)
+                .ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                Text(title)
+                    .font(.headline)
+                    .padding(.top, 20)
+                    .padding(.horizontal, 16)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    TextField("名前", text: $name)
+                        .textFieldStyle(.roundedBorder)
+                        .focused($focusedField, equals: .name)
+                        .onChange(of: name) { _ in nameError = nil }
+
                     if let nameError {
                         Text(nameError)
                             .font(.footnote)
                             .foregroundColor(.red)
                     }
 
-                    HStack {
-                        Text("金額")
-                        Spacer()
-                        HStack(spacing: 0) {
-                            TextField("金額", text: $amountText)
-                                .keyboardType(.numberPad)
-                                .multilineTextAlignment(.trailing)
-                                .frame(width: 70)
-                                .focused($focusedField, equals: .amount)
-                                .onChange(of: amountText) { _ in amountError = nil }
-                            Text("円")
-                                .foregroundColor(.secondary)
-                        }
+                    HStack(spacing: 4) {
+                        TextField("金額", text: $amountText)
+                            .textFieldStyle(.roundedBorder)
+                            .keyboardType(.numberPad)
+                            .focused($focusedField, equals: .amount)
+                            .onChange(of: amountText) { _ in amountError = nil }
+                        Text("円")
+                            .foregroundColor(.secondary)
                     }
+
                     if let amountError {
                         Text(amountError)
                             .font(.footnote)
                             .foregroundColor(.red)
                     }
                 }
+                .padding(16)
+
+                Divider()
+
+                HStack(spacing: 0) {
+                    Button("キャンセル", action: onCancel)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+
+                    Divider()
+                        .frame(height: 44)
+
+                    Button("OK") { submit() }
+                        .fontWeight(.semibold)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                }
             }
-            .navigationTitle(title)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("キャンセル") { dismiss() }
-                }
-                // 「追加」は常に押せる状態にする。グレーアウトさせると押せない理由が
-                // 分からないため、押させて該当の欄に理由を出す。
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("追加") { submit() }
-                }
-                ToolbarItemGroup(placement: .keyboard) {
-                    Spacer()
-                    Button("完了") { focusedField = nil }
-                }
-            }
+            .background(Color(.systemBackground))
+            .cornerRadius(14)
+            .padding(.horizontal, 40)
+            .shadow(radius: 20)
         }
+        // 開いた直後に名前を入力できるようにする(アラートと同じ体感にするため)。
+        .onAppear { focusedField = .name }
     }
 
-    /// 両方の欄を検証し、該当するメッセージをすべて出す。1つでも不正ならシートを閉じない。
+    /// 両方の欄を検証し、該当するメッセージをすべて出す。1つでも不正なら閉じない。
     private func submit() {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -291,6 +301,5 @@ private struct ShippingPresetAddSheet: View {
 
         guard nameError == nil, let amount else { return }
         onAdd(trimmedName, amount)
-        dismiss()
     }
 }
