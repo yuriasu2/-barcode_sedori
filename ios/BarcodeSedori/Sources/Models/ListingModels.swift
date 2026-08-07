@@ -46,6 +46,28 @@ enum ListingModels {
         let bucket = (condition.isNew ? offers?.new : offers?.used) ?? []
         return bucket.compactMap { $0.landed }.min()
     }
+
+    /// 仕入れフォームの出品価格に自動入力する額。
+    ///
+    /// 自己発送では購入者が払う総額が「出品価格 + 配送料」になるため、競合の最安値
+    /// (landed = 商品代 + 送料)と総額で並ぶには自分の配送料を引いた額を出す必要がある。
+    /// この差し引きは設定「配送料を引いた最安値自動入力」がオンのときだけ行う(既定オフ)。
+    /// - Parameters:
+    ///   - shippingIncome: 差し引く配送料。**FBA利用時は0を渡すこと**(Amazonが配送するため
+    ///     出品者に配送料収入が無く、引くと実際より安い価格で出品してしまう)。
+    ///   - subtractShipping: 設定トグルのオン/オフ。
+    /// - Returns: 最安値が取れなければnil(従来どおり空欄のまま)。
+    static func autoFillListingPrice(
+        offers: OffersResult?,
+        condition: ListingConditionType,
+        shippingIncome: Int,
+        subtractShipping: Bool
+    ) -> Int? {
+        guard let lowest = bucketLowestPrice(offers: offers, condition: condition) else { return nil }
+        guard subtractShipping, shippingIncome > 0 else { return lowest }
+        // 0円・負値はAmazonへ出品できず保存時のバリデーションでも弾かれるため、1円を下限にする。
+        return max(1, lowest - shippingIncome)
+    }
 }
 
 /// GET /api/listings/restrictions レスポンス。
