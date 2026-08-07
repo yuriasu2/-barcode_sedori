@@ -5,16 +5,14 @@ private enum ShippingSettingsField: Hashable {
     case amount(UUID)
 }
 
-/// 追加シートをどちらのセクションから開いたか。`.sheet(item:)`で使うためIdentifiable。
-private struct ShippingAddTarget: Identifiable {
-    enum Kind: String {
+/// 追加ポップアップをどちらのセクションから開いたか。nilなら閉じている。
+private struct ShippingAddTarget {
+    enum Kind {
         case income
         case cost
     }
 
     let kind: Kind
-
-    var id: String { kind.rawValue }
 
     var title: String {
         switch kind {
@@ -88,7 +86,7 @@ struct ShippingSettingsView: View {
         }
     }
 
-    /// 追加はシートを持つ親側で行う(シートの提示元と状態の持ち主を揃えるため)。
+    /// 追加はポップアップを持つ親側で行う(提示元と状態の持ち主を揃えるため)。
     /// 未選択のまま追加すると0円が使われ続けて「登録したのに反映されない」となるため、
     /// 1件目(未選択時)は自動で選ぶ。既に選択済みなら選択を横取りしない。
     private func add(name: String, amount: Int, to kind: ShippingAddTarget.Kind) {
@@ -109,7 +107,7 @@ struct ShippingSettingsView: View {
 }
 
 /// 配送料・発送費用で共通のセクション。構造が完全に同じなので1つにまとめて2回使う。
-/// 追加はこのセクションでは行わず、親へ要求だけ投げる(シートは親が持つ)。
+/// 追加はこのセクションでは行わず、親へ要求だけ投げる(ポップアップは親が持つ)。
 private struct ShippingPresetSection: View {
     let title: String
     let footnote: String
