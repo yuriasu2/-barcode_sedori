@@ -73,6 +73,8 @@ final class SettingsStore: ObservableObject {
 
         // 仕入れ設定(PurchaseSettingsView): フォームのFBA・配送料デフォルトと仕入先リスト。
         static let purchaseUseFbaDefault = "purchase.useFbaDefault"
+        /// 出品価格の自動入力で、最安値から配送料(purchaseShippingIncomeDefault)を引くか。既定OFF。
+        static let purchaseSubtractShippingFromLowest = "purchase.subtractShippingFromLowest"
         /// 発送費用(自分が払う発送コスト)のデフォルト。キー名は導入時の「配送料」のまま流用する
         /// (意味は元々こちら)。
         static let purchaseShippingCostDefault = "purchase.shippingDefault"
@@ -336,6 +338,15 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    /// 出品価格の自動入力で、最安値から配送料を引くか。既定OFF(既存ユーザーの挙動を変えないため)。
+    /// 引く額は purchaseShippingIncomeDefault。FBA利用時は配送料収入が無いため引かない
+    /// (判定はListingModels.autoFillListingPriceの呼び出し側で配送料0を渡すことで表現する)。
+    @Published var purchaseSubtractShippingFromLowest: Bool {
+        didSet {
+            defaults.set(purchaseSubtractShippingFromLowest, forKey: Keys.purchaseSubtractShippingFromLowest)
+        }
+    }
+
     /// 仕入れフォームの発送費用(円。自分が払う発送コスト)の初期値。既定0円。
     @Published var purchaseShippingCostDefault: Int {
         didSet {
@@ -447,6 +458,7 @@ final class SettingsStore: ObservableObject {
 
         // 仕入れ設定(PurchaseSettingsView)。未設定時は既定値(FBA OFF・配送料/発送費用0円・仕入先リスト空)で読み込む。
         self.purchaseUseFbaDefault = defaults.bool(forKey: Keys.purchaseUseFbaDefault)
+        self.purchaseSubtractShippingFromLowest = defaults.bool(forKey: Keys.purchaseSubtractShippingFromLowest)
         self.purchaseShippingCostDefault = (defaults.object(forKey: Keys.purchaseShippingCostDefault) as? Int) ?? 0
         self.purchaseShippingIncomeDefault = (defaults.object(forKey: Keys.purchaseShippingIncomeDefault) as? Int) ?? 0
         self.purchaseSuppliers = defaults.stringArray(forKey: Keys.purchaseSuppliers) ?? []
