@@ -166,26 +166,17 @@ final class PurchaseFormViewModel: ObservableObject {
         }
     }
 
-    /// 出品価格から差し引く配送料。FBA利用時は0(Amazonが配送するため出品者に配送料収入が無く、
-    /// 引くと実際より安い価格で出品してしまう)。出品価格の下に表示する値もこれを使い、
-    /// 計算と表示で値がズレないようにする。
+    /// 出品価格から差し引く配送料(設定「送料設定」の配送料デフォルト)。FBA利用時は0
+    /// (Amazonが配送するため出品者に配送料収入が無く、引くと実際より安い価格で出品してしまう)。
+    /// 出品価格の下に常時表示する値もこれを使う(自動入力のオン/オフ・新規/編集を問わない)。
     var shippingToSubtract: Int {
         useFba ? 0 : settings.purchaseShippingIncomeDefault
     }
 
-    /// 設定「配送料を引いた最安値自動入力」がオンか。出品価格の下の配送料行の表示条件に使う。
-    /// フォーム表示中に設定は変わらない(設定タブへ行くにはフォームを閉じる必要がある)ため、
-    /// スナップショット参照でよい。
+    /// 設定「配送料を引いた最安値自動入力」がオンか。出品価格の自動計算にのみ使う
+    /// (出品価格の下の配送料表示行はこの設定に関わらず常に出すため、表示条件には使わない)。
     var subtractShippingFromLowest: Bool {
         settings.purchaseSubtractShippingFromLowest
-    }
-
-    /// 出品価格の下に「差し引いた配送料」行を出すか。
-    /// 自動入力が実際に行われる条件(新規追加モード かつ 設定オン)と一致させる。
-    /// 編集時は保存済み価格をそのまま表示しており差し引きは起きていないため出さない。
-    var showsSubtractedShippingRow: Bool {
-        guard case .add = mode else { return false }
-        return settings.purchaseSubtractShippingFromLowest
     }
 
     /// 商品セクションに表示するJANコード(ISBN-13があればそれ、無ければスキャンしたコード)。
@@ -604,18 +595,15 @@ struct PurchaseFormView: View {
                         .focused($focusedField, equals: .price)
                 }
 
-                // 差し引いた配送料を出品価格の直下に示す(なぜその価格になったかを分かるようにする)。
-                // 値は設定「利益計算用送料」の配送料で、ここでは変更できない。
-                // トグルがオフのときは差し引き自体が起きないため行ごと出さない。
-                if viewModel.showsSubtractedShippingRow {
-                    HStack {
-                        Text("差し引いた配送料")
-                        Spacer()
-                        Text(Self.currencyText(viewModel.shippingToSubtract))
-                    }
-                    .font(.footnote)
-                    .foregroundColor(.secondary)
+                // 配送料を出品価格の直下に常時示す(自動入力のオン/オフ・新規/編集を問わない)。
+                // 値は設定「送料設定」の配送料デフォルトで、ここでは変更できない。
+                HStack {
+                    Text("配送料")
+                    Spacer()
+                    Text(Self.currencyText(viewModel.shippingToSubtract))
                 }
+                .font(.footnote)
+                .foregroundColor(.secondary)
 
                 Picker("コンディション", selection: $viewModel.condition) {
                     ForEach(ListingConditionType.allCases) { condition in

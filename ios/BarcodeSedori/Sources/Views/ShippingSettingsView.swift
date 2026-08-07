@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 「利益計算用送料」画面(Pro限定)。設定タブの「出品」セクションから遷移する。
+/// 「送料設定」画面(Pro限定)。設定タブの「出品」セクションから遷移する。
 /// 仕入れフォーム(PurchaseFormView)の利益セクションで使う配送料・発送費用のデフォルト値を設定する。
 /// どちらもAmazonへは送らず、粗利益の計算にのみ使う。
 struct ShippingSettingsView: View {
@@ -45,7 +45,7 @@ struct ShippingSettingsView: View {
                     .foregroundColor(.secondary)
             }
         }
-        .navigationTitle("利益計算用送料")
+        .navigationTitle("送料設定")
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()

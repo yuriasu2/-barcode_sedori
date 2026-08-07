@@ -483,10 +483,10 @@ struct SettingsView: View {
                 // 仕入れフォームのデフォルト値。商品ごとにフォーム側で変更できる。
                 Toggle("FBAを利用", isOn: $settings.purchaseUseFbaDefault)
                 Toggle("配送料を引いた最安値自動入力", isOn: $settings.purchaseSubtractShippingFromLowest)
-                Text("出品価格に、最安値から「利益計算用送料」の配送料を引いた額を自動入力します。FBA利用時は配送料を引きません。")
+                Text("出品価格に、最安値から「送料設定」の配送料を引いた額を自動入力します。FBA利用時は配送料を引きません。")
                     .font(.footnote)
                     .foregroundColor(.secondary)
-                NavigationLink("利益計算用送料") {
+                NavigationLink("送料設定") {
                     ShippingSettingsView()
                 }
                 NavigationLink("仕入先") {
