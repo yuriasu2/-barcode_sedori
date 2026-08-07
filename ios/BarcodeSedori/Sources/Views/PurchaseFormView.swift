@@ -166,11 +166,23 @@ final class PurchaseFormViewModel: ObservableObject {
         }
     }
 
-    /// 出品価格から差し引く配送料(設定「送料設定」の配送料デフォルト)。FBA利用時は0
+    /// 出品価格から差し引く配送料(設定「送料設定」で選択中の配送料)。FBA利用時は0
     /// (Amazonが配送するため出品者に配送料収入が無く、引くと実際より安い価格で出品してしまう)。
-    /// 出品価格の下に常時表示する値もこれを使う(自動入力のオン/オフ・新規/編集を問わない)。
     var shippingToSubtract: Int {
         useFba ? 0 : settings.purchaseShippingIncomeDefault
+    }
+
+    /// 出品価格の下に表示する配送料。新規/編集のどちらでも常に表示する。
+    ///
+    /// 新規追加時は「実際に差し引いた額」である設定由来の値を出す。
+    /// 編集時はその商品に保存されている配送料を出す: 編集では差し引きが起きておらず、
+    /// 設定側で別のプリセットへ切り替えた後に開くと「出品価格790 / 配送料450」のように
+    /// 辻褄の合わない数字が並んでしまうため(790は210を引いて決めた価格)。
+    var shippingToDisplay: Int {
+        switch mode {
+        case .add: return shippingToSubtract
+        case .edit: return shippingIncome ?? 0
+        }
     }
 
     /// 設定「配送料を引いた最安値自動入力」がオンか。出品価格の自動計算にのみ使う
@@ -596,11 +608,11 @@ struct PurchaseFormView: View {
                 }
 
                 // 配送料を出品価格の直下に常時示す(自動入力のオン/オフ・新規/編集を問わない)。
-                // 値は設定「送料設定」の配送料デフォルトで、ここでは変更できない。
+                // 新規追加は設定由来、編集はその商品の保存値(shippingToDisplay参照)。変更はできない。
                 HStack {
                     Text("配送料")
                     Spacer()
-                    Text(Self.currencyText(viewModel.shippingToSubtract))
+                    Text(Self.currencyText(viewModel.shippingToDisplay))
                 }
                 .font(.footnote)
                 .foregroundColor(.secondary)
