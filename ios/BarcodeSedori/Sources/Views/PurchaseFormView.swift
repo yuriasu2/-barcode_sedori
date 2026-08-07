@@ -79,13 +79,19 @@ final class PurchaseFormViewModel: ObservableObject {
             // (コンディション変更時に再計算する既存の挙動と揃える)。
             // startFeesFetchより前に置くこと: priceのdidSetが張るデバウンスを
             // 直後のstartFeesFetchがキャンセルするので、新しい価格で1回だけ取得できる。
-            if case .add(let draft) = mode {
-                price = ListingModels.autoFillListingPrice(
+            // 自動入力の一部なので、設定がオフのときは何もしない
+            // (オフのときの挙動をこの機能の追加前と完全に同じに保つ)。
+            if subtractShippingFromLowest, case .add(let draft) = mode {
+                // 算出できたときだけ入れ直す。FBA切替ではoffers/conditionが変わらないので、
+                // nil(オファー無し)は新しい情報ではなく手入力価格の消失にしかならない。
+                if let recalculated = ListingModels.autoFillListingPrice(
                     offers: draft.offersResult,
                     condition: condition,
                     shippingIncome: shippingToSubtract,
-                    subtractShipping: subtractShippingFromLowest
-                )
+                    subtractShipping: true
+                ) {
+                    price = recalculated
+                }
             }
             startFeesFetch()
         }
@@ -172,6 +178,14 @@ final class PurchaseFormViewModel: ObservableObject {
     /// スナップショット参照でよい。
     var subtractShippingFromLowest: Bool {
         settings.purchaseSubtractShippingFromLowest
+    }
+
+    /// 出品価格の下に「差し引いた配送料」行を出すか。
+    /// 自動入力が実際に行われる条件(新規追加モード かつ 設定オン)と一致させる。
+    /// 編集時は保存済み価格をそのまま表示しており差し引きは起きていないため出さない。
+    var showsSubtractedShippingRow: Bool {
+        guard case .add = mode else { return false }
+        return settings.purchaseSubtractShippingFromLowest
     }
 
     /// 商品セクションに表示するJANコード(ISBN-13があればそれ、無ければスキャンしたコード)。
@@ -593,9 +607,9 @@ struct PurchaseFormView: View {
                 // 差し引いた配送料を出品価格の直下に示す(なぜその価格になったかを分かるようにする)。
                 // 値は設定「利益計算用送料」の配送料で、ここでは変更できない。
                 // トグルがオフのときは差し引き自体が起きないため行ごと出さない。
-                if viewModel.subtractShippingFromLowest {
+                if viewModel.showsSubtractedShippingRow {
                     HStack {
-                        Text("配送料")
+                        Text("差し引いた配送料")
                         Spacer()
                         Text(Self.currencyText(viewModel.shippingToSubtract))
                     }
