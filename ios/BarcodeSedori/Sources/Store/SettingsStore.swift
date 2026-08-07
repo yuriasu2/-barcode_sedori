@@ -75,11 +75,20 @@ final class SettingsStore: ObservableObject {
         static let purchaseUseFbaDefault = "purchase.useFbaDefault"
         /// 出品価格の自動入力で、最安値から配送料(purchaseShippingIncomeDefault)を引くか。既定OFF。
         static let purchaseSubtractShippingFromLowest = "purchase.subtractShippingFromLowest"
-        /// 発送費用(自分が払う発送コスト)のデフォルト。キー名は導入時の「配送料」のまま流用する
-        /// (意味は元々こちら)。
+        /// 【旧】発送費用の単一値。プリセット化前のバージョンが書いた値で、初回起動時の移行にのみ読む
+        /// (移行後は削除する)。キー名は導入時の「配送料」のまま流用していた。
         static let purchaseShippingCostDefault = "purchase.shippingDefault"
-        /// 配送料(購入者が支払い自分に入金される額)のデフォルト。
+        /// 【旧】配送料の単一値。プリセット化前のバージョンが書いた値で、初回起動時の移行にのみ読む
+        /// (移行後は削除する)。
         static let purchaseShippingIncomeDefault = "purchase.shippingIncomeDefault"
+        /// 配送料の名前付きプリセット一覧。JSONエンコードして保存する。
+        static let purchaseShippingIncomePresets = "purchase.shippingIncomePresets"
+        /// 選択中の配送料プリセットのID(uuidString)。未選択なら削除する。
+        static let purchaseShippingIncomeSelectedId = "purchase.shippingIncomeSelectedId"
+        /// 発送費用の名前付きプリセット一覧。JSONエンコードして保存する。
+        static let purchaseShippingCostPresets = "purchase.shippingCostPresets"
+        /// 選択中の発送費用プリセットのID(uuidString)。未選択なら削除する。
+        static let purchaseShippingCostSelectedId = "purchase.shippingCostSelectedId"
         static let purchaseSuppliers = "purchase.suppliers"
         static let purchaseLastSupplier = "purchase.lastSupplier"
     }
@@ -347,18 +356,97 @@ final class SettingsStore: ObservableObject {
         }
     }
 
-    /// 仕入れフォームの発送費用(円。自分が払う発送コスト)の初期値。既定0円。
-    @Published var purchaseShippingCostDefault: Int {
+    /// 配送料(購入者が支払い自分に入金される額)の名前付きプリセット一覧(追加順)。
+    @Published var purchaseShippingIncomePresets: [ShippingPreset] {
         didSet {
-            defaults.set(purchaseShippingCostDefault, forKey: Keys.purchaseShippingCostDefault)
+            guard let data = try? JSONEncoder().encode(purchaseShippingIncomePresets) else { return }
+            defaults.set(data, forKey: Keys.purchaseShippingIncomePresets)
         }
     }
 
-    /// 仕入れフォームの配送料(円。購入者が支払い自分に入金される額)の初期値。既定0円。
-    @Published var purchaseShippingIncomeDefault: Int {
+    /// 選択中の配送料プリセットのID。未選択(または選択中を削除した直後)はnil。
+    @Published var purchaseShippingIncomeSelectedId: UUID? {
         didSet {
-            defaults.set(purchaseShippingIncomeDefault, forKey: Keys.purchaseShippingIncomeDefault)
+            if let purchaseShippingIncomeSelectedId {
+                defaults.set(purchaseShippingIncomeSelectedId.uuidString, forKey: Keys.purchaseShippingIncomeSelectedId)
+            } else {
+                defaults.removeObject(forKey: Keys.purchaseShippingIncomeSelectedId)
+            }
         }
+    }
+
+    /// 発送費用(自分が払う発送コスト)の名前付きプリセット一覧(追加順)。
+    @Published var purchaseShippingCostPresets: [ShippingPreset] {
+        didSet {
+            guard let data = try? JSONEncoder().encode(purchaseShippingCostPresets) else { return }
+            defaults.set(data, forKey: Keys.purchaseShippingCostPresets)
+        }
+    }
+
+    /// 選択中の発送費用プリセットのID。未選択(または選択中を削除した直後)はnil。
+    @Published var purchaseShippingCostSelectedId: UUID? {
+        didSet {
+            if let purchaseShippingCostSelectedId {
+                defaults.set(purchaseShippingCostSelectedId.uuidString, forKey: Keys.purchaseShippingCostSelectedId)
+            } else {
+                defaults.removeObject(forKey: Keys.purchaseShippingCostSelectedId)
+            }
+        }
+    }
+
+    /// 仕入れフォームの配送料(円)の初期値。選択中プリセットの金額。未選択なら0円。
+    /// 呼び出し側(PurchaseFormView)の契約を変えないため、プリセット化後も名前と型を保っている。
+    var purchaseShippingIncomeDefault: Int {
+        Self.selectedAmount(in: purchaseShippingIncomePresets, id: purchaseShippingIncomeSelectedId)
+    }
+
+    /// 仕入れフォームの発送費用(円)の初期値。選択中プリセットの金額。未選択なら0円。
+    var purchaseShippingCostDefault: Int {
+        Self.selectedAmount(in: purchaseShippingCostPresets, id: purchaseShippingCostSelectedId)
+    }
+
+    /// 選択中プリセットの金額を解決する。配送料・発送費用で同じ規則のため共通化する。
+    /// 未選択(IDがnil)・選択中が削除済み(IDに対応するプリセットが無い)ときは0を返す。
+    private static func selectedAmount(in presets: [ShippingPreset], id: UUID?) -> Int {
+        guard let id, let preset = presets.first(where: { $0.id == id }) else { return 0 }
+        return preset.amount
+    }
+
+    /// 送料プリセットを読み込む。プリセットがまだ無く、旧バージョンの単一値が残っていれば、
+    /// そのときだけプリセット1件へ移行して選択状態にする(既存ユーザーの設定を失わないため)。
+    ///
+    /// init内から呼ぶためstatic。init内でのプロパティ代入はdidSetを発火させないので、
+    /// 移行結果の永続化はこの中で明示的に行う。
+    /// - Returns: (プリセット一覧, 選択中ID)
+    private static func loadShippingPresets(
+        defaults: UserDefaults,
+        presetsKey: String,
+        selectedIdKey: String,
+        legacyAmountKey: String
+    ) -> ([ShippingPreset], UUID?) {
+        var presets: [ShippingPreset] = []
+        if let data = defaults.data(forKey: presetsKey),
+           let decoded = try? JSONDecoder().decode([ShippingPreset].self, from: data) {
+            presets = decoded
+        }
+        let selectedId = defaults.string(forKey: selectedIdKey).flatMap(UUID.init(uuidString:))
+
+        // 既にプリセットがあれば移行済み。旧値が未設定/0円なら移行するものが無い。
+        guard presets.isEmpty,
+              let legacyAmount = defaults.object(forKey: legacyAmountKey) as? Int,
+              legacyAmount > 0 else {
+            return (presets, selectedId)
+        }
+
+        let migrated = ShippingPreset(id: UUID(), name: "デフォルト", amount: legacyAmount)
+        guard let data = try? JSONEncoder().encode([migrated]) else {
+            return (presets, selectedId)
+        }
+        defaults.set(data, forKey: presetsKey)
+        defaults.set(migrated.id.uuidString, forKey: selectedIdKey)
+        // 次回起動で二重に取り込まないよう旧キーを消す。
+        defaults.removeObject(forKey: legacyAmountKey)
+        return ([migrated], migrated.id)
     }
 
     /// 登録済み仕入先リスト(追加順)。仕入れフォームの仕入先Pickerの選択肢に使う。
@@ -459,8 +547,24 @@ final class SettingsStore: ObservableObject {
         // 仕入れ設定(PurchaseSettingsView)。未設定時は既定値(FBA OFF・配送料/発送費用0円・仕入先リスト空)で読み込む。
         self.purchaseUseFbaDefault = defaults.bool(forKey: Keys.purchaseUseFbaDefault)
         self.purchaseSubtractShippingFromLowest = defaults.bool(forKey: Keys.purchaseSubtractShippingFromLowest)
-        self.purchaseShippingCostDefault = (defaults.object(forKey: Keys.purchaseShippingCostDefault) as? Int) ?? 0
-        self.purchaseShippingIncomeDefault = (defaults.object(forKey: Keys.purchaseShippingIncomeDefault) as? Int) ?? 0
+        // 送料プリセット。旧バージョンの単一値が残っていれば初回だけ1件へ移行する(loadShippingPresets参照)。
+        let (costPresets, costSelectedId) = Self.loadShippingPresets(
+            defaults: defaults,
+            presetsKey: Keys.purchaseShippingCostPresets,
+            selectedIdKey: Keys.purchaseShippingCostSelectedId,
+            legacyAmountKey: Keys.purchaseShippingCostDefault
+        )
+        self.purchaseShippingCostPresets = costPresets
+        self.purchaseShippingCostSelectedId = costSelectedId
+
+        let (incomePresets, incomeSelectedId) = Self.loadShippingPresets(
+            defaults: defaults,
+            presetsKey: Keys.purchaseShippingIncomePresets,
+            selectedIdKey: Keys.purchaseShippingIncomeSelectedId,
+            legacyAmountKey: Keys.purchaseShippingIncomeDefault
+        )
+        self.purchaseShippingIncomePresets = incomePresets
+        self.purchaseShippingIncomeSelectedId = incomeSelectedId
         self.purchaseSuppliers = defaults.stringArray(forKey: Keys.purchaseSuppliers) ?? []
         self.purchaseLastSupplier = defaults.string(forKey: Keys.purchaseLastSupplier)
 
