@@ -243,14 +243,6 @@ final class PurchaseFormViewModel: ObservableObject {
         }
     }
 
-    /// 情報グリッドの右下「追加日」。
-    var addedAt: Date {
-        switch mode {
-        case .add(let draft): return draft.addedAt
-        case .edit(let item): return item.addedAt
-        }
-    }
-
     /// キャンセルボタンを出すか。編集モードは画面遷移(NavigationLink)で開くため
     /// 戻る「‹」があり二重になる。新規追加はシート表示で、消すと下スワイプ以外に
     /// 閉じる手段が無くなるため残す。
@@ -309,7 +301,8 @@ final class PurchaseFormViewModel: ObservableObject {
             self.sku = generatedSku
             self.lastAutoSku = generatedSku
             self.useFba = settings.purchaseUseFbaDefault
-            self.purchasePrice = nil
+            // 前回入力した仕入れ価格から始める(同じ値段の物を続けて登録することが多いため)。
+            self.purchasePrice = settings.purchaseLastPurchasePrice
             // FBA時は配送料収入も発送費用も発生しないため0で始める。
             self.shippingIncome = settings.purchaseUseFbaDefault ? 0 : settings.purchaseShippingIncomeDefault
             self.shippingCost = settings.purchaseUseFbaDefault ? 0 : settings.purchaseShippingCostDefault
@@ -558,6 +551,7 @@ final class PurchaseFormViewModel: ObservableObject {
     /// 保存(緑チェック)。新規追加時はPurchaseListStoreへ登録し、編集時は上書きする。
     /// 直近コンディションはSettingsStoreへ記憶し、次回の新規追加フォームの初期値にする。
     /// 仕入先も選択していればlastSupplierへ記憶する(lastListingConditionと同じ作法)。
+    /// 仕入れ価格も同様に記憶する。
     func save() {
         let trimmedSku = sku.trimmingCharacters(in: .whitespaces)
         let trimmedMemo = memo.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -566,6 +560,8 @@ final class PurchaseFormViewModel: ObservableObject {
         if let supplier {
             settings.purchaseLastSupplier = supplier
         }
+        // 次回の新規追加で初期値にする。未入力で保存したら記憶も消し、次回も未入力で始める。
+        settings.purchaseLastPurchasePrice = purchasePrice
 
         switch mode {
         case .add(let draft):
@@ -666,8 +662,10 @@ struct PurchaseFormView: View {
                         salesRank: viewModel.salesRank,
                         listPrice: viewModel.listPrice,
                         releaseDate: viewModel.releaseDate,
-                        dateLabel: "追加日",
-                        date: viewModel.addedAt
+                        dateLabel: "仕入れ日",
+                        // ラベルに合わせて仕入れ日(仕入れ情報セクションで変更できる値)を出す。
+                        // 追加日のままだと、仕入れ日を変えたときに食い違った日付が並んでしまう。
+                        date: viewModel.purchaseDate
                     )
 
                     if viewModel.showsRestrictionTile {

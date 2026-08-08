@@ -91,6 +91,8 @@ final class SettingsStore: ObservableObject {
         static let purchaseShippingCostSelectedId = "purchase.shippingCostSelectedId"
         static let purchaseSuppliers = "purchase.suppliers"
         static let purchaseLastSupplier = "purchase.lastSupplier"
+        /// 仕入れフォームで最後に入力した仕入れ価格。未入力で保存したら削除する。
+        static let purchaseLastPurchasePrice = "purchase.lastPurchasePrice"
     }
 
     /// Keychain上のアカウント名(リフレッシュトークン用)。
@@ -468,6 +470,19 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    /// 仕入れフォームで最後に入力した仕入れ価格(新規追加時の初期値に使う。purchaseLastSupplierと同方式)。
+    /// 同じ店で同じ値段の物を続けて登録することが多いため、前回の値から始められるようにする。
+    /// 一度も入力していなければnil(この場合フォーム側は未入力で始まる)。
+    @Published var purchaseLastPurchasePrice: Int? {
+        didSet {
+            if let purchaseLastPurchasePrice {
+                defaults.set(purchaseLastPurchasePrice, forKey: Keys.purchaseLastPurchasePrice)
+            } else {
+                defaults.removeObject(forKey: Keys.purchaseLastPurchasePrice)
+            }
+        }
+    }
+
     // 出品説明文テンプレートの既定値(設定画面・出品フォームで編集可)。
     static let defaultListingTemplateNew =
         "新品・未使用品です。丁寧に梱包してお届けします。"
@@ -567,6 +582,8 @@ final class SettingsStore: ObservableObject {
         self.purchaseShippingIncomeSelectedId = incomeSelectedId
         self.purchaseSuppliers = defaults.stringArray(forKey: Keys.purchaseSuppliers) ?? []
         self.purchaseLastSupplier = defaults.string(forKey: Keys.purchaseLastSupplier)
+        // integer(forKey:)は未保存でも0を返し「0円を入力した」と区別が付かないためobjectで読む。
+        self.purchaseLastPurchasePrice = defaults.object(forKey: Keys.purchaseLastPurchasePrice) as? Int
 
         // リフレッシュトークンはKeychainから読む。
         // 旧バージョンでUserDefaultsに平文保存されていた場合は、ここでKeychainへ移行し平文を削除する。
