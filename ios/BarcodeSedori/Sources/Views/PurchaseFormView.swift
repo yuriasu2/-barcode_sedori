@@ -414,12 +414,22 @@ final class PurchaseFormViewModel: ObservableObject {
         }
     }
 
-    /// 粗利益 = 出品価格 + 配送料 − 仕入れ価格 − 手数料 − 発送費用。
-    /// 出品価格・仕入れ価格が未入力、または手数料が未取得(idle/loading)の間は計算せずnilを返す
-    /// (呼び出し側は「—」表示にする)。
+    /// 数量倍した値。明細と粗利益は合計で見せる(入力欄は1個あたりのまま)。
+    func multiplied(_ amount: Int) -> Int { amount * quantity }
+
+    /// 明細に出す各項目(すべて数量倍済み)。入力欄の値は1個あたりなのでここで掛ける。
+    var totalPrice: Int? { price.map { $0 * quantity } }
+    var totalShippingIncome: Int { (shippingIncome ?? 0) * quantity }
+    var totalPurchasePrice: Int? { purchasePrice.map { $0 * quantity } }
+    var totalShippingCost: Int { (shippingCost ?? 0) * quantity }
+
+    /// 粗利益(数量倍)。= 数量 × (出品価格 + 配送料 − 仕入れ価格 − 手数料 − 発送費用)。
+    /// 出品価格・仕入れ価格が未入力、または手数料が未取得(idle/loading/unavailable)の間は
+    /// 計算せずnilを返す(呼び出し側は「—」表示にする)。
     var grossProfit: Int? {
         guard let price, let purchasePrice, case .loaded(let display) = feesState else { return nil }
-        return price + (shippingIncome ?? 0) - purchasePrice - display.total - (shippingCost ?? 0)
+        let perUnit = price + (shippingIncome ?? 0) - purchasePrice - display.total - (shippingCost ?? 0)
+        return perUnit * quantity
     }
 
     /// フォーム表示時・FBAトグル切替時に呼ぶ即時実行版(デバウンスしない)。
@@ -575,8 +585,6 @@ struct PurchaseFormView: View {
         case price
         case sku
         case purchasePrice
-        case shippingIncome
-        case shippingCost
         case memo
         case conditionNote
     }
@@ -678,9 +686,21 @@ struct PurchaseFormView: View {
                 Stepper("数量: \(viewModel.quantity)", value: $viewModel.quantity, in: 1...99)
 
                 Toggle("FBAを利用", isOn: $viewModel.useFba)
-            }
 
-            profitSection
+                HStack {
+                    Text("仕入れ価格(円)")
+                        .foregroundColor(.red)
+                    Spacer()
+                    TextField("仕入れ価格", value: $viewModel.purchasePrice, format: .number)
+                        .keyboardType(.numberPad)
+                        .multilineTextAlignment(.trailing)
+                        .frame(width: 120)
+                        .foregroundColor(.red)
+                        .focused($focusedField, equals: .purchasePrice)
+                }
+
+                profitDisclosure
+            }
 
             purchaseInfoSection
         }
@@ -764,57 +784,20 @@ struct PurchaseFormView: View {
         .minimumScaleFactor(0.7)
     }
 
-    /// 利益セクション: 出品価格・配送料(黒=入る)/ 仕入れ価格・手数料・発送費用(赤=出る)/
-    /// 粗利益(青太字=結果)。出品価格は表示のみ、配送料・仕入れ価格・発送費用は入力可。
-    /// 粗利益 = 出品価格 + 配送料 − 仕入れ価格 − 手数料 − 発送費用。
-    private var profitSection: some View {
-        Section("利益") {
-            HStack {
-                Text("出品価格")
-                Spacer()
-                Text(viewModel.price.map(Self.currencyText) ?? "—")
+    /// 粗利益の折りたたみ。タップで明細が開き、明細の中の手数料はさらに入れ子で開く。
+    /// 明細は小さめの文字・行間を詰める・区切り線なし(DisclosureGroup1つを1行に収めるため、
+    /// Formの行区切りは自動的に入らない)。
+    private var profitDisclosure: some View {
+        DisclosureGroup {
+            VStack(spacing: 2) {
+                profitDetailRow("出品価格", viewModel.totalPrice)
+                profitDetailRow("配送料", viewModel.totalShippingIncome)
+                profitDetailRow("仕入れ価格", viewModel.totalPurchasePrice, isCost: true)
+                profitDetailRow("発送費用", viewModel.totalShippingCost, isCost: true)
+                feesDisclosure
             }
-
-            // FBAでは購入者の配送料をAmazonが受け取るため、出品者の収入にならない。
-            // 常に0とし入力も受け付けない(値を入れると手数料の計算基礎が実際と合わなくなる)。
-            HStack {
-                Text("配送料")
-                Spacer()
-                TextField("配送料", value: $viewModel.shippingIncome, format: .number)
-                    .keyboardType(.numberPad)
-                    .multilineTextAlignment(.trailing)
-                    .frame(width: 120)
-                    .focused($focusedField, equals: .shippingIncome)
-                    .disabled(viewModel.useFba)
-                    .foregroundColor(viewModel.useFba ? .secondary : .primary)
-            }
-
-            HStack {
-                Text("仕入れ価格")
-                    .foregroundColor(.red)
-                Spacer()
-                TextField("仕入れ価格", value: $viewModel.purchasePrice, format: .number)
-                    .keyboardType(.numberPad)
-                    .multilineTextAlignment(.trailing)
-                    .frame(width: 120)
-                    .foregroundColor(.red)
-                    .focused($focusedField, equals: .purchasePrice)
-            }
-
-            feesRow
-
-            HStack {
-                Text("発送費用")
-                    .foregroundColor(.red)
-                Spacer()
-                TextField("発送費用", value: $viewModel.shippingCost, format: .number)
-                    .keyboardType(.numberPad)
-                    .multilineTextAlignment(.trailing)
-                    .frame(width: 120)
-                    .foregroundColor(.red)
-                    .focused($focusedField, equals: .shippingCost)
-            }
-
+            .padding(.top, 2)
+        } label: {
             HStack {
                 Text("粗利益")
                     .fontWeight(.bold)
@@ -827,62 +810,72 @@ struct PurchaseFormView: View {
         }
     }
 
-    /// 手数料行。取得中はProgressView、取得済みならDisclosureGroupで内訳を展開できる。
-    /// 概算フォールバック時は合計に「(概算)」を付記し、FBAトグルON時のみ「連携が必要」の注記を出す。
+    /// 明細の1行。出ていくお金(isCost)は赤字にする。
+    private func profitDetailRow(_ label: String, _ amount: Int?, isCost: Bool = false) -> some View {
+        HStack {
+            Text(label)
+            Spacer()
+            Text(amount.map(Self.currencyText) ?? "—")
+        }
+        .font(.footnote)
+        .foregroundColor(isCost ? .red : .primary)
+    }
+
+    /// 明細の中の手数料。取得できていれば内訳を入れ子で開ける。
+    /// 内訳は取得できた項目をそのまま並べるため、FBA利用時はFBA手数料も含まれる。
     @ViewBuilder
-    private var feesRow: some View {
+    private var feesDisclosure: some View {
         switch viewModel.feesState {
-        case .idle:
-            HStack {
-                Text("手数料")
-                    .foregroundColor(.red)
-                Spacer()
-                Text("—")
-                    .foregroundColor(.red)
+        case .loaded(let display):
+            DisclosureGroup {
+                VStack(spacing: 2) {
+                    ForEach(display.breakdown, id: \.type) { line in
+                        profitDetailRow(line.label, viewModel.multiplied(line.amount), isCost: true)
+                    }
+                    if let note = display.fbaRequiresLinkNote {
+                        HStack {
+                            Text("FBA手数料")
+                            Spacer()
+                            Text(note)
+                        }
+                        .font(.footnote)
+                        .foregroundColor(.red)
+                    }
+                }
+                .padding(.top, 2)
+            } label: {
+                HStack {
+                    Text("手数料")
+                    Spacer()
+                    Text(Self.currencyText(viewModel.multiplied(display.total))
+                         + (display.isEstimate ? "(概算)" : ""))
+                }
+                .font(.footnote)
+                .foregroundColor(.red)
             }
+
+        case .idle:
+            profitDetailRow("手数料", nil, isCost: true)
+
         case .loading:
             HStack {
                 Text("手数料")
-                    .foregroundColor(.red)
                 Spacer()
                 ProgressView()
                     .controlSize(.small)
             }
+            .font(.footnote)
+            .foregroundColor(.red)
+
         case .unavailable(let message):
             HStack(alignment: .top) {
                 Text("手数料")
-                    .foregroundColor(.red)
                 Spacer()
                 Text(message)
-                    .font(.footnote)
-                    .foregroundColor(.red)
                     .multilineTextAlignment(.trailing)
             }
-        case .loaded(let display):
-            DisclosureGroup {
-                ForEach(display.breakdown, id: \.type) { line in
-                    HStack {
-                        Text(line.label)
-                        Spacer()
-                        Text(Self.currencyText(line.amount))
-                    }
-                    .font(.footnote)
-                    .foregroundColor(.secondary)
-                }
-                if let note = display.fbaRequiresLinkNote {
-                    Text("FBA手数料: \(note)")
-                        .font(.footnote)
-                        .foregroundColor(.secondary)
-                }
-            } label: {
-                HStack {
-                    Text("手数料")
-                        .foregroundColor(.red)
-                    Spacer()
-                    Text(Self.currencyText(display.total) + (display.isEstimate ? "(概算)" : ""))
-                        .foregroundColor(.red)
-                }
-            }
+            .font(.footnote)
+            .foregroundColor(.red)
         }
     }
 
