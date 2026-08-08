@@ -207,6 +207,46 @@ final class PurchaseFormViewModel: ObservableObject {
         }
     }
 
+    /// 情報グリッドの「参考価格」。編集時は保存値、新規追加時は下書きの値。
+    var listPrice: Int? {
+        switch mode {
+        case .add(let draft): return draft.listPrice
+        case .edit(let item): return item.listPrice
+        }
+    }
+
+    /// 情報グリッドの「発売日」(ISO日付文字列)。
+    var releaseDate: String? {
+        switch mode {
+        case .add(let draft): return draft.releaseDate
+        case .edit(let item): return item.releaseDate
+        }
+    }
+
+    /// 情報グリッドの右下「追加日」。
+    var addedAt: Date {
+        switch mode {
+        case .add(let draft): return draft.addedAt
+        case .edit(let item): return item.addedAt
+        }
+    }
+
+    /// キャンセルボタンを出すか。編集モードは画面遷移(NavigationLink)で開くため
+    /// 戻る「‹」があり二重になる。新規追加はシート表示で、消すと下スワイプ以外に
+    /// 閉じる手段が無くなるため残す。
+    var showsCancelButton: Bool {
+        if case .add = mode { return true }
+        return false
+    }
+
+    /// 商品セクションのサムネイル用画像URL。
+    var imageUrl: String? {
+        switch mode {
+        case .add(let draft): return draft.imageUrl
+        case .edit(let item): return item.imageUrl
+        }
+    }
+
     init(
         mode: PurchaseFormMode,
         settings: SettingsStore = .shared,
@@ -573,26 +613,22 @@ struct PurchaseFormView: View {
 
     var body: some View {
         Form {
-            Section("商品") {
-                Text(viewModel.title ?? "(タイトル不明)")
-                    .font(.subheadline)
-                HStack {
-                    Text("JANコード")
-                    Spacer()
-                    Text(viewModel.janCode ?? "-")
-                        .foregroundColor(.secondary)
-                }
-                HStack {
-                    Text("ランキング")
-                    Spacer()
-                    if let rank = viewModel.salesRank {
-                        Text("\(rank)位")
-                            .foregroundColor(.secondary)
-                    } else {
-                        Text("-")
-                            .foregroundColor(.secondary)
-                    }
-                }
+            Section {
+                ProductSummaryHeader(
+                    imageUrl: viewModel.imageUrl,
+                    title: viewModel.title,
+                    jan: viewModel.janCode,
+                    asin: viewModel.asin,
+                    salesRank: viewModel.salesRank,
+                    listPrice: viewModel.listPrice,
+                    releaseDate: viewModel.releaseDate,
+                    dateLabel: "追加日",
+                    date: viewModel.addedAt
+                )
+                // Formの行の余白と背景を消して、部品自身のカード見た目をそのまま出す。
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
+
                 restrictionRow
             }
 
@@ -658,7 +694,10 @@ struct PurchaseFormView: View {
             }
             ToolbarItem(placement: .cancellationAction) {
                 // キャンセル・スワイプ閉じは登録しない(saveを呼ばずに閉じるだけ)。
-                Button("キャンセル") { dismiss() }
+                // 編集モードは戻る「‹」があり二重になるため出さない(showsCancelButton参照)。
+                if viewModel.showsCancelButton {
+                    Button("キャンセル") { dismiss() }
+                }
             }
             ToolbarItem(placement: .confirmationAction) {
                 // 保存(緑チェックマーク)。押したら保存して閉じる。「出品する」ボタンは無い。

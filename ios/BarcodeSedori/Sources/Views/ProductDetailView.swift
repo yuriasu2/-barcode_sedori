@@ -185,6 +185,8 @@ struct ProductDetailView: View {
             scannedCode: janCode,
             isbn13: nil,
             salesRank: salesRank,
+            listPrice: listPrice,
+            releaseDate: releaseDate,
             offersResult: viewModel.offers
         )
     }

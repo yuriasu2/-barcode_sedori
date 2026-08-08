@@ -14,6 +14,10 @@ struct PurchaseListItem: Codable, Equatable, Identifiable {
     let scannedCode: String?
     let isbn13: String?
     let salesRank: Int?
+    /// 定価(税込・円)。仕入れ内容画面の「参考価格」に出す。追加時に検索結果から引き継ぐ。
+    var listPrice: Int?
+    /// 発売日(ISO日付文字列、例 "2025-06-17")。仕入れ内容画面の「発売日」に出す。
+    var releaseDate: String?
     /// 追加時点のオファー一覧スナップショット。出品フォームの初期価格(同コンディション最安landed)に使う。
     /// 追加時点で未取得ならnil(再取得はしないため、その場合は仕入れフォームで価格を手動入力する)。
     var offersResult: OffersResult?
@@ -69,6 +73,8 @@ struct PurchaseListItem: Codable, Equatable, Identifiable {
         scannedCode: String?,
         isbn13: String?,
         salesRank: Int?,
+        listPrice: Int? = nil,
+        releaseDate: String? = nil,
         offersResult: OffersResult? = nil,
         isListed: Bool = false,
         listedSku: String? = nil,
@@ -96,6 +102,8 @@ struct PurchaseListItem: Codable, Equatable, Identifiable {
         self.scannedCode = scannedCode
         self.isbn13 = isbn13
         self.salesRank = salesRank
+        self.listPrice = listPrice
+        self.releaseDate = releaseDate
         self.offersResult = offersResult
         self.isListed = isListed
         self.listedSku = listedSku
@@ -125,6 +133,9 @@ struct PurchaseListItem: Codable, Equatable, Identifiable {
             scannedCode: scannedCode,
             isbn13: result.isbn13,
             salesRank: result.salesRank,
+            // 参考価格はSearchResult直下ではなくProfitInputsの中にある(発売日は直下)。
+            listPrice: result.profitInputs?.listPrice,
+            releaseDate: result.releaseDate,
             offersResult: offersResult
         )
     }
