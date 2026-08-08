@@ -746,10 +746,13 @@ struct PurchaseFormView: View {
 
             purchaseInfoSection
         }
-        // insetGroupedのセクション左右余白はiPhoneで既定20ptあり、商品詳細(16pt固定)より広い。
-        // 差分の4ptだけ負のpaddingで外へ押し出して両画面のカード端を揃える
-        // (行の内側の余白には影響しない)。上余白はApp.swiftのsectionHeaderTopPaddingで詰める。
+        // 商品詳細(ScrollView + padding 16/上12)とカード位置を揃えるための補正。
+        // 左右: insetGroupedのセクション余白はiPhoneで既定20ptあり、差分の4ptを外へ押し出す。
+        // 上: Formは先頭セクションの上に既定の余白を持ち、商品詳細より約22pt低い位置から
+        //     始まるため同じだけ引き上げる。iOS 16のFormはUICollectionView実装に変わっており
+        //     UITableView.appearance().sectionHeaderTopPaddingでは詰められないため負のpaddingで行う。
         .padding(.horizontal, -4)
+        .padding(.top, -22)
         .navigationTitle("仕入れ内容")
         .navigationBarTitleDisplayMode(.inline)
         // numberPadキーボードにはReturnキーが無く閉じる手段が無いため、キーボード上に「完了」を出す。

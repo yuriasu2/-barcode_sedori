@@ -12,15 +12,6 @@ struct BarcodeSedoriApp: App {
             GADMobileAds.sharedInstance().start(completionHandler: nil)
         }
         configureTabBarAppearance()
-        configureListAppearance()
-    }
-
-    /// iOS 15以降、見出しの無いセクションの上にも`sectionHeaderTopPadding`(既定約28pt)が
-    /// 自動で入り、Form/Listの先頭がナビゲーションバーから不自然に離れて見える。
-    /// 商品詳細(ScrollView、上余白12pt)と仕入れ内容(Form)の上余白を揃えるため0にする。
-    /// アプリ全体のForm/Listに効くが、設定タブなども同様に詰まるだけで意図した挙動。
-    private func configureListAppearance() {
-        UITableView.appearance().sectionHeaderTopPadding = 0
     }
 
     /// タブバーの背景を透過率90%(不透明度10%)にする。
