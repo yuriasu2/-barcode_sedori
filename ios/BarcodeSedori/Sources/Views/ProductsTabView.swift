@@ -241,6 +241,8 @@ struct ProductsTabView: View {
                 scannedCode: item.scannedCode,
                 isbn13: item.isbn13,
                 salesRank: item.salesRank,
+                listPrice: item.listPrice,
+                releaseDate: item.releaseDate,
                 offersResult: item.offersResult
             ))
             addedCount += 1
