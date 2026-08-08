@@ -73,8 +73,18 @@ final class PurchaseFormViewModel: ObservableObject {
     @Published var useFba: Bool {
         didSet {
             guard useFba != oldValue else { return }
-            shippingIncome = useFba ? 0 : settings.purchaseShippingIncomeDefault
-            shippingCost = useFba ? 0 : settings.purchaseShippingCostDefault
+            // 編集時は配送料・発送費用のテキスト欄が無くなっているため、OFFに戻したときに
+            // 今日の送料設定プリセットへ差し替えると元の保存値を復元する手段が無くなる。
+            // そのため編集時はこの商品を開いた時点の値へ戻し、新規追加時は従来通り設定の
+            // デフォルトへ戻す。
+            switch mode {
+            case .add:
+                shippingIncome = useFba ? 0 : settings.purchaseShippingIncomeDefault
+                shippingCost = useFba ? 0 : settings.purchaseShippingCostDefault
+            case .edit:
+                shippingIncome = useFba ? 0 : openedShippingIncome
+                shippingCost = useFba ? 0 : openedShippingCost
+            }
             // FBAの切替で配送料を引くかどうかが変わるため、出品価格も入れ直す
             // (コンディション変更時に再計算する既存の挙動と揃える)。
             // startFeesFetchより前に置くこと: priceのdidSetが張るデバウンスを
@@ -151,6 +161,10 @@ final class PurchaseFormViewModel: ObservableObject {
     /// SwiftUIのTextFieldは初期化時のprogrammatic設定とユーザー入力を区別できないため、
     /// 値の一致比較で判定する(onChangeフラグ方式は使わない)。
     private var lastAutoSku: String
+    /// useFbaのdidSetがOFF復帰時に戻す値。編集時はこの商品を開いた時点の保存値
+    /// (無ければ設定デフォルト)、新規追加時は設定デフォルト。addモードでは使わない。
+    private let openedShippingIncome: Int
+    private let openedShippingCost: Int
 
     var title: String? {
         switch mode {
@@ -293,6 +307,10 @@ final class PurchaseFormViewModel: ObservableObject {
             // FBA時は配送料収入も発送費用も発生しないため0で始める。
             self.shippingIncome = settings.purchaseUseFbaDefault ? 0 : settings.purchaseShippingIncomeDefault
             self.shippingCost = settings.purchaseUseFbaDefault ? 0 : settings.purchaseShippingCostDefault
+            // 新規追加ではuseFbaのdidSetは従来通り設定デフォルトへ戻すため、ここは使われないが
+            // 定義上どちらのモードでも初期化する必要がある。
+            self.openedShippingIncome = settings.purchaseShippingIncomeDefault
+            self.openedShippingCost = settings.purchaseShippingCostDefault
             self.purchaseDate = draft.addedAt
             // 前回選んだ仕入先。登録済みリストから削除されていれば「未選択」扱いにする。
             self.supplier = settings.purchaseLastSupplier.flatMap { settings.purchaseSuppliers.contains($0) ? $0 : nil }
@@ -318,6 +336,13 @@ final class PurchaseFormViewModel: ObservableObject {
             self.shippingCost =
                 numberedItem.shippingCost ?? (initialUseFba ? 0 : settings.purchaseShippingCostDefault)
             self.shippingIncome =
+                numberedItem.shippingIncome ?? (initialUseFba ? 0 : settings.purchaseShippingIncomeDefault)
+            // useFbaのdidSetがOFF復帰時に戻す先。この商品を開いた時点の保存値
+            // (旧データで未保存なら設定デフォルト)で、上のshippingCost/shippingIncomeの
+            // 初期値算出と同じ規則にする。
+            self.openedShippingCost =
+                numberedItem.shippingCost ?? (initialUseFba ? 0 : settings.purchaseShippingCostDefault)
+            self.openedShippingIncome =
                 numberedItem.shippingIncome ?? (initialUseFba ? 0 : settings.purchaseShippingIncomeDefault)
             self.purchaseDate = numberedItem.purchaseDate ?? numberedItem.addedAt
             self.supplier = numberedItem.supplier
