@@ -634,7 +634,7 @@ struct PurchaseFormView: View {
         )
     }
 
-    /// 金額表示の共通フォーマット(「¥1,234」形式)。
+    /// 金額表示の共通フォーマット(「1,234円」形式)。
     private static let currencyFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
@@ -643,7 +643,7 @@ struct PurchaseFormView: View {
     }()
 
     private static func currencyText(_ amount: Int) -> String {
-        "¥" + (currencyFormatter.string(from: NSNumber(value: amount)) ?? String(amount))
+        (currencyFormatter.string(from: NSNumber(value: amount)) ?? String(amount)) + "円"
     }
 
     init(mode: PurchaseFormMode) {
@@ -684,13 +684,17 @@ struct PurchaseFormView: View {
 
             Section("出品内容") {
                 HStack {
-                    Text("出品価格(円)")
+                    Text("出品価格")
                     Spacer()
-                    TextField("出品価格", value: $viewModel.price, format: .number)
-                        .keyboardType(.numberPad)
-                        .multilineTextAlignment(.trailing)
-                        .frame(width: 120)
-                        .focused($focusedField, equals: .price)
+                    // 単位はラベルではなく入力欄の直後に置き「1,200円」と読める並びにする。
+                    HStack(spacing: 0) {
+                        TextField("出品価格", value: $viewModel.price, format: .number)
+                            .keyboardType(.numberPad)
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 120)
+                            .focused($focusedField, equals: .price)
+                        Text("円")
+                    }
                 }
 
                 // 配送料を出品価格の直下に常時示す(自動入力のオン/オフ・新規/編集を問わない)。
@@ -702,6 +706,22 @@ struct PurchaseFormView: View {
                 }
                 .font(.footnote)
                 .foregroundColor(.secondary)
+
+                // 仕入れ価格・粗利益は配送料に続けて置き、金額に関する行をまとめて見せる。
+                HStack {
+                    Text("仕入れ価格")
+                    Spacer()
+                    HStack(spacing: 0) {
+                        TextField("仕入れ価格", value: $viewModel.purchasePrice, format: .number)
+                            .keyboardType(.numberPad)
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 120)
+                            .focused($focusedField, equals: .purchasePrice)
+                        Text("円")
+                    }
+                }
+
+                profitDisclosure
 
                 Picker("コンディション", selection: $viewModel.condition) {
                     ForEach(ListingConditionType.allCases) { condition in
@@ -728,20 +748,6 @@ struct PurchaseFormView: View {
                 Stepper("数量: \(viewModel.quantity)", value: $viewModel.quantity, in: 1...99)
 
                 Toggle("FBAを利用", isOn: $viewModel.useFba)
-
-                HStack {
-                    Text("仕入れ価格(円)")
-                        .foregroundColor(.red)
-                    Spacer()
-                    TextField("仕入れ価格", value: $viewModel.purchasePrice, format: .number)
-                        .keyboardType(.numberPad)
-                        .multilineTextAlignment(.trailing)
-                        .frame(width: 120)
-                        .foregroundColor(.red)
-                        .focused($focusedField, equals: .purchasePrice)
-                }
-
-                profitDisclosure
             }
 
             purchaseInfoSection
@@ -855,11 +861,9 @@ struct PurchaseFormView: View {
             HStack {
                 Text("粗利益")
                     .fontWeight(.bold)
-                    .foregroundColor(.blue)
                 Spacer()
                 Text(viewModel.grossProfit.map(Self.currencyText) ?? "—")
                     .fontWeight(.bold)
-                    .foregroundColor(.blue)
             }
         }
     }
