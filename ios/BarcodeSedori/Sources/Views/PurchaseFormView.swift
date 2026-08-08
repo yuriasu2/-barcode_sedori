@@ -860,10 +860,8 @@ struct PurchaseFormView: View {
         } label: {
             HStack {
                 Text("粗利益")
-                    .fontWeight(.bold)
                 Spacer()
                 Text(viewModel.grossProfit.map(Self.currencyText) ?? "—")
-                    .fontWeight(.bold)
             }
         }
     }

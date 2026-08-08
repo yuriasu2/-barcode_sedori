@@ -141,9 +141,15 @@ struct ProductSummaryHeader: View {
             Divider()
             gridCell(label: rightLabel, value: rightValue)
         }
-        // セル間の縦線を行の高さいっぱいにするため、縦方向だけ内容に合わせて固定する。
-        .fixedSize(horizontal: false, vertical: true)
+        // 行の高さは文字の実寸任せにせず整数で固定する。実寸任せだと行の高さが小数になり、
+        // 区切り線が画素の境界からずれてアンチエイリアスで2画素に跨る行が出るため、
+        // 特定の線(JAN/ASINの下など)だけ僅かに太く見えてしまう。
+        // 併せて、セル間の縦線もこの高さいっぱいに伸びる。
+        .frame(height: Self.gridRowHeight)
     }
+
+    /// 情報グリッド1行の高さ(整数)。区切り線を画素境界に揃えるために固定する。
+    private static let gridRowHeight: CGFloat = 36
 
     private func gridCell(label: String, value: String) -> some View {
         HStack(spacing: 6) {
@@ -159,8 +165,8 @@ struct ProductSummaryHeader: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
         }
+        // 縦の余白は付けない(行の高さはgridRowHeightで固定し、内容は上下中央に置く)。
         .padding(.horizontal, 10)
-        .padding(.vertical, 8)
         .frame(maxWidth: .infinity)
     }
 }
