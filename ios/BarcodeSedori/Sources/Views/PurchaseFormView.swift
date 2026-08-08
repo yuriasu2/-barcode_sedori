@@ -653,10 +653,11 @@ struct PurchaseFormView: View {
     var body: some View {
         Form {
             Section {
-                // 商品カードと出品制限タイルは1つの行にまとめて置く。別々の行にすると、
-                // 出品制限側がFormの既定の白い行背景を持つため商品カードの直下にぴったり付き、
-                // 商品カードの下側の角丸が白で埋まって「下だけ角が潰れている」ように見えてしまう。
-                VStack(spacing: 8) {
+                // 商品カードと出品制限は隙間なく1枚のカードとして繋げる。
+                // 角丸と背景は個々ではなく外側のVStackにまとめて掛けるのが要点で、
+                // 商品カード自身の下側の角丸は同色の外側背景が埋めるため継ぎ目が出ず、
+                // カード全体の上下の角が同じ丸みで揃う(内部の区切りはDividerで見せる)。
+                VStack(spacing: 0) {
                     ProductSummaryHeader(
                         imageUrl: viewModel.imageUrl,
                         title: viewModel.title,
@@ -670,10 +671,13 @@ struct PurchaseFormView: View {
                     )
 
                     if viewModel.showsRestrictionTile {
+                        Divider()
                         restrictionRow
                     }
                 }
-                // Formの行の余白と背景を消して、各部品自身のカード見た目をそのまま出す。
+                .background(Color(.secondarySystemGroupedBackground))
+                .cornerRadius(14)
+                // Formの行の余白と背景を消して、カードの見た目をそのまま出す。
                 .listRowInsets(EdgeInsets())
                 .listRowBackground(Color.clear)
             }
@@ -814,8 +818,8 @@ struct PurchaseFormView: View {
     }
 
     /// 出品制限の1行に共通の体裁(他の行と同じ文字サイズで1行に収める)。
-    /// 商品カードと同じ角丸14の独立したタイルにする。Formの既定の行背景に頼ると、
-    /// 商品カードの下側の角丸が埋まって潰れて見えるため、背景も自前で持つ。
+    /// 背景と角丸は商品カードと共通の外側VStackが持つため、ここでは余白だけを整える
+    /// (ここで背景を持たせると継ぎ目ができ、商品カードの角丸が潰れて見える)。
     private func restrictionLine<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         HStack(spacing: 8) {
             content()
@@ -825,8 +829,6 @@ struct PurchaseFormView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(Color(.secondarySystemGroupedBackground))
-        .cornerRadius(14)
     }
 
     /// 粗利益の折りたたみ。タップで明細が開き、明細の中の手数料はさらに入れ子で開く。
