@@ -637,7 +637,9 @@ struct SearchTabView: View {
                 salesRank: selectedResult.salesRank,
                 listPrice: selectedResult.profitInputs?.listPrice,
                 releaseDate: selectedResult.releaseDate,
-                prices: selectedResult.prices
+                prices: selectedResult.prices,
+                // 検索直後の遷移なので「検索日」は今日。
+                scannedAt: Date()
             )
         } else {
             EmptyView()

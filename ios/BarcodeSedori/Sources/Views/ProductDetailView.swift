@@ -20,6 +20,8 @@ final class ProductDetailViewModel: ObservableObject {
 /// リンクボタン(仕/a/m/楽 等)は置かない(ユーザー指示 2026-08-02)。
 struct ProductDetailView: View {
     @StateObject private var viewModel: ProductDetailViewModel
+    /// ASIN。情報グリッドの「ASIN」欄に出す(JANの無い商品でも識別できるようにするため)。
+    let asin: String?
     let title: String?
     /// 商品画像URL(検索結果/履歴の保存値)。無ければプレースホルダを出す。
     let imageUrl: String?
@@ -33,6 +35,8 @@ struct ProductDetailView: View {
     let releaseDate: String?
     /// /api/searchの簡易価格(新品/中古の最安値)。オファー未取得時のパネル仮表示に使う。
     let prices: SearchPrices?
+    /// 検索日(履歴の`scannedAt`)。情報グリッドの右下セルに出す。
+    let scannedAt: Date?
 
     @ObservedObject private var entitlements = EntitlementStore.shared
     @ObservedObject private var purchaseList = PurchaseListStore.shared
@@ -44,41 +48,6 @@ struct ProductDetailView: View {
     /// グラフの期間切替(検索画面と同じセグメント)。
     @State private var selectedGraphRange: GraphRange = .threeMonths
 
-    /// 発売日のパース用(サーバーはSP-APIの"2019-05-30"等のISO日付文字列をそのまま返す)。
-    private static let releaseDateInputFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter
-    }()
-
-    /// 発売日の表示用(例: "2019/5/30")。
-    private static let releaseDateOutputFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "ja_JP")
-        formatter.dateFormat = "yyyy/M/d"
-        return formatter
-    }()
-
-    /// 数値の3桁区切り用(ランキング・参考価格)。
-    private static let groupedNumberFormatter: NumberFormatter = {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        return formatter
-    }()
-
-    /// 発売日の表示文字列。パースできない/nilなら"-"。
-    private var releaseDateText: String {
-        guard let releaseDate, let date = Self.releaseDateInputFormatter.date(from: releaseDate) else {
-            return "-"
-        }
-        return Self.releaseDateOutputFormatter.string(from: date)
-    }
-
-    private static func groupedNumber(_ value: Int) -> String {
-        groupedNumberFormatter.string(from: NSNumber(value: value)) ?? "\(value)"
-    }
-
     /// 取得済みのOffersResultのみで描画する(APIは呼ばない)。
     init(
         asin: String,
@@ -89,9 +58,11 @@ struct ProductDetailView: View {
         salesRank: Int?,
         listPrice: Int?,
         releaseDate: String?,
-        prices: SearchPrices?
+        prices: SearchPrices?,
+        scannedAt: Date?
     ) {
         _viewModel = StateObject(wrappedValue: ProductDetailViewModel(asin: asin, cachedOffers: cachedOffers))
+        self.asin = asin
         self.title = title
         self.imageUrl = imageUrl
         self.janCode = janCode
@@ -99,13 +70,23 @@ struct ProductDetailView: View {
         self.listPrice = listPrice
         self.releaseDate = releaseDate
         self.prices = prices
+        self.scannedAt = scannedAt
     }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                headerCard
-                infoCard
+                ProductSummaryHeader(
+                    imageUrl: imageUrl,
+                    title: title,
+                    jan: janCode,
+                    asin: asin,
+                    salesRank: salesRank,
+                    listPrice: listPrice,
+                    releaseDate: releaseDate,
+                    dateLabel: "検索日",
+                    date: scannedAt
+                )
                 offersPanels
                 addToPurchaseButton
                 graphSection
@@ -124,89 +105,6 @@ struct ProductDetailView: View {
         .sheet(isPresented: $showPaywall) {
             PaywallView()
         }
-    }
-
-    // MARK: - ヘッダー(画像+タイトル)
-
-    /// 検索画面の結果カードと同じ構成の、画像+タイトルのコンパクトなヘッダー。
-    private var headerCard: some View {
-        HStack(alignment: .top, spacing: 12) {
-            productImage
-                .frame(width: 88, height: 88)
-                .background(Color(.secondarySystemBackground))
-                .cornerRadius(10)
-
-            Text(title ?? "(タイトル不明)")
-                .font(.subheadline)
-                .fontWeight(.semibold)
-                .lineLimit(4)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(12)
-        .background(Color(.secondarySystemGroupedBackground))
-        .cornerRadius(14)
-    }
-
-    /// 商品画像。URLが無い/読み込み失敗時はプレースホルダ
-    /// (URLなしでAsyncImageを使うとempty phaseでスピナーが回り続けるため先に分岐する)。
-    @ViewBuilder
-    private var productImage: some View {
-        if let url = imageUrl.flatMap(URL.init(string:)) {
-            AsyncImage(url: url) { phase in
-                switch phase {
-                case .success(let image):
-                    image.resizable().aspectRatio(contentMode: .fit)
-                case .failure:
-                    imagePlaceholder
-                case .empty:
-                    ProgressView()
-                @unknown default:
-                    Color.clear
-                }
-            }
-        } else {
-            imagePlaceholder
-        }
-    }
-
-    private var imagePlaceholder: some View {
-        Image(systemName: "photo")
-            .resizable()
-            .aspectRatio(contentMode: .fit)
-            .foregroundColor(.secondary)
-            .padding(24)
-    }
-
-    // MARK: - 商品情報
-
-    /// JANコード・ランキング・参考価格・発売日をまとめたカード。
-    /// ラベル・値とも同じ文字サイズ(subheadline)で揃える(ユーザー指示 2026-08-02)。
-    private var infoCard: some View {
-        VStack(spacing: 0) {
-            infoRow(label: "JANコード", value: janCode ?? "-")
-            Divider().padding(.leading, 12)
-            infoRow(label: "ランキング", value: salesRank.map { "\(Self.groupedNumber($0))位" } ?? "圏外")
-            Divider().padding(.leading, 12)
-            infoRow(label: "参考価格", value: listPrice.map { "¥\(Self.groupedNumber($0))" } ?? "-")
-            Divider().padding(.leading, 12)
-            infoRow(label: "発売日", value: releaseDateText)
-        }
-        .background(Color(.secondarySystemGroupedBackground))
-        .cornerRadius(14)
-    }
-
-    private func infoRow(label: String, value: String) -> some View {
-        HStack {
-            Text(label)
-                .foregroundColor(.secondary)
-            Spacer()
-            Text(value)
-                .fontWeight(.medium)
-                .monospacedDigit()
-        }
-        .font(.subheadline)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
     }
 
     // MARK: - オファーパネル(検索画面と同じ見た目)

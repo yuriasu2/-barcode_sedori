@@ -264,7 +264,8 @@ struct ProductsTabView: View {
                 salesRank: selectedItem.salesRank,
                 listPrice: selectedItem.listPrice,
                 releaseDate: selectedItem.releaseDate,
-                prices: selectedItem.prices
+                prices: selectedItem.prices,
+                scannedAt: selectedItem.scannedAt
             )
         } else {
             EmptyView()
