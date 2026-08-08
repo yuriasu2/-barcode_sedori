@@ -44,6 +44,12 @@ final class PurchaseFormViewModel: ObservableObject {
         }
     }
     @Published private(set) var restrictionState: RestrictionState = .unavailable
+
+    /// 出品制限タイルを出すか。`.unavailable`(Pro+SP-API未連携)では出さない。
+    /// VStackの子として丸ごと省くために使う(空のビューを置くと隙間だけが残るため)。
+    var showsRestrictionTile: Bool {
+        restrictionState != .unavailable
+    }
     @Published var price: Int? {
         didSet {
             // 出品価格が変わるたびに手数料を取り直す(0.5秒デバウンス。連打で無駄打ちしない)。
@@ -647,22 +653,29 @@ struct PurchaseFormView: View {
     var body: some View {
         Form {
             Section {
-                ProductSummaryHeader(
-                    imageUrl: viewModel.imageUrl,
-                    title: viewModel.title,
-                    jan: viewModel.janCode,
-                    asin: viewModel.asin,
-                    salesRank: viewModel.salesRank,
-                    listPrice: viewModel.listPrice,
-                    releaseDate: viewModel.releaseDate,
-                    dateLabel: "追加日",
-                    date: viewModel.addedAt
-                )
-                // Formの行の余白と背景を消して、部品自身のカード見た目をそのまま出す。
+                // 商品カードと出品制限タイルは1つの行にまとめて置く。別々の行にすると、
+                // 出品制限側がFormの既定の白い行背景を持つため商品カードの直下にぴったり付き、
+                // 商品カードの下側の角丸が白で埋まって「下だけ角が潰れている」ように見えてしまう。
+                VStack(spacing: 8) {
+                    ProductSummaryHeader(
+                        imageUrl: viewModel.imageUrl,
+                        title: viewModel.title,
+                        jan: viewModel.janCode,
+                        asin: viewModel.asin,
+                        salesRank: viewModel.salesRank,
+                        listPrice: viewModel.listPrice,
+                        releaseDate: viewModel.releaseDate,
+                        dateLabel: "追加日",
+                        date: viewModel.addedAt
+                    )
+
+                    if viewModel.showsRestrictionTile {
+                        restrictionRow
+                    }
+                }
+                // Formの行の余白と背景を消して、各部品自身のカード見た目をそのまま出す。
                 .listRowInsets(EdgeInsets())
                 .listRowBackground(Color.clear)
-
-                restrictionRow
             }
 
             Section("出品内容") {
@@ -801,12 +814,19 @@ struct PurchaseFormView: View {
     }
 
     /// 出品制限の1行に共通の体裁(他の行と同じ文字サイズで1行に収める)。
+    /// 商品カードと同じ角丸14の独立したタイルにする。Formの既定の行背景に頼ると、
+    /// 商品カードの下側の角丸が埋まって潰れて見えるため、背景も自前で持つ。
     private func restrictionLine<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         HStack(spacing: 8) {
             content()
         }
         .lineLimit(1)
         .minimumScaleFactor(0.7)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(Color(.secondarySystemGroupedBackground))
+        .cornerRadius(14)
     }
 
     /// 粗利益の折りたたみ。タップで明細が開き、明細の中の手数料はさらに入れ子で開く。
