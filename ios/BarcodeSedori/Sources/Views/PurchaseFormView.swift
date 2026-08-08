@@ -746,6 +746,10 @@ struct PurchaseFormView: View {
 
             purchaseInfoSection
         }
+        // insetGroupedのセクション左右余白はiPhoneで既定20ptあり、商品詳細(16pt固定)より広い。
+        // 差分の4ptだけ負のpaddingで外へ押し出して両画面のカード端を揃える
+        // (行の内側の余白には影響しない)。上余白はApp.swiftのsectionHeaderTopPaddingで詰める。
+        .padding(.horizontal, -4)
         .navigationTitle("仕入れ内容")
         .navigationBarTitleDisplayMode(.inline)
         // numberPadキーボードにはReturnキーが無く閉じる手段が無いため、キーボード上に「完了」を出す。
