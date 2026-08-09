@@ -107,13 +107,9 @@ struct PaywallView: View {
                     // 購入前に試したい人の受け皿。Amazon連携すれば7日間Pro機能を試せるため、
                     // 課金ボタンの直下から設定タブのAmazon連携画面まで一気に運ぶ。
                     Button {
-                        // シートを閉じてから遷移させる。閉じる前にタブを切り替えると、
-                        // シートが被さったままタブだけ変わって何も起きていないように見える。
+                        // この画面自体がシートなので、閉じ切ってから次のシートを出す。
+                        // 解除アニメーション中に別のシートを提示するとiOSが黙って無視する。
                         dismiss()
-                        AppNavigation.shared.selectedTab = AppNavigation.settingsTab
-                        // isActiveはシートが消えて設定タブが実際に描画されてから立てる。
-                        // まだ画面に出ていないNavigationLinkに対して立てると遷移が
-                        // 取りこぼされ、設定タブに着いただけで止まることがあるため。
                         Task { @MainActor in
                             try? await Task.sleep(nanoseconds: 350_000_000)
                             AppNavigation.shared.opensAmazonLink = true

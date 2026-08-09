@@ -194,8 +194,6 @@ struct SettingsView: View {
     @ObservedObject private var entitlements = EntitlementStore.shared
     /// 設定値の唯一の真実。OAuthコールバックでの更新を画面に反映させるため直接監視する。
     @ObservedObject private var settings = SettingsStore.shared
-    /// Pro案内からAmazon連携画面へ自動遷移するためのフラグを監視する。
-    @ObservedObject private var nav = AppNavigation.shared
     @State private var showPaywall = false
     /// アプリ内ブラウザ(SafariView)で開く対象。お問い合わせフォームをアプリ内で開くために使う。
     @State private var browserTarget: BrowserTarget?
@@ -446,12 +444,8 @@ struct SettingsView: View {
     /// 連携設定であり、以前は離れた場所に別々のSectionとして置かれていた。
     private var linkSection: some View {
         Section("連携") {
-            // Pro案内(PaywallView)の「Amazon連携で7日間無料体験」から、設定タブを経由して
-            // この画面まで自動で開けるようにisActiveを持たせる(nav.opensAmazonLink参照)。
-            NavigationLink(isActive: $nav.opensAmazonLink) {
+            NavigationLink("Amazon連携") {
                 AmazonLinkSettingsView(viewModel: viewModel)
-            } label: {
-                Text("Amazon連携")
             }
 
             // Keepa BYOキーはグラフ無制限に直結し、7日間お試しの対象外(仕様上isProのみ許可)のため

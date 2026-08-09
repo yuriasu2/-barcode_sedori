@@ -465,7 +465,7 @@ struct SearchTabView: View {
                         showPaywall = true
                     },
                     onWatchAdTap: { startRewardedAdFlow() },
-                    onSpApiLinkTap: { AppNavigation.shared.selectedTab = AppNavigation.settingsTab }
+                    onSpApiLinkTap: { AppNavigation.shared.opensAmazonLink = true }
                 )
             }
         }
@@ -639,7 +639,7 @@ struct SearchTabView: View {
             // 誘導: 未連携ならSP-API連携、Pro(連携済み)でBYOキー未設定ならKeepaキー設定。
             if !settings.isSpApiLinkUsable {
                 Button {
-                    AppNavigation.shared.selectedTab = AppNavigation.settingsTab
+                    AppNavigation.shared.opensAmazonLink = true
                 } label: {
                     Text("Amazon連携なら自分の枠で待たずに検索できます →")
                         .font(.footnote)
@@ -887,8 +887,8 @@ struct SearchTabView: View {
     /// - それ以外は source=spapi のときのみ商品詳細画面へ遷移する。
     private func handlePanelTap() {
         if viewModel.offersLocked {
-            // オファーはSP-API連携で解放されるため、設定タブへ誘導する。
-            AppNavigation.shared.selectedTab = AppNavigation.settingsTab
+            // オファーはSP-API連携で解放されるため、Amazon連携画面へ誘導する。
+            AppNavigation.shared.opensAmazonLink = true
             return
         }
         guard let result = viewModel.latestResult, result.asin != nil else { return }

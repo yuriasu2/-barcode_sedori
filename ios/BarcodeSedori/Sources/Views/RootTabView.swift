@@ -3,6 +3,9 @@ import SwiftUI
 /// TabView: 検索 / 商品(スキャン履歴) / 仕入れ(プレースホルダ) / 設定
 struct RootTabView: View {
     @ObservedObject private var nav = AppNavigation.shared
+    /// Amazon連携シート用のViewModel。設定タブのSettingsViewが持つインスタンスとは別物だが、
+    /// 接続テストの結果アラートはAmazonLinkSettingsView自身に付いているためこれで完結する。
+    @StateObject private var amazonLinkViewModel = SettingsViewModel()
 
     var body: some View {
         TabView(selection: $nav.selectedTab) {
@@ -41,6 +44,19 @@ struct RootTabView: View {
         // タブバーの透過率(90%)はBarcodeSedoriApp.configureTabBarAppearance()で
         // UITabBarAppearance経由により設定済み(ここでtoolbarBackgroundを重ねると
         // 二重に色が乗って見た目がズレるため設定しない)。
+        // Amazon連携画面。Pro案内・枠切れオーバーレイ・オファーロックなど、どの画面からでも
+        // 同じ導線で開けるようTabViewの外側(=常に描画されている場所)から提示する。
+        .sheet(isPresented: $nav.opensAmazonLink) {
+            NavigationView {
+                AmazonLinkSettingsView(viewModel: amazonLinkViewModel)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("閉じる") { nav.opensAmazonLink = false }
+                        }
+                    }
+            }
+            .navigationViewStyle(.stack)
+        }
         .task {
             // レビュー依頼の起動日数カウンタ。recordLaunchは暦日単位で冪等
             // (同日内に再描画等で複数回呼ばれても2重加算しない)なので毎回呼んでよい。
