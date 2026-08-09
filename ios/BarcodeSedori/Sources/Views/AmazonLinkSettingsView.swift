@@ -21,8 +21,10 @@ struct AmazonLinkSettingsView: View {
                 Button {
                     openOAuthLogin()
                 } label: {
-                    // アセット本体(login-with-amazon@3x.png)は別途追加予定のため、
-                    // 追加されるまでは空欄で表示される(意図した挙動。プレースホルダーは描かない)。
+                    // Amazon公式のLogin with Amazonボタン素材。ブランド規約があるため
+                    // 自前で似せたボタンを描かず、配布された画像をそのまま使う。
+                    // 現在の素材は195x46pxの等倍(1x)版しか無いため、Retinaでは拡大されて
+                    // 少し甘く見える。気になる場合は同素材の高解像度版を@2x/@3xとして追加する。
                     Image("LoginWithAmazon")
                         .resizable()
                         .scaledToFit()
