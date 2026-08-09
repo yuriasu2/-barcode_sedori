@@ -205,6 +205,7 @@ struct ProductsTabView: View {
                 if entitlements.isPro {
                     addSelectedToPurchaseList()
                 } else {
+                    ReviewPromptController.shared.recordNegativeEvent()
                     showPaywall = true
                 }
             } label: {

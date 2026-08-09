@@ -41,5 +41,10 @@ struct RootTabView: View {
         // タブバーの透過率(90%)はBarcodeSedoriApp.configureTabBarAppearance()で
         // UITabBarAppearance経由により設定済み(ここでtoolbarBackgroundを重ねると
         // 二重に色が乗って見た目がズレるため設定しない)。
+        .task {
+            // レビュー依頼の起動日数カウンタ。recordLaunchは暦日単位で冪等
+            // (同日内に再描画等で複数回呼ばれても2重加算しない)なので毎回呼んでよい。
+            ReviewPromptController.shared.recordLaunch()
+        }
     }
 }

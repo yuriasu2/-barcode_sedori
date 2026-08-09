@@ -169,7 +169,10 @@ struct ProductDetailView: View {
             isPro: entitlements.isPro,
             isInPurchaseList: isInPurchaseList,
             onAddToPurchaseList: { purchaseFormDraft = makePurchaseDraft() },
-            onLockedPurchaseTap: { showPaywall = true },
+            onLockedPurchaseTap: {
+                ReviewPromptController.shared.recordNegativeEvent()
+                showPaywall = true
+            },
             onOpenLink: { url in browserTarget = BrowserTarget(url: url) }
         )
     }

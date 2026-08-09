@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import AudioToolbox
+import StoreKit
 
 /// スキャンモードの見た目トグル。CHANGES-v2.md:
 /// 「バーコード / インストアコード」トグル → 「バーコード / OCR」トグルに変更。
@@ -118,6 +119,7 @@ final class SearchTabViewModel: ObservableObject {
             let result = try await apiClient.search(code: code)
             latestResult = result
             isSearching = false
+            ReviewPromptController.shared.recordSearchSucceeded()
             // 無料枠ユニットの残量をローカルへ反映する(Pro・SP-API連携済みはquota==nilで何もしない)。
             ScanQuotaStore.shared.apply(result.quota)
 
@@ -156,6 +158,8 @@ final class SearchTabViewModel: ObservableObject {
             }
         } catch {
             isSearching = false
+            // 検索失敗はエラー種別を問わずネガティブイベントとして記録する(レビュー依頼の抑制用)。
+            ReviewPromptController.shared.recordNegativeEvent()
             // 無料枠ユニット上限超過(429・quota_exceeded)。quotaを反映すればisQuotaExhaustedが
             // trueになりQuotaPaywallOverlayが自動的に表示されるため、ここでは
             // searchErrorMessageを設定しない(同じ内容の赤文字が二重に出るのを避けるため)。
@@ -280,6 +284,9 @@ struct SearchTabView: View {
     @State private var isProcessingRewardedAd = false
     /// リワード広告フローの結果通知(準備失敗・反映待ちタイムアウト)。
     @State private var rewardedAdAlert: RewardedAdAlert?
+    /// App Storeレビュー依頼(起動トリガー)。iOS 16+のApple推奨経路で、呼び出すと
+    /// システムが自らの裁量で表示するかどうかを決める(必ず出るわけではない)。
+    @Environment(\.requestReview) private var requestReview
 
     var body: some View {
         NavigationView {
@@ -308,7 +315,10 @@ struct SearchTabView: View {
                 Button("OK", role: .cancel) {}
             }
             .alert("OCR機能を無制限に使うにはProにアップグレードしてください。", isPresented: $showOcrLimitAlert) {
-                Button("アップグレード") { showPaywall = true }
+                Button("アップグレード") {
+                    ReviewPromptController.shared.recordNegativeEvent()
+                    showPaywall = true
+                }
                 Button("閉じる", role: .cancel) {}
             }
             // 無料枠を使い切った瞬間にOCRモードのままだと、カメラ停止後もOCRトグルが選択された
@@ -371,6 +381,22 @@ struct SearchTabView: View {
             }
         }
         .navigationViewStyle(.stack)
+        // レビュー依頼(起動トリガー)。無料/Keepa-BYOユーザーはSP-API連携が要る一括出品
+        // トリガーに届かないため、この起動トリガーだけが唯一のレビュー依頼経路になる。
+        .task {
+            await checkLaunchReviewTriggerIfNeeded()
+        }
+    }
+
+    /// 起動のたびに1回だけ、少し待ってから「今アイドル状態か」を再確認してレビュー依頼を検討する。
+    /// 2.5秒待つのは起動直後の他ダイアログ(ATT等)と競合しないための間。
+    /// 待っている間にスキャン・検索が始まっていたら、ユーザーの作業に割り込まないよう何もしない。
+    private func checkLaunchReviewTriggerIfNeeded() async {
+        guard ReviewPromptController.shared.shouldCheckLaunchTrigger() else { return }
+        try? await Task.sleep(nanoseconds: 2_500_000_000)
+        guard !viewModel.isSearching, viewModel.latestResult == nil else { return }
+        guard ReviewPromptController.shared.consumeEligibility(trigger: .launch) else { return }
+        requestReview()
     }
 
     /// 検索(=Keepa消費)が無制限か。Proと、SP-API連携済み(自分のAPI枠を使うためサーバーはユニットを消費しない)。
@@ -429,7 +455,10 @@ struct SearchTabView: View {
                     showsAdOption: showsRewardedAdOption,
                     showsSpApiOption: !settings.isSpApiLinkUsable,
                     isProcessingAd: isProcessingRewardedAd,
-                    onUpgradeTap: { showPaywall = true },
+                    onUpgradeTap: {
+                        ReviewPromptController.shared.recordNegativeEvent()
+                        showPaywall = true
+                    },
                     onWatchAdTap: { startRewardedAdFlow() },
                     onSpApiLinkTap: { AppNavigation.shared.selectedTab = AppNavigation.settingsTab }
                 )
@@ -468,6 +497,7 @@ struct SearchTabView: View {
     /// 弾いたときはカメラ上の「あと◯秒」オーバーレイで伝える(スキャン時と同じ見せ方)。
     private func startSearch(_ code: String) {
         guard isSearchUnlimited || quota.canScanToday else {
+            ReviewPromptController.shared.recordNegativeEvent()
             showPaywall = true
             return
         }
@@ -491,6 +521,8 @@ struct SearchTabView: View {
     /// 反映されると unitsRemaining > 0 になり、isQuotaExhausted が false になってオーバーレイは自動的に消える。
     private func startRewardedAdFlow() {
         guard !isProcessingRewardedAd else { return }
+        // 広告を見ないと先に進めない=枠が尽きている状態なので、ネガティブイベントとして記録する。
+        ReviewPromptController.shared.recordNegativeEvent()
         isProcessingRewardedAd = true
 
         Task { @MainActor in
@@ -534,6 +566,7 @@ struct SearchTabView: View {
 
             if settings.isSpApiLinkUsable {
                 Button {
+                    ReviewPromptController.shared.recordNegativeEvent()
                     showPaywall = true
                 } label: {
                     HStack(spacing: 6) {
@@ -762,6 +795,7 @@ struct SearchTabView: View {
                     )
                 },
                 onLockedPurchaseTap: {
+                    ReviewPromptController.shared.recordNegativeEvent()
                     showPaywall = true
                 },
                 onOpenLink: { url in

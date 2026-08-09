@@ -173,6 +173,16 @@ final class SettingsViewModel: ObservableObject {
 
 }
 
+/// App Storeのレビューページへの直接リンク設定。
+/// システムのレビュー依頼(requestReview)はAppleガイドライン上ボタンから明示的に
+/// 呼び出してはいけないため、設定画面の「レビューを書く」行はここのURLへ直接ディープリンクする
+/// (ReviewPromptController経由の自動依頼とは別の導線)。
+private enum AppStoreReviewConfig {
+    /// App StoreのアプリID。このアプリは未リリースでIDがまだ存在しないため空文字のまま。
+    /// リリース前に実際のIDを設定すること。空の間は設定行ごと非表示になる(壊れたリンクを出さないため)。
+    static let appId = ""
+}
+
 struct SettingsView: View {
     @StateObject private var viewModel = SettingsViewModel()
     @ObservedObject private var entitlements = EntitlementStore.shared
@@ -206,6 +216,7 @@ struct SettingsView: View {
 
                     if !entitlements.isPro {
                         Button {
+                            ReviewPromptController.shared.recordNegativeEvent()
                             showPaywall = true
                         } label: {
                             Text("Proにアップグレード")
@@ -214,6 +225,15 @@ struct SettingsView: View {
                             Task { await entitlements.restore() }
                         } label: {
                             Text("購入を復元")
+                        }
+                    }
+
+                    // App StoreのアプリIDが未設定(未リリース)の間は行ごと出さない。
+                    if !AppStoreReviewConfig.appId.isEmpty {
+                        Button {
+                            openAppStoreReviewPage()
+                        } label: {
+                            Text("レビューを書く")
                         }
                     }
                 }
@@ -386,6 +406,7 @@ struct SettingsView: View {
                 }
             } else {
                 Button {
+                    ReviewPromptController.shared.recordNegativeEvent()
                     showPaywall = true
                 } label: {
                     HStack(spacing: 6) {
@@ -432,6 +453,7 @@ struct SettingsView: View {
                     .foregroundColor(.secondary)
             } else {
                 Button {
+                    ReviewPromptController.shared.recordNegativeEvent()
                     showPaywall = true
                 } label: {
                     HStack(spacing: 6) {
@@ -494,6 +516,7 @@ struct SettingsView: View {
                 }
             } else {
                 Button {
+                    ReviewPromptController.shared.recordNegativeEvent()
                     showPaywall = true
                 } label: {
                     HStack(spacing: 6) {
@@ -529,6 +552,16 @@ struct SettingsView: View {
     /// 「SP-API認証を開始」ボタンから、サーバーの /oauth/login をSafari(外部ブラウザ)で開く。
     private func openOAuthLogin() {
         guard let url = URL(string: "\(viewModel.serverURLString)/oauth/login") else { return }
+        UIApplication.shared.open(url)
+    }
+
+    /// 「レビューを書く」ボタンから、App Storeのレビュー投稿ページを直接開く。
+    /// システムのレビュー依頼(requestReview)をボタンから呼ぶのはAppleガイドライン違反のため、
+    /// あくまで外部リンクとして開く(SP-API認証と同じ作法)。
+    private func openAppStoreReviewPage() {
+        guard !AppStoreReviewConfig.appId.isEmpty,
+              let url = URL(string: "https://apps.apple.com/app/id\(AppStoreReviewConfig.appId)?action=write-review")
+        else { return }
         UIApplication.shared.open(url)
     }
 }

@@ -1,4 +1,5 @@
 import SwiftUI
+import StoreKit
 
 /// 「仕入れ」タブ: 仕入れリストの一覧・スワイプ削除・出品済みマーク。
 /// 行タップ(非選択モード時)で仕入れフォーム(PurchaseFormView・編集モード)を開く
@@ -29,6 +30,8 @@ struct PurchaseTabView: View {
     @State private var searchQuery = ""
     @State private var showDeleteConfirm = false
     @State private var showListingConfirm = false
+    /// App Storeレビュー依頼(一括出品成功=主トリガー)。iOS 16+のApple推奨経路。
+    @Environment(\.requestReview) private var requestReview
 
     /// 検索フィルタでの日付一致判定用(M/d形式)。行表示のdateFormatter(M/d HH:mm)とは別に用意する。
     private static let searchDateFormatter: DateFormatter = {
@@ -138,6 +141,17 @@ struct PurchaseTabView: View {
                 message: Text(alert.summaryText),
                 dismissButton: .default(Text("OK")) {
                     selectedIds.removeAll()
+                    // 一括出品が全件成功したときだけ「満足度が高い瞬間」とみなす(主トリガー)。
+                    if alert.failures.isEmpty && alert.successCount >= 1 {
+                        ReviewPromptController.shared.recordBulkListingSuccess()
+                        Task { @MainActor in
+                            // アラートの消えるアニメーションと重ならないよう少し間を空けてから依頼する。
+                            try? await Task.sleep(nanoseconds: 800_000_000)
+                            if ReviewPromptController.shared.consumeEligibility(trigger: .bulkListingSuccess) {
+                                requestReview()
+                            }
+                        }
+                    }
                 }
             )
         }

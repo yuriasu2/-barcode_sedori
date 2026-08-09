@@ -43,6 +43,9 @@ final class PurchaseListStore: ObservableObject {
         item.skuSequence = nextSequence(for: item.addedAt)
         items.insert(item, at: 0)
         save()
+        // 検索タブ・商品タブ一括追加・仕入れフォームの3経路すべてがここを通るため、
+        // レビュー依頼の利用バー計測はここ1箇所で行う。
+        ReviewPromptController.shared.recordPurchaseListAdd()
     }
 
     /// 旧データ(採番導入前に追加された項目)にSKU枝番が無い場合に遅延採番する。
