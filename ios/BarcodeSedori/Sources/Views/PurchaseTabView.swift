@@ -30,6 +30,8 @@ struct PurchaseTabView: View {
     @State private var searchQuery = ""
     @State private var showDeleteConfirm = false
     @State private var showListingConfirm = false
+    /// 出品ボタンがロック中(未連携/非Pro)にタップされたときの案内アラート。
+    @State private var showLockedListingAlert = false
     /// App Storeレビュー依頼(一括出品成功=主トリガー)。iOS 16+のApple推奨経路。
     @Environment(\.requestReview) private var requestReview
 
@@ -135,6 +137,13 @@ struct PurchaseTabView: View {
             }
             Button("キャンセル", role: .cancel) {}
         }
+        // 出品ボタンがロック中(未連携/非Pro)にタップされたときの案内。
+        .alert(
+            "Amazon連携されていない、またはProプランでないためご利用できません。",
+            isPresented: $showLockedListingAlert
+        ) {
+            Button("閉じる", role: .cancel) {}
+        }
         .alert(item: $bulkListingViewModel.resultAlert) { alert in
             Alert(
                 title: Text("出品が完了しました"),
@@ -201,6 +210,9 @@ struct PurchaseTabView: View {
         .cornerRadius(10)
     }
 
+    /// 選択モードのオプション行のアイコン共通サイズ。既定17ptの約1.3倍。
+    private static let optionIconSize: CGFloat = 22
+
     /// 選択モードのオプション行。戻る+すべて選択を左、アクション(削除・コンディション・出品)を右に置く。
     private var selectionOptionsRow: some View {
         HStack(spacing: 16) {
@@ -227,6 +239,7 @@ struct PurchaseTabView: View {
                 showDeleteConfirm = true
             } label: {
                 Image(systemName: "trash")
+                    .font(.system(size: Self.optionIconSize))
             }
             .foregroundColor(selectedIds.isEmpty ? .gray : .red)
             .disabled(selectedIds.isEmpty || bulkListingViewModel.isRunning)
@@ -240,19 +253,34 @@ struct PurchaseTabView: View {
             } label: {
                 Image("ti-certificate")
                     .renderingMode(.template)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: Self.optionIconSize, height: Self.optionIconSize)
             }
             .foregroundColor(selectedIds.isEmpty ? .gray : .blue)
             .disabled(selectedIds.isEmpty || bulkListingViewModel.isRunning)
 
-            if canBulkList {
-                Button {
+            // 出品ボタンは常に表示する。ゴミ箱・コンディションはローカル操作のため出品可否に
+            // 関わらず使えるが、出品だけはAmazon連携+Pro(またはお試し中)が要る(canBulkList)。
+            // ロック中も.disabledにはせず、タップでロック理由のアラートを出す(理由が伝わらなくなるため)。
+            Button {
+                if canBulkList {
                     showListingConfirm = true
-                } label: {
-                    Image(systemName: "shippingbox")
+                } else {
+                    showLockedListingAlert = true
                 }
-                .foregroundColor(selectedIds.isEmpty ? .gray : .blue)
-                .disabled(selectedIds.isEmpty || bulkListingViewModel.isRunning)
+            } label: {
+                Image(systemName: "shippingbox")
+                    .font(.system(size: Self.optionIconSize))
+                    .overlay(alignment: .topTrailing) {
+                        if !canBulkList {
+                            LockIconView(size: 13)
+                                .offset(x: 4, y: -4)
+                        }
+                    }
             }
+            .foregroundColor(selectedIds.isEmpty ? .gray : .blue)
+            .disabled(canBulkList && (selectedIds.isEmpty || bulkListingViewModel.isRunning))
         }
         .padding(.horizontal)
         .padding(.vertical, 8)
