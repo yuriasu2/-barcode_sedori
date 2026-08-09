@@ -251,6 +251,12 @@ struct SettingsView: View {
                     }
                 }
 
+                linkSection
+
+                searchSection
+
+                listingSection
+
                 Section("サポート") {
                     Button {
                         openSupportContactPage()
@@ -258,10 +264,6 @@ struct SettingsView: View {
                         Text("ご意見・お問い合わせ")
                     }
                 }
-
-                searchSection
-
-                listingSection
 
                 Section("サーバー設定") {
                     TextField(SettingsStore.defaultServerURL, text: $viewModel.serverURLString)
@@ -339,8 +341,6 @@ struct SettingsView: View {
                         .foregroundColor(.secondary)
                 }
                 #endif
-
-                linkSection
             }
             // 大タイトル「設定」は削除し、その分を画面上部の広告枠に充てる
             // (商品/仕入れタブでナビバーを隠した先例に合わせる)。
