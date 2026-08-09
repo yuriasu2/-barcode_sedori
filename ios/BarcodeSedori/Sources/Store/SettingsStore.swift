@@ -634,6 +634,14 @@ final class SettingsStore: ObservableObject {
             defaults.removeObject(forKey: Keys.legacyKeepaApiKey)
         }
 
+        // 「自分のSP-APIを使用する」トグルを画面から廃止したことに伴う移行措置。
+        // 旧トグルをOFFのまま(=spapiLinkEnabled=false)でもリフレッシュトークンだけは
+        // 既に持っている利用者がいる場合、新画面にはONにする手段が無いため連携済み扱いに
+        // ならず詰んでしまう。トークンが非空ならここで有効化して救済する。
+        if !self.spapiLinkEnabled && !self.spapiRefreshToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            self.spapiLinkEnabled = true
+        }
+
     }
 
     /// SP-API連携が利用可能か(有効かつリフレッシュトークンが非空)

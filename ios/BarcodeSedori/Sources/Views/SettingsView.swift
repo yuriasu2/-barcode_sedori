@@ -344,50 +344,10 @@ struct SettingsView: View {
 
                 keepaLinkSection
 
-                Section("SP-API連携") {
-                    Toggle("自分のSP-APIを使用する", isOn: $viewModel.spapiLinkEnabled)
-
-                    if viewModel.spapiRefreshToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        Button {
-                            openOAuthLogin()
-                        } label: {
-                            Text("SP-API認証を開始")
-                        }
-                    } else {
-                        HStack {
-                            Label("連携済み", systemImage: "checkmark.circle.fill")
-                                .foregroundColor(.green)
-                            Spacer()
-                        }
-                        Button(role: .destructive) {
-                            viewModel.spapiRefreshToken = ""
-                        } label: {
-                            Text("連携を解除")
-                        }
+                Section {
+                    NavigationLink("Amazon連携") {
+                        AmazonLinkSettingsView(viewModel: viewModel)
                     }
-
-                    Button {
-                        Task { await viewModel.testSpApiConnection() }
-                    } label: {
-                        HStack {
-                            Text("接続テスト")
-                            Spacer()
-                            if viewModel.isSpApiTesting {
-                                ProgressView()
-                            }
-                        }
-                    }
-                    .disabled(viewModel.isSpApiTesting)
-
-                    DisclosureGroup("詳細設定") {
-                        SecureField("リフレッシュトークン(手動入力)", text: $viewModel.spapiRefreshToken)
-                            .textInputAutocapitalization(.never)
-                            .disableAutocorrection(true)
-                    }
-
-                    Text("「SP-API認証を開始」をタップするとAmazonのログイン・承認画面が開き、完了すると自動でこのアプリに戻ります。")
-                        .font(.footnote)
-                        .foregroundColor(.secondary)
                 }
             }
             // 大タイトル「設定」は削除し、その分を画面上部の広告枠に充てる
@@ -602,12 +562,6 @@ struct SettingsView: View {
             Image(systemName: "xmark.circle.fill")
                 .foregroundColor(.red)
         }
-    }
-
-    /// 「SP-API認証を開始」ボタンから、サーバーの /oauth/login をSafari(外部ブラウザ)で開く。
-    private func openOAuthLogin() {
-        guard let url = URL(string: "\(viewModel.serverURLString)/oauth/login") else { return }
-        UIApplication.shared.open(url)
     }
 
     /// 「レビューを書く」ボタンから、App Storeのレビュー投稿ページを直接開く。
