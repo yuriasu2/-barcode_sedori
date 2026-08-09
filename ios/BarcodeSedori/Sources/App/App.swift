@@ -100,6 +100,12 @@ private struct RootContainerView: View {
             SettingsStore.shared.spapiSellerId = sellerId
         }
         showSpApiLinkedAlert = true
+
+        // 連携完了直後にサーバー権威のお試し期限を取得する(sellerId単位でサーバーが
+        // write-onceで発行/参照する。連携直後がこのアプリ内で最も早くお試しを開始できるタイミング)。
+        Task {
+            await SettingsStore.shared.refreshSpApiTrialStatusIfNeeded()
+        }
     }
 
     #if DEBUG

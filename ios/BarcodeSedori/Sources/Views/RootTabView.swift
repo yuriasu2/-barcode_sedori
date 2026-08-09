@@ -45,6 +45,10 @@ struct RootTabView: View {
             // レビュー依頼の起動日数カウンタ。recordLaunchは暦日単位で冪等
             // (同日内に再描画等で複数回呼ばれても2重加算しない)なので毎回呼んでよい。
             ReviewPromptController.shared.recordLaunch()
+
+            // 起動時にサーバー権威のお試し期限を最新化する(SettingsStore側のキャッシュ更新)。
+            // 未連携ならメソッド内でガードされ何もしない。
+            await SettingsStore.shared.refreshSpApiTrialStatusIfNeeded()
         }
     }
 }

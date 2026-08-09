@@ -22,8 +22,14 @@ final class SettingsStore: ObservableObject {
         /// OAuth認可コールバックのselling_partner_id(公開の出品者ID)。
         /// リフレッシュトークンと異なり機密度が低いためKeychainではなくUserDefaultsに保存する。
         static let spapiSellerId = "settings.spapiSellerId"
-        /// Amazon連携(SP-API)による7日間のProお試しの開始日時(timeIntervalSince1970)。
-        static let spapiTrialStartedAt = "settings.spapiTrialStartedAt"
+        /// 旧: クライアント側で計算していたお試し開始日時(timeIntervalSince1970)。
+        /// サーバー権威化(sellerTrial.js)により読まなくなった。書いていたデータはそのまま放置してよい
+        /// (このキー自体は再利用しない。新キーはspapiTrialExpiresAtCache)。
+        static let legacySpapiTrialStartedAt = "settings.spapiTrialStartedAt"
+        /// サーバー(GET /api/trial-status)から取得したお試し期限のキャッシュ(timeIntervalSince1970)。
+        /// サーバーが唯一の権威。このキャッシュは表示・簡易判定用でしかなく、出品系APIの可否は
+        /// 常にサーバー側のrequireProByoCredentials()が最終判定する。
+        static let spapiTrialExpiresAtCache = "settings.spapiTrialExpiresAtCache"
 
         /// 旧: UserDefaultsに平文保存していた利用者自身のKeepa APIキー(BYO)。
         /// 現在はKeychainへ移行済み(初回起動時に自動移行して削除)。
@@ -115,7 +121,6 @@ final class SettingsStore: ObservableObject {
     @Published var spapiLinkEnabled: Bool {
         didSet {
             defaults.set(spapiLinkEnabled, forKey: Keys.spapiLinkEnabled)
-            markSpApiTrialStartIfNeeded()
         }
     }
 
@@ -125,13 +130,15 @@ final class SettingsStore: ObservableObject {
     @Published var spapiRefreshToken: String {
         didSet {
             KeychainStore.set(spapiRefreshToken, for: Self.keychainRefreshTokenAccount)
-            markSpApiTrialStartIfNeeded()
         }
     }
 
-    /// Amazon連携(SP-API)による7日間のProお試しの開始日時。
-    /// 連携解除しても消さない(「連携された日から7日間」という仕様のため)。再連携でも上書きしない。
-    @Published private(set) var spapiTrialStartedAt: Date?
+    /// Amazon連携(SP-API)による7日間のProお試しの、サーバーから取得済みの有効期限キャッシュ。
+    /// サーバー(sellerTrial.js。出品者ID単位・サーバー自身の時計が権威)の応答をそのまま
+    /// キャッシュしているだけで、クライアントはいつ・何日間お試しにするかを一切決めない
+    /// (旧実装はここをクライアント側で計算しており、再インストール・端末時計操作で
+    /// お試しを取り直せる穴になっていた)。
+    @Published private(set) var spapiTrialExpiresAt: Date?
 
     /// SP-API出品者ID(selling_partner_id)。OAuth認可コールバックでAmazonから受け取る公開ID。
     /// Sellers APIからは取得不可能(応答にsellerId相当のフィールドが無い)なため、認可時に一度だけ
@@ -507,18 +514,15 @@ final class SettingsStore: ObservableObject {
     /// Cloudflare Workers を指すが、DNSで切替可能なため将来サーバーを移してもアプリ更新は不要。
     static let defaultServerURL = "https://api.sellira.jp"
 
-    /// Amazon連携(SP-API)特典のPro機能お試し期間。ここを直せば期間を調整できる。
-    static let spapiTrialDuration: TimeInterval = 7 * 24 * 60 * 60
-
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         self.serverURLString = defaults.string(forKey: Keys.serverURL) ?? Self.defaultServerURL
         self.spapiLinkEnabled = defaults.bool(forKey: Keys.spapiLinkEnabled)
         self.spapiSellerId = defaults.string(forKey: Keys.spapiSellerId) ?? ""
-        if let storedTrialStart = defaults.object(forKey: Keys.spapiTrialStartedAt) as? Double {
-            self.spapiTrialStartedAt = Date(timeIntervalSince1970: storedTrialStart)
+        if let cachedExpiresAt = defaults.object(forKey: Keys.spapiTrialExpiresAtCache) as? Double {
+            self.spapiTrialExpiresAt = Date(timeIntervalSince1970: cachedExpiresAt)
         } else {
-            self.spapiTrialStartedAt = nil
+            self.spapiTrialExpiresAt = nil
         }
 
         // リンクボタン。未設定/デコード失敗時は既定4つ(仕入れ/Amazon/メルカリ/楽天市場)で読み込む。
@@ -630,11 +634,6 @@ final class SettingsStore: ObservableObject {
             defaults.removeObject(forKey: Keys.legacyKeepaApiKey)
         }
 
-        // init内の代入はdidSetを発火しないため、既に連携済みの状態で読み込んだユーザー
-        // (=このお試し機能より前から連携していたTestFlightユーザー等)にも、ここで改めて
-        // お試し開始日時を付与する。spapiTrialStartedAtが未記録のときだけ効くので、
-        // 既に記録済みのユーザーを上書きすることはない。
-        markSpApiTrialStartIfNeeded()
     }
 
     /// SP-API連携が利用可能か(有効かつリフレッシュトークンが非空)
@@ -643,30 +642,49 @@ final class SettingsStore: ObservableObject {
             && !spapiRefreshToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    /// お試し期間中か。判定は静的ヘルパーに委譲し、判定ロジックを1箇所に保つ。
+    /// お試し期間中か。サーバーから取得済みのキャッシュ(spapiTrialExpiresAt)が存在し、
+    /// かつ未来の日時であるときだけtrue。キャッシュが無い(未取得・サーバーエラー時に
+    /// 何も反映しなかった)場合はfalse(fail-closed。applySpApiTrialStatus参照)。
     var isSpApiTrialActive: Bool {
-        Self.isSpApiTrialActive(defaults: defaults)
+        guard let spapiTrialExpiresAt else { return false }
+        return spapiTrialExpiresAt > Date()
     }
 
-    /// APIClient(非メインアクター・同期)からも読めるお試し判定。
-    /// インスタンスの`isSpApiTrialActive`もこれを使い、判定を1箇所に保つ。
-    /// markSpApiTrialStartIfNeeded()がインスタンスの`spapiTrialStartedAt`とUserDefaultsを
-    /// 同じタイミングで書き込むため、両者は常に一致する。
-    static func isSpApiTrialActive(defaults: UserDefaults = .standard) -> Bool {
-        guard let storedTrialStart = defaults.object(forKey: Keys.spapiTrialStartedAt) as? Double else {
-            return false
+    /// サーバー(GET /api/trial-status)へ問い合わせ、成功時のみキャッシュを更新する。
+    /// 呼び出し元: RootTabViewの起動時.task、およびOAuthコールバック完了直後(App.swift)。
+    ///
+    /// 失敗時(ネットワークエラー・403等)の方針: あえて何もしない(キャッシュを維持する)。
+    /// お試しは無料の特典であり、失敗時に不用意に「非アクティブ」へ倒すと正規ユーザーが
+    /// 一時的な通信不調だけでお試し表示を失ってしまう。逆に「アクティブ」側へ倒すのは、
+    /// 出品系APIはどのみちサーバー側が最終ゲートを持つため実害は無いが、UIだけ開いて見えて
+    /// 実際のAPIが弾かれる体験の方が悪いと判断し、どちらにも倒さず「触らない」を選んでいる。
+    /// キャッシュが元から無ければ、isSpApiTrialActiveはfalse(非アクティブ)のままになる。
+    @MainActor
+    func refreshSpApiTrialStatusIfNeeded() async {
+        guard isSpApiLinkUsable else { return }
+        do {
+            let result = try await APIClient.shared.trialStatus()
+            applySpApiTrialStatus(result)
+        } catch {
+            // 意図的に握りつぶす(上記コメント参照)。
         }
-        let startedAt = Date(timeIntervalSince1970: storedTrialStart)
-        return startedAt.addingTimeInterval(spapiTrialDuration) > Date()
     }
 
-    /// SP-API連携特典のお試し開始日時を記録する。連携が利用可能になった瞬間かつ未記録のときだけ
-    /// 記録する(再連携での上書きや、連携解除での消去はしない=「連携された日から7日間」の仕様)。
-    private func markSpApiTrialStartIfNeeded() {
-        guard isSpApiLinkUsable, spapiTrialStartedAt == nil else { return }
-        let now = Date()
-        spapiTrialStartedAt = now
-        defaults.set(now.timeIntervalSince1970, forKey: Keys.spapiTrialStartedAt)
+    /// GET /api/trial-status の応答をキャッシュへ反映する。
+    /// 呼び出し側(RootTabView起動時・OAuthコールバック直後)がAPIClient.trialStatus()を叩いて渡す。
+    /// ネットワーク失敗時はこのメソッド自体を呼ばない設計にしており(呼び出し側のdo/catchで無視)、
+    /// その場合は既存のキャッシュがそのまま残る(何もキャッシュが無ければ非アクティブ扱いのまま)。
+    func applySpApiTrialStatus(_ result: TrialStatusResult) {
+        let newExpiresAt: Date? = {
+            guard result.active, let expiresAtMs = result.expiresAt else { return nil }
+            return Date(timeIntervalSince1970: expiresAtMs / 1000)
+        }()
+        spapiTrialExpiresAt = newExpiresAt
+        if let newExpiresAt {
+            defaults.set(newExpiresAt.timeIntervalSince1970, forKey: Keys.spapiTrialExpiresAtCache)
+        } else {
+            defaults.removeObject(forKey: Keys.spapiTrialExpiresAtCache)
+        }
     }
 
     /// 利用者自身のKeepa APIキーが設定済みか(非空)。Pro限定機能のためisPro判定は

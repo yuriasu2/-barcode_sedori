@@ -105,7 +105,6 @@ final class APIClient {
         request.timeoutInterval = 10
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         addPlanHeader(to: &request)
-        addTrialHeaderIfNeeded(to: &request)
         addDeviceHeader(to: &request)
         addSpApiHeadersIfNeeded(to: &request)
         addKeepaKeyHeaderIfNeeded(to: &request)
@@ -146,16 +145,6 @@ final class APIClient {
     private func addPlanHeader(to request: inout URLRequest) {
         let isPro = UserDefaults.standard.bool(forKey: "settings.isProCached")
         request.setValue(isPro ? "pro" : "free", forHTTPHeaderField: "X-App-Plan")
-    }
-
-    /// SP-APIお試し中であることを別ヘッダー(X-App-Trial)で伝える。
-    /// X-App-Planへ"pro"を混ぜない理由: サーバーはX-App-PlanでKeepaグラフ無制限やスキャン枠無制限も
-    /// 判定しており、それらは7日間お試しの対象外と明示的に決めている。X-App-Trialはサーバー側の
-    /// requireProByoCredentials()(出品制限チェック/手数料見積り/一括出品)だけを開けるための専用ヘッダー。
-    /// お試し中でなければヘッダー自体を付けない("0"は送らない)。
-    private func addTrialHeaderIfNeeded(to request: inout URLRequest) {
-        guard SettingsStore.isSpApiTrialActive() else { return }
-        request.setValue("1", forHTTPHeaderField: "X-App-Trial")
     }
 
     /// SP-API連携が有効(Toggle ON かつリフレッシュトークンが非空)であれば、リクエストにSP-API認証ヘッダーを付与する。
@@ -356,6 +345,16 @@ final class APIClient {
     func keepaTest() async throws -> KeepaTestResult {
         let request = try makeRequest(path: "/api/keepa-test")
         return try await perform(request, as: KeepaTestResult.self)
+    }
+
+    /// GET /api/trial-status
+    /// 出品者ID単位のPro無料お試し期間(サーバー権威)の現在状態を取得する。
+    /// X-Spapi-Seller-Id/X-Spapi-Refresh-Tokenが必須(addSpApiHeadersIfNeededが未連携時は
+    /// 付与しないため、その場合サーバーは403を返す=呼び出し側はエラーとして扱う)。
+    /// 呼び出し側(SettingsStore.refreshSpApiTrialStatus)がキャッシュへ反映する。
+    func trialStatus() async throws -> TrialStatusResult {
+        let request = try makeRequest(path: "/api/trial-status")
+        return try await perform(request, as: TrialStatusResult.self)
     }
 
     /// POST /api/keepa-throttle-demo/seed?tokens=&ratePerMin=&refillPerMin=

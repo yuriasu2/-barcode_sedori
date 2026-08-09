@@ -436,10 +436,10 @@ struct SettingsView: View {
     }
 
     /// お試し残り日数。端数日も「残り1日」と読めるよう切り上げる。
-    /// 開始日時が未記録、または既に期限切れならnil(この場合は行自体を出さない)。
+    /// サーバーから取得済みの期限キャッシュが無い、または既に期限切れならnil(この場合は行自体を出さない)。
     private var spapiTrialRemainingDays: Int? {
-        guard let startedAt = settings.spapiTrialStartedAt else { return nil }
-        let remainingSeconds = startedAt.addingTimeInterval(SettingsStore.spapiTrialDuration).timeIntervalSinceNow
+        guard let expiresAt = settings.spapiTrialExpiresAt else { return nil }
+        let remainingSeconds = expiresAt.timeIntervalSinceNow
         guard remainingSeconds > 0 else { return nil }
         return Int(ceil(remainingSeconds / 86400))
     }
