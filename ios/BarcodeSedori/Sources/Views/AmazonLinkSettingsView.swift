@@ -78,7 +78,7 @@ struct AmazonLinkSettingsView: View {
                     icon: "bolt.fill",
                     iconColor: .orange,
                     title: "高速バーコードスキャンが無制限",
-                    detail: "連携するだけで、1日のスキャン回数の制限がなくなります。"
+                    detail: "連携するだけで、スキャン回数が無制限ででき、価格一覧もみることができます。"
                 ) {
                     EmptyView()
                 }
@@ -91,12 +91,18 @@ struct AmazonLinkSettingsView: View {
                 ) {
                     VStack(alignment: .leading, spacing: 6) {
                         ForEach(Self.trialBenefits, id: \.self) { benefit in
-                            HStack(spacing: 8) {
+                            // alignment: .topでアイコンと複数行のテキストの1行目を揃える。
+                            HStack(alignment: .top, spacing: 8) {
                                 Image(systemName: "checkmark")
                                     .font(.footnote)
                                     .foregroundColor(.green)
                                 Text(benefit)
                                     .font(.subheadline)
+                                    // HStackは中身を必要最小限の幅に詰めようとするため、
+                                    // 何も指定しないとTextが折り返さず右端で切れてしまう。
+                                    // 明示的に幅いっぱいまで伸ばして折り返させる。
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .fixedSize(horizontal: false, vertical: true)
                             }
                         }
                     }
@@ -141,14 +147,18 @@ struct AmazonLinkSettingsView: View {
                     .foregroundColor(iconColor)
                 Text(title)
                     .fontWeight(.semibold)
+                    // titleも同じ理由(HStackが中身に合わせて縮む)で明示的に幅を伸ばす。
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             Text(detail)
                 .font(.subheadline)
                 .foregroundColor(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
             extra()
         }
         .padding(.vertical, 4)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// ログインボタンから、サーバーの /oauth/login をSafari(外部ブラウザ)で開く。
