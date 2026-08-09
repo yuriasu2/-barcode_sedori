@@ -446,26 +446,9 @@ struct SettingsView: View {
             // Keepa BYOキーはグラフ無制限に直結し、7日間お試しの対象外(仕様上isProのみ許可)のため
             // isProOrTrialにはしない。
             if entitlements.isPro {
-                SecureField("Keepa APIキー", text: $viewModel.keepaApiKey)
-                    .textInputAutocapitalization(.never)
-                    .disableAutocorrection(true)
-
-                Button {
-                    Task { await viewModel.testKeepaConnection() }
-                } label: {
-                    HStack {
-                        Text("接続テスト")
-                        Spacer()
-                        if viewModel.isKeepaTesting {
-                            ProgressView()
-                        }
-                    }
+                NavigationLink("Keepa連携") {
+                    KeepaLinkSettingsView(viewModel: viewModel)
                 }
-                .disabled(viewModel.isKeepaTesting || settings.keepaApiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-                Text("自分のKeepa APIキーを設定すると、グラフ取得が自分の枠で行われます。Amazon連携時のグラフ表示待ち時間(5秒)も無くなります。")
-                    .font(.footnote)
-                    .foregroundColor(.secondary)
             } else {
                 Button {
                     ReviewPromptController.shared.recordNegativeEvent()
