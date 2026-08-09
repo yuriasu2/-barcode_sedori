@@ -13,6 +13,7 @@ const deviceQuota = require('./deviceQuota');
 const keepaThrottle = require('./keepaThrottle');
 const keepaCoalesce = require('./keepaCoalesce');
 const ipRateLimit = require('./ipRateLimit');
+const sellerTrial = require('./sellerTrial');
 const admobSsv = require('./admobSsv');
 const listings = require('./spapi/listings');
 const spapiClient = require('./spapi/client');
@@ -68,24 +69,6 @@ const LISTING_CONDITION_TYPES = [
 function isProRequest(headers) {
   const plan = headers && (headers['x-app-plan'] || headers['X-App-Plan']);
   return String(plan || '').toLowerCase() === 'pro';
-}
-
-/**
- * アプリが自己申告するSP-API連携特典のお試し中フラグ(X-App-Trial ヘッダー)。
- * '1' のときのみ true。ヘッダー無し/その他は非お試し(false)扱い(安全側)。
- * requireProByoCredentials()のみで使う想定(出品制限チェック/手数料見積り/一括出品)。
- * Keepaグラフやスキャン枠クォータの判定にはisProRequestのみを使い続け、このフラグは混ぜない
- * (お試しはSP-API出品系のみが対象で、Keepaグラフ無制限は明示的に対象外のため)。
- *
- * セキュリティ上の位置づけ: X-App-Planと同様に自己申告かつ詐称可能。ただしこのフラグで開く
- * エンドポイントは追加でリクエスト元自身のX-Spapi-Refresh-TokenとX-Spapi-Seller-Idを要求するため、
- * 詐称してもリクエスト元自身のAmazonアカウントに対してしか行動できない。これはX-App-Planに
- * ついて既に文書化済みの既知の弱点と同じもの(FREEMIUM-PLAN.mdのレシート検証TODO参照)であり、
- * ここで新たな緩和策を導入するものではない。
- */
-function isTrialRequest(headers) {
-  const trial = headers && (headers['x-app-trial'] || headers['X-App-Trial']);
-  return String(trial || '') === '1';
 }
 
 /**
@@ -160,12 +143,28 @@ function attachQuota(res, quota) {
  * sellerIdはSellers APIには含まれず取得不可能なため、OAuth認可時のコールバック
  * (selling_partner_id)でアプリが受け取り保持した値をこのヘッダーで送ってもらう方式にしている。
  * 通過時はsellerId込みのcredentialsを返し、弾いた場合はresへ403/503を書き込んでnullを返す。
+ *
+ * sellerIdはプラン判定より先に解決する。Pro本会員に加え、出品者ID単位のお試し期間
+ * (sellerTrial.js。サーバー自身の時計・Durable Objectが権威)が有効な場合もここだけは通すため、
+ * プランを見る前にお試し状態を引けるようにする必要があるため。かつてはアプリが自己申告する
+ * X-App-Trialヘッダーを信用していたが、自己申告かつ詐称可能だったため廃止した
+ * (詳細はsellerTrial.js冒頭コメント参照)。お試しはSP-API出品系(このゲートが守る3エンドポイント)
+ * のみが対象で、Keepaグラフやスキャン枠クォータは対象外のため、他のisProRequest呼び出し箇所は
+ * 変更しない。
  */
-function requireProByoCredentials(req, res) {
-  // Pro本会員に加え、SP-API連携の7日間お試し中(X-App-Trial)もここだけは通す。
-  // お試しはSP-API出品系(このゲートが守る3エンドポイント)のみが対象で、Keepaグラフや
-  // スキャン枠クォータは対象外のため、他のisProRequest呼び出し箇所は変更しない。
-  if (!isProRequest(req.headers) && !isTrialRequest(req.headers)) {
+async function requireProByoCredentials(req, res) {
+  const sellerId =
+    req.headers && (req.headers['x-spapi-seller-id'] || req.headers['X-Spapi-Seller-Id']);
+
+  // sellerIdがあるときだけお試し状態を引く(getOrStartはレコードが無ければその場で新規発行する
+  // write-once操作なので、sellerIdが無い=誰のお試しか特定できない状態で呼ばない)。
+  let trialActive = false;
+  if (sellerId) {
+    const status = await sellerTrial.getOrStart(String(sellerId));
+    trialActive = !!(status && status.active);
+  }
+
+  if (!isProRequest(req.headers) && !trialActive) {
     res.status(403).json({ error: 'plan_required', message: PLAN_REQUIRED_MESSAGE });
     return null;
   }
@@ -181,8 +180,6 @@ function requireProByoCredentials(req, res) {
     res.status(503).json({ error: 'spapi_credentials_missing', message: SPAPI_CREDENTIALS_MISSING_MESSAGE });
     return null;
   }
-  const sellerId =
-    req.headers && (req.headers['x-spapi-seller-id'] || req.headers['X-Spapi-Seller-Id']);
   if (!sellerId) {
     res.status(403).json({ error: 'seller_id_required', message: SELLER_ID_REQUIRED_MESSAGE });
     return null;
@@ -1353,6 +1350,40 @@ router.get('/api/quota', async (req, res) => {
   res.json(await deviceQuota.computeQuota(deviceId));
 });
 
+// GET /api/trial-status — 出品者ID単位のPro無料お試し期間(サーバー権威)の現在状態を返す。
+// X-Spapi-Seller-IdとX-Spapi-Refresh-Tokenを両方要求する(トークンも必須にすることで、
+// 適当なseller IDを大量に送ってお試しを乱掘りする攻撃のハードルを上げる。トークン自体の
+// 有効性はここでは検証しない=お試し発行のためだけにSP-APIへ問い合わせるコストは掛けない)。
+router.get('/api/trial-status', async (req, res) => {
+  const sellerId =
+    req.headers && (req.headers['x-spapi-seller-id'] || req.headers['X-Spapi-Seller-Id']);
+  const refreshToken =
+    req.headers && (req.headers['x-spapi-refresh-token'] || req.headers['X-Spapi-Refresh-Token']);
+  if (!sellerId) {
+    return res.status(403).json({ error: 'seller_id_required', message: SELLER_ID_REQUIRED_MESSAGE });
+  }
+  if (!refreshToken) {
+    return res.status(403).json({ error: 'spapi_link_required', message: SPAPI_LINK_REQUIRED_MESSAGE });
+  }
+
+  const status = await sellerTrial.getOrStart(String(sellerId));
+  if (!status) {
+    // DO障害等でお試し状態が分からない場合は「無効」を返す(sellerTrial.js冒頭コメントの
+    // fail-closed方針と揃える)。
+    return res.json({ active: false, startedAt: null, expiresAt: null, remainingDays: 0 });
+  }
+  // remainingDaysは切り上げ(最後の端数日を1日として見せるため。ちょうど0の場合はinactive)。
+  const remainingDays = status.active
+    ? Math.max(1, Math.ceil((status.expiresAt - Date.now()) / sellerTrial.DAY_MS))
+    : 0;
+  res.json({
+    active: status.active,
+    startedAt: status.startedAt,
+    expiresAt: status.expiresAt,
+    remainingDays,
+  });
+});
+
 /**
  * FeeDetailListの1件(FeeType)を、アプリ向けのtype/labelに分類する。
  * ReferralFee→販売手数料 / VariableClosingFee・FixedClosingFee→カテゴリ成約料 /
@@ -1478,7 +1509,7 @@ router.get('/api/fees-estimate', async (req, res) => {
   }
   const fba = fbaRaw === '1';
 
-  const credentials = requireProByoCredentials(req, res);
+  const credentials = await requireProByoCredentials(req, res);
   if (!credentials) return;
 
   try {
@@ -1529,7 +1560,7 @@ router.get('/api/listings/restrictions', async (req, res) => {
     return res.status(400).json({ error: 'invalid_condition', message: `conditionは ${LISTING_CONDITION_TYPES.join(' / ')} のいずれかを指定してください` });
   }
 
-  const credentials = requireProByoCredentials(req, res);
+  const credentials = await requireProByoCredentials(req, res);
   if (!credentials) return;
 
   try {
@@ -1549,7 +1580,7 @@ router.get('/api/listings/restrictions', async (req, res) => {
 // POST /api/listings — オファー出品(putListingsItem)。Pro+BYOトークン必須。
 // トークン・出品内容はサーバーに保存しない(DPP整合)。応答のstatus/issuesはそのまま透過する。
 router.post('/api/listings', async (req, res) => {
-  const credentials = requireProByoCredentials(req, res);
+  const credentials = await requireProByoCredentials(req, res);
   if (!credentials) return;
 
   const validated = validateListingInput(req.body);
@@ -1851,5 +1882,7 @@ router.loadAdsConfig = loadAdsConfig;
 router.validateAdEventInput = validateAdEventInput;
 // テスト用途にAdMob SSV検証モジュールを公開する(_setKeysForTestでの鍵注入用)。
 router.admobSsv = admobSsv;
+// テスト用途に出品者ID単位お試し期間モジュールを公開する。
+router.sellerTrial = sellerTrial;
 
 module.exports = router;

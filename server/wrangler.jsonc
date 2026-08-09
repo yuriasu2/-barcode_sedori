@@ -34,7 +34,11 @@
     // 独占できてしまい抑止にならないため。トレードオフとして、CGNAT(同一IPを
     // 複数の正規ユーザーが共有する場合)や自前Keepaキー利用者の高速スキャンでは
     // この制限に当たり得ることを許容する。
-    "IP_RATE_LIMIT_PER_MIN": "20"
+    "IP_RATE_LIMIT_PER_MIN": "20",
+    // 出品者ID単位のPro無料お試し期間(sellerTrial.js)の日数。
+    // サーバーが唯一の権威(seller ID + サーバー自身の時計)で判定するため、
+    // クライアント側の時計操作・再インストールでは延長も再取得もできない。
+    "SPAPI_TRIAL_DAYS": "7"
   },
   // 広告配信設定(/api/ads)を置くKV namespace。id は namespace 作成後に埋める
   // (`wrangler kv namespace create ADS_CONFIG`)。id未設定(プレースホルダ)のままでも
@@ -47,7 +51,8 @@
     "bindings": [
       { "name": "DEVICE_QUOTA", "class_name": "DeviceQuotaDO" },
       { "name": "KEEPA_THROTTLE", "class_name": "KeepaThrottleDO" },
-      { "name": "IP_RATE_LIMIT", "class_name": "IpRateLimitDO" }
+      { "name": "IP_RATE_LIMIT", "class_name": "IpRateLimitDO" },
+      { "name": "SELLER_TRIAL", "class_name": "SellerTrialDO" }
     ]
   },
   // new_sqlite_classes を使う(new_classes ではない)。無料プランではSQLiteバックエンドの
@@ -55,7 +60,8 @@
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["DeviceQuotaDO"] },
     { "tag": "v2", "new_sqlite_classes": ["KeepaThrottleDO"] },
-    { "tag": "v3", "new_sqlite_classes": ["IpRateLimitDO"] }
+    { "tag": "v3", "new_sqlite_classes": ["IpRateLimitDO"] },
+    { "tag": "v4", "new_sqlite_classes": ["SellerTrialDO"] }
   ]
   // Secrets(LWA_CLIENT_ID/LWA_CLIENT_SECRET/KEEPA_API_KEY/SPAPI_APP_ID)は
   // `wrangler secret put` で登録する(このファイルに書かない)。

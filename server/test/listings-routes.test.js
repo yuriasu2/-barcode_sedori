@@ -24,6 +24,10 @@ function freshRoutes() {
   delete require.cache[require.resolve('../src/routes')];
   delete require.cache[require.resolve('../src/spapi/listings')];
   delete require.cache[require.resolve('../src/deviceQuota')];
+  // sellerTrialはSELLER123等のseller-idに対しwrite-onceでお試しを発行するインメモリMapを
+  // モジュールスコープに持つため、他のテストで発行済みの状態が残っているとゲートの結果が
+  // テストごとに変わってしまう。routes.js同様、テストごとに完全にリセットする。
+  delete require.cache[require.resolve('../src/sellerTrial')];
   return require('../src/routes');
 }
 
@@ -96,16 +100,38 @@ function feesEstimateOk(ok, feeDetailList) {
 
 // --- ゲート ---
 
-test('restrictions: 無料は403 plan_required', async () => {
+test('restrictions: 無料は403 plan_required(seller-idも無い完全未認証)', async () => {
   const routes = freshRoutes();
   const res = createMockRes();
   const route = routes.match('GET', '/api/listings/restrictions');
   await route.handler(
-    { query: { asin: 'B000TEST', condition: 'used_good' }, headers: { 'x-spapi-refresh-token': 'rt', 'x-spapi-seller-id': 'SELLER123' } },
+    { query: { asin: 'B000TEST', condition: 'used_good' }, headers: {} },
     res
   );
   assert.equal(res.statusCode, 403);
   assert.equal(res.body.error, 'plan_required');
+});
+
+test('restrictions: 無料でもseller-id+トークンがあればお試しが自動発行され通過する(サーバー権威のお試し)', async () => {
+  await withEnv(ENV, async () => {
+    const routes = freshRoutes();
+    const originalFetch = global.fetch;
+    global.fetch = mockFetch();
+    try {
+      const res = createMockRes();
+      const route = routes.match('GET', '/api/listings/restrictions');
+      await route.handler(
+        {
+          query: { asin: 'B000TEST', condition: 'used_good' },
+          headers: { 'x-spapi-refresh-token': 'rt', 'x-spapi-seller-id': 'SELLER-AUTOTRIAL' },
+        },
+        res
+      );
+      assert.equal(res.statusCode, 200);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
 });
 
 test('restrictions: ProでもX-Spapi-Refresh-Tokenが無ければ403 spapi_link_required(.envトークンにフォールバックしない)', async () => {
@@ -263,32 +289,14 @@ test('restrictions: condition不正値は400', async () => {
   assert.equal(res.statusCode, 400);
 });
 
-// --- お試し(X-App-Trial): SP-API連携の7日間お試しは出品系ゲートのみ通す ---
+// --- サーバー権威のお試し(sellerTrial.js): 出品系ゲートのみ通す ---
+//
+// 旧実装はアプリが自己申告するX-App-Trial: 1ヘッダーを信用していたが、詐称可能なため廃止した。
+// 現在はseller-id(X-Spapi-Seller-Id)+トークン(X-Spapi-Refresh-Token)自体が「実在するSP-API
+// 連携の証拠」であり、requireProByoCredentials()がsellerTrial.getOrStart()でお試し状態を
+// サーバー自身の記録(write-once)から判定する。
 
-// X-App-Planを送らず(=Proではない)X-App-Trial: 1だけでゲートを通す想定のヘッダーセット。
-const TRIAL_HEADERS = { 'x-app-trial': '1', 'x-spapi-refresh-token': 'rt', 'x-spapi-seller-id': 'SELLER123' };
-
-test('restrictions: X-App-Trial:1のみ(X-App-Plan無し)でもゲートを通過する', async () => {
-  await withEnv(ENV, async () => {
-    const routes = freshRoutes();
-    const originalFetch = global.fetch;
-    global.fetch = mockFetch();
-    try {
-      const res = createMockRes();
-      const route = routes.match('GET', '/api/listings/restrictions');
-      await route.handler(
-        { query: { asin: 'B000TEST', condition: 'used_good' }, headers: TRIAL_HEADERS },
-        res
-      );
-      assert.equal(res.statusCode, 200);
-      assert.deepEqual(res.body, { restricted: false, message: null, approvalUrl: null });
-    } finally {
-      global.fetch = originalFetch;
-    }
-  });
-});
-
-test('listings POST: X-App-Trial:1のみ(X-App-Plan無し)でもゲートを通過する', async () => {
+test('listings POST: 無料でもseller-id+トークンがあればお試しが自動発行され通過する(サーバー権威のお試し)', async () => {
   await withEnv(ENV, async () => {
     const routes = freshRoutes();
     const originalFetch = global.fetch;
@@ -306,7 +314,7 @@ test('listings POST: X-App-Trial:1のみ(X-App-Plan無し)でもゲートを通�
             quantity: 1,
             conditionNote: '',
           },
-          headers: TRIAL_HEADERS,
+          headers: { 'x-spapi-refresh-token': 'rt', 'x-spapi-seller-id': 'SELLER-AUTOTRIAL' },
         },
         res
       );
@@ -317,7 +325,7 @@ test('listings POST: X-App-Trial:1のみ(X-App-Plan無し)でもゲートを通�
   });
 });
 
-test('fees-estimate: X-App-Trial:1のみ(X-App-Plan無し)でもゲートを通過する', async () => {
+test('fees-estimate: 無料でもseller-id+トークンがあればお試しが自動発行され通過する(サーバー権威のお試し)', async () => {
   await withEnv(ENV, async () => {
     const routes = freshRoutes();
     const originalFetch = global.fetch;
@@ -327,7 +335,13 @@ test('fees-estimate: X-App-Trial:1のみ(X-App-Plan無し)でもゲートを通�
     try {
       const res = createMockRes();
       const route = routes.match('GET', '/api/fees-estimate');
-      await route.handler({ query: { asin: 'B000TEST', price: '1500' }, headers: TRIAL_HEADERS }, res);
+      await route.handler(
+        {
+          query: { asin: 'B000TEST', price: '1500' },
+          headers: { 'x-spapi-refresh-token': 'rt', 'x-spapi-seller-id': 'SELLER-AUTOTRIAL' },
+        },
+        res
+      );
       assert.equal(res.statusCode, 200);
     } finally {
       global.fetch = originalFetch;
@@ -335,18 +349,22 @@ test('fees-estimate: X-App-Trial:1のみ(X-App-Plan無し)でもゲートを通�
   });
 });
 
-test('restrictions/listings POST/fees-estimate: X-App-Trial無し/0/ゴミ値は引き続き403 plan_required(BYOヘッダーがあっても)', async () => {
-  const routes = freshRoutes();
+test('restrictions/listings POST/fees-estimate: seller-idのお試しが期限切れなら引き続き403 plan_required', async () => {
+  await withEnv(ENV, async () => {
+    const routes = freshRoutes();
+    const sellerTrial = routes.sellerTrial;
+    const sellerId = 'SELLER-EXPIRED-TRIAL';
+    const eightDaysAgo = Date.now() - 8 * 24 * 60 * 60 * 1000;
+    // write-once seed: 8日前に開始したことにして期限切れの状態を作る。
+    await sellerTrial.getOrStart(sellerId, eightDaysAgo);
 
-  const byoHeaders = { 'x-spapi-refresh-token': 'rt', 'x-spapi-seller-id': 'SELLER123' };
-  for (const trial of [undefined, '0', 'garbage', 'true']) {
-    const headers = trial === undefined ? byoHeaders : { ...byoHeaders, 'x-app-trial': trial };
+    const headers = { 'x-spapi-refresh-token': 'rt', 'x-spapi-seller-id': sellerId };
 
     const restrictionsRes = createMockRes();
     await routes
       .match('GET', '/api/listings/restrictions')
       .handler({ query: { asin: 'B000TEST', condition: 'used_good' }, headers }, restrictionsRes);
-    assert.equal(restrictionsRes.statusCode, 403, `restrictions trial=${trial}`);
+    assert.equal(restrictionsRes.statusCode, 403);
     assert.equal(restrictionsRes.body.error, 'plan_required');
 
     const listingsRes = createMockRes();
@@ -364,19 +382,59 @@ test('restrictions/listings POST/fees-estimate: X-App-Trial無し/0/ゴミ値は
       },
       listingsRes
     );
-    assert.equal(listingsRes.statusCode, 403, `listings POST trial=${trial}`);
+    assert.equal(listingsRes.statusCode, 403);
     assert.equal(listingsRes.body.error, 'plan_required');
 
     const feesRes = createMockRes();
     await routes
       .match('GET', '/api/fees-estimate')
       .handler({ query: { asin: 'B000TEST', price: '1500' }, headers }, feesRes);
-    assert.equal(feesRes.statusCode, 403, `fees-estimate trial=${trial}`);
+    assert.equal(feesRes.statusCode, 403);
     assert.equal(feesRes.body.error, 'plan_required');
-  }
+  });
 });
 
-test('graph: Keepaグラフ(非出品系Proエンドポイント)はX-App-Trial:1だけでは通らず403 plan_required', async () => {
+test('restrictions/listings POST/fees-estimate: 廃止済みのX-App-Trial:1ヘッダー単体は何も与えない(回帰ガード)', async () => {
+  const routes = freshRoutes();
+
+  // seller-id/token無しでX-App-Trial:1だけ送っても、以前のように出品系ゲートを通過しない
+  // (isTrialRequest/X-App-Trialの取り扱いは完全に削除済み)。
+  const headers = { 'x-app-trial': '1' };
+
+  const restrictionsRes = createMockRes();
+  await routes
+    .match('GET', '/api/listings/restrictions')
+    .handler({ query: { asin: 'B000TEST', condition: 'used_good' }, headers }, restrictionsRes);
+  assert.equal(restrictionsRes.statusCode, 403);
+  assert.equal(restrictionsRes.body.error, 'plan_required');
+
+  const listingsRes = createMockRes();
+  await routes.match('POST', '/api/listings').handler(
+    {
+      body: {
+        asin: 'B000TEST',
+        sku: 'AMLZ-20260809-003',
+        conditionType: 'used_good',
+        price: 1500,
+        quantity: 1,
+        conditionNote: '',
+      },
+      headers,
+    },
+    listingsRes
+  );
+  assert.equal(listingsRes.statusCode, 403);
+  assert.equal(listingsRes.body.error, 'plan_required');
+
+  const feesRes = createMockRes();
+  await routes
+    .match('GET', '/api/fees-estimate')
+    .handler({ query: { asin: 'B000TEST', price: '1500' }, headers }, feesRes);
+  assert.equal(feesRes.statusCode, 403);
+  assert.equal(feesRes.body.error, 'plan_required');
+});
+
+test('graph: Keepaグラフ(非出品系Proエンドポイント)は廃止済みのX-App-Trial:1だけでは通らず403 plan_required', async () => {
   const routes = freshRoutes();
   const res = createMockRes();
   const route = routes.match('GET', '/api/graph');
@@ -387,13 +445,13 @@ test('graph: Keepaグラフ(非出品系Proエンドポイント)はX-App-Trial:
 
 // --- POST /api/listings ---
 
-test('listings POST: 無料は403 plan_required、Proでもトークン無しは403 spapi_link_required、Proかつトークンありでもseller_id無しは403 seller_id_required', async () => {
+test('listings POST: 無料は403 plan_required(seller-id無し)、Proでもトークン無しは403 spapi_link_required、Proかつトークンありでもseller_id無しは403 seller_id_required', async () => {
   await withEnv(ENV, async () => {
     const routes = freshRoutes();
     const route = routes.match('POST', '/api/listings');
 
     const res1 = createMockRes();
-    await route.handler({ body: {}, headers: { 'x-spapi-refresh-token': 'rt', 'x-spapi-seller-id': 'SELLER123' } }, res1);
+    await route.handler({ body: {}, headers: { 'x-spapi-refresh-token': 'rt' } }, res1);
     assert.equal(res1.statusCode, 403);
     assert.equal(res1.body.error, 'plan_required');
 
