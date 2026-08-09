@@ -24,6 +24,7 @@
 - バンドルID `com.example.barcodesedori` → 本番IDへ変更。
 - AdMob を本番IDへ差し替え（現在Googleテストの `GADApplicationIdentifier` / `bannerAdUnitID`）。SKAdNetworkは全リスト追加、PrivacyInfo の TrackingDomains 記載。
 - 試験用の手動SP-APIキー入力欄（`SettingsView` の SecureField）を削除しOAuthのみに。
+- **App Store アプリIDを `SettingsView.swift` の `AppStoreReviewConfig.appId` に設定する**（現在は空文字）。App Store Connect でアプリを登録すると採番される数字のID。空の間は設定タブの「レビューを書く」行が非表示になり、レビューページへの導線が存在しない状態のまま公開されてしまう。自動のレビュー依頼（`ReviewPromptController`）はIDに依存しないため動作するが、**設定からユーザーが自発的にレビューを書く導線だけが欠ける**ので気付きにくい。
 - （推奨・非ブロッカー）SP-API refresh token を UserDefaults → Keychain へ移行。
 - （公開前・偽装対策）自己申告 X-App-Plan を廃し、App Store Server API レシート検証を導入。
 
