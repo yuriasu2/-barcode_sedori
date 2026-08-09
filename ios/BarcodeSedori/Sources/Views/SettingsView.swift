@@ -183,12 +183,20 @@ private enum AppStoreReviewConfig {
     static let appId = ""
 }
 
+/// お問い合わせフォームへの導線設定。
+/// AppStoreReviewConfig.appIdと違いこのURLは既に存在し有効なため、行を隠す条件は無く常に表示する。
+private enum SupportConfig {
+    static let contactURL = "https://sellira.jp/contact/"
+}
+
 struct SettingsView: View {
     @StateObject private var viewModel = SettingsViewModel()
     @ObservedObject private var entitlements = EntitlementStore.shared
     /// 設定値の唯一の真実。OAuthコールバックでの更新を画面に反映させるため直接監視する。
     @ObservedObject private var settings = SettingsStore.shared
     @State private var showPaywall = false
+    /// アプリ内ブラウザ(SafariView)で開く対象。お問い合わせフォームをアプリ内で開くために使う。
+    @State private var browserTarget: BrowserTarget?
     #if DEBUG
     /// 開発用Pro強制トグルの表示state(実体はEntitlementStore側のUserDefaults)。
     @State private var debugForcePro = EntitlementStore.shared.debugForcePro
@@ -240,6 +248,14 @@ struct SettingsView: View {
                         } label: {
                             Text("レビューを書く")
                         }
+                    }
+                }
+
+                Section("サポート") {
+                    Button {
+                        openSupportContactPage()
+                    } label: {
+                        Text("ご意見・お問い合わせ")
                     }
                 }
 
@@ -391,6 +407,12 @@ struct SettingsView: View {
             }
             .sheet(isPresented: $showPaywall) {
                 PaywallView()
+            }
+            // ProductDetailView/SearchTabViewと同様、.sheet(item:)と.sheet(isPresented:)を
+            // 別々のmodifierとして重ねる(SwiftUIはこの重ね方に対応している。片方の内側に
+            // ネストする必要は無い)。
+            .sheet(item: $browserTarget) { target in
+                SafariView(url: target.url)
             }
         }
         .navigationViewStyle(.stack)
@@ -596,5 +618,56 @@ struct SettingsView: View {
               let url = URL(string: "https://apps.apple.com/app/id\(AppStoreReviewConfig.appId)?action=write-review")
         else { return }
         UIApplication.shared.open(url)
+    }
+
+    /// 「ご意見・お問い合わせ」ボタンから、診断情報付きのお問い合わせフォームを開く。
+    /// SP-API認証・レビューの外部リンクと違いUIApplication.shared.openではなくSafariView
+    /// (アプリ内ブラウザ)で開く。送信後に利用者がアプリへ戻ってこられるようにするため。
+    private func openSupportContactPage() {
+        guard let url = supportContactURL() else { return }
+        browserTarget = BrowserTarget(url: url)
+    }
+
+    /// お問い合わせフォームのURLを診断情報のクエリパラメータ付きで組み立てる。
+    ///
+    /// 個人情報保護のための制約: ここには環境・状態に関する非個人情報のみを含めること。
+    /// デバイスID/IDFA/IDFV、Amazon出品者ID、Keepa APIキー、SP-APIリフレッシュトークン、
+    /// メールアドレスなど、利用者やデバイスを特定できる識別子は将来も絶対に追加しないこと。
+    private func supportContactURL() -> URL? {
+        guard var components = URLComponents(string: SupportConfig.contactURL) else { return nil }
+
+        let plan: String
+        if entitlements.isPro {
+            plan = "pro"
+        } else if settings.isSpApiTrialActive {
+            plan = "trial"
+        } else {
+            plan = "free"
+        }
+
+        components.queryItems = [
+            URLQueryItem(name: "app_version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""),
+            URLQueryItem(name: "build", value: Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? ""),
+            URLQueryItem(name: "os", value: UIDevice.current.systemVersion),
+            URLQueryItem(name: "device", value: Self.deviceModelIdentifier()),
+            URLQueryItem(name: "plan", value: plan),
+            URLQueryItem(name: "spapi", value: settings.isSpApiLinkUsable ? "linked" : "unlinked"),
+        ]
+        return components.url
+    }
+
+    /// 機種の識別子(例: "iPhone16,2")を取得する。
+    /// システムからは「iPhone 15 Pro」のようなマーケティング名は取得できないため、
+    /// 機種識別子をそのまま送る。マーケティング名への変換には対応表の保守が必要になるため、
+    /// ここでは意図的に行わない。
+    private static func deviceModelIdentifier() -> String {
+        var systemInfo = utsname()
+        uname(&systemInfo)
+        let machineMirror = Mirror(reflecting: systemInfo.machine)
+        let identifier = machineMirror.children.reduce(into: "") { result, element in
+            guard let value = element.value as? Int8, value != 0 else { return }
+            result.append(Character(UnicodeScalar(UInt8(value))))
+        }
+        return identifier
     }
 }
