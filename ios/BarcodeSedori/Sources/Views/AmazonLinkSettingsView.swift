@@ -78,7 +78,7 @@ struct AmazonLinkSettingsView: View {
                     icon: "bolt.fill",
                     iconColor: .orange,
                     title: "高速バーコードスキャンが無制限",
-                    detail: "連携するだけで、スキャン回数が無制限ででき、価格一覧もみることができます。"
+                    detail: "連携するだけで、1日のスキャン制限がなくなり、高速でスキャン結果が表示され、価格の一覧も見れます。"
                 ) {
                     EmptyView()
                 }
