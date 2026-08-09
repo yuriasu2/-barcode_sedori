@@ -12,6 +12,12 @@ final class AppNavigation: ObservableObject {
     /// 設定タブのタグ。
     static let settingsTab = 3
 
+    /// 設定タブを開いた直後にAmazon連携画面まで自動で進めるか。
+    /// Pro案内(PaywallView)の「Amazon連携で7日間無料体験」から使う。設定タブへ切り替えるだけでは
+    /// 利用者が連携項目を探すことになるため、目的の画面まで一気に運ぶ。
+    /// SettingsView側のNavigationLink(isActive:)がこれを監視し、画面を閉じるとfalseに戻る。
+    @Published var opensAmazonLink = false
+
     #if DEBUG
     /// 開発ビルド専用: ディープリンクから流し込まれた検索コード。
     /// シミュレータではタップ・文字入力の注入が使えない環境があり画面遷移を自動化できないため、

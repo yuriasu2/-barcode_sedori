@@ -53,7 +53,8 @@ struct QuotaPaywallOverlay: View {
                     if showsSpApiOption {
                         optionButton(
                             title: "Amazon連携でスキャン無制限",
-                            subtitle: nil,
+                            // 連携の見返りはスキャン無制限だけではないので、お試し特典も併記する。
+                            subtitle: "連携後7日間Proプランを無料体験できます。",
                             systemImage: "link",
                             isEmphasized: false,
                             action: onSpApiLinkTap

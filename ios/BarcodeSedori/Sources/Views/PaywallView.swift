@@ -104,6 +104,33 @@ struct PaywallView: View {
                     }
                     .disabled(entitlements.purchaseInProgress || entitlements.product == nil)
 
+                    // 購入前に試したい人の受け皿。Amazon連携すれば7日間Pro機能を試せるため、
+                    // 課金ボタンの直下から設定タブのAmazon連携画面まで一気に運ぶ。
+                    Button {
+                        // シートを閉じてから遷移させる。閉じる前にタブを切り替えると、
+                        // シートが被さったままタブだけ変わって何も起きていないように見える。
+                        dismiss()
+                        AppNavigation.shared.selectedTab = AppNavigation.settingsTab
+                        // isActiveはシートが消えて設定タブが実際に描画されてから立てる。
+                        // まだ画面に出ていないNavigationLinkに対して立てると遷移が
+                        // 取りこぼされ、設定タブに着いただけで止まることがあるため。
+                        Task { @MainActor in
+                            try? await Task.sleep(nanoseconds: 350_000_000)
+                            AppNavigation.shared.opensAmazonLink = true
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "gift.fill")
+                            Text("Amazon連携で7日間無料体験")
+                                .fontWeight(.semibold)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.accentColor.opacity(0.12))
+                        .foregroundColor(.accentColor)
+                        .cornerRadius(12)
+                    }
+
                     Button {
                         Task {
                             let ok = await entitlements.restore()
