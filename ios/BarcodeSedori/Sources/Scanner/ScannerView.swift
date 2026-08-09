@@ -408,8 +408,11 @@ final class ScannerContainerView: UIView {
         cooldownLabel.isHidden = true
         hideCooldownOverlayWork?.cancel()
 
-        let feedback = UINotificationFeedbackGenerator()
-        feedback.notificationOccurred(.success)
+        // 設定「バイブレーション(スキャン時)」でON/OFFできる。利益アラートの振動とは別設定。
+        if SettingsStore.shared.scanSuccessHapticsEnabled {
+            let feedback = UINotificationFeedbackGenerator()
+            feedback.notificationOccurred(.success)
+        }
 
         onScan?(ScannedBarcode(code: code, symbology: symbology))
     }

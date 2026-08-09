@@ -49,6 +49,8 @@ final class SettingsStore: ObservableObject {
         static let profitAlertSellerCountUsedThreshold = "settings.profitAlert.sellerCountUsedThreshold"
         static let profitAlertListPriceEnabled = "settings.profitAlert.listPriceEnabled"
         static let profitAlertHapticsEnabled = "settings.profitAlert.hapticsEnabled"
+        /// バーコード/OCR読み取り成功時の一瞬の振動(ScannerView)。利益アラートの振動とは別設定。
+        static let scanSuccessHapticsEnabled = "settings.scanSuccessHapticsEnabled"
 
         // 出品(Phase 2): コンディション別説明文テンプレート。
         static let listingTemplateNew = "settings.listing.template.new"
@@ -283,6 +285,16 @@ final class SettingsStore: ObservableObject {
     @Published var profitAlertHapticsEnabled: Bool {
         didSet {
             defaults.set(profitAlertHapticsEnabled, forKey: Keys.profitAlertHapticsEnabled)
+        }
+    }
+
+    /// バーコード/OCR読み取り成功時の一瞬の振動(ScannerView.emit)を鳴らすか。
+    /// 利益アラートの振動(profitAlertHapticsEnabled)とは別物。既定はtrue(現状の挙動を変えない)。
+    /// ScannerViewはUIKit側のクラスでSettingsStoreを注入されていないため、
+    /// SettingsStore.shared.scanSuccessHapticsEnabledを直接参照する(シングルトンなので安全)。
+    @Published var scanSuccessHapticsEnabled: Bool {
+        didSet {
+            defaults.set(scanSuccessHapticsEnabled, forKey: Keys.scanSuccessHapticsEnabled)
         }
     }
 
@@ -551,6 +563,7 @@ final class SettingsStore: ObservableObject {
         self.profitAlertSellerCountUsedThreshold = (defaults.object(forKey: Keys.profitAlertSellerCountUsedThreshold) as? Int) ?? 10
         self.profitAlertListPriceEnabled = defaults.bool(forKey: Keys.profitAlertListPriceEnabled)
         self.profitAlertHapticsEnabled = (defaults.object(forKey: Keys.profitAlertHapticsEnabled) as? Bool) ?? true
+        self.scanSuccessHapticsEnabled = (defaults.object(forKey: Keys.scanSuccessHapticsEnabled) as? Bool) ?? true
 
         // 出品説明文テンプレート(Phase 2)。未設定時は既定文で読み込む。
         self.listingTemplateNew =

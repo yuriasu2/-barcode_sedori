@@ -432,9 +432,17 @@ struct SettingsView: View {
                 .buttonStyle(.plain)
             }
 
+            // スキャン成功時の一瞬の振動(ScannerView.emit)。利益アラートの振動とは別設定で、
+            // 誰でも(無料でも)発生するため常にここに出す。
+            Toggle("バイブレーション(スキャン時)", isOn: $settings.scanSuccessHapticsEnabled)
+
             // 利益アラート発火時のバイブレーション。設定の実体はProfitAlertSettingsViewと共通
             // (settings.profitAlertHapticsEnabled)なので、ここで変えても向こうの表示に反映される。
-            Toggle("バイブレーション", isOn: $settings.profitAlertHapticsEnabled)
+            // 利益アラートはPro限定機能なので、そちらが使えないときはこの項目自体も出さない
+            // (トグルはあるのに機能が無い、という状態を避ける)。
+            if entitlements.isProOrTrial {
+                Toggle("バイブレーション(利益アラート)", isOn: $settings.profitAlertHapticsEnabled)
+            }
         }
     }
 
