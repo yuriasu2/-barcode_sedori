@@ -45,9 +45,32 @@ struct AmazonLinkSettingsView: View {
                     Spacer(minLength: 0)
                 }
 
-                Text("再連携する場合は上のリンクからお願いします。")
-                    .font(.footnote)
-                    .foregroundColor(.secondary)
+                // 連携中のときだけ出す。未連携で押せても消すものが無く、意味が無いため。
+                if settings.isSpApiLinkUsable {
+                    Button(role: .destructive) {
+                        // 端末に保持しているリフレッシュトークン(Keychain)を空にする。
+                        // これでisSpApiLinkUsableがfalseになり未連携状態へ戻る。
+                        // 出品者IDは消さない: 再連携時に選択アカウントが変われば認可コールバックが
+                        // 上書きするため、こちらで先に消すと旧認可のまま再連携した利用者が
+                        // 出品者ID未取得になり出品系APIを使えなくなる。
+                        viewModel.spapiRefreshToken = ""
+                    } label: {
+                        Text("連携を解除")
+                    }
+                }
+
+                Button {
+                    Task { await viewModel.testSpApiConnection() }
+                } label: {
+                    HStack {
+                        Text("接続テスト")
+                        Spacer()
+                        if viewModel.isSpApiTesting {
+                            ProgressView()
+                        }
+                    }
+                }
+                .disabled(viewModel.isSpApiTesting)
             }
 
             Section("連携特典") {
@@ -79,21 +102,6 @@ struct AmazonLinkSettingsView: View {
                     }
                     .padding(.top, 2)
                 }
-            }
-
-            Section {
-                Button {
-                    Task { await viewModel.testSpApiConnection() }
-                } label: {
-                    HStack {
-                        Text("接続テスト")
-                        Spacer()
-                        if viewModel.isSpApiTesting {
-                            ProgressView()
-                        }
-                    }
-                }
-                .disabled(viewModel.isSpApiTesting)
             }
         }
         .navigationTitle("Amazon連携")
