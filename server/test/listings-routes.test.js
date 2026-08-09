@@ -434,6 +434,65 @@ test('restrictions/listings POST/fees-estimate: 廃止済みのX-App-Trial:1ヘ�
   assert.equal(feesRes.body.error, 'plan_required');
 });
 
+test('ゲート: seller-idだけ(トークン無し)ではお試しを発行しない(他人のIDで勝手に開始させない)', async () => {
+  const routes = freshRoutes();
+  const sellerTrial = routes.sellerTrial;
+  const sellerId = 'SELLER-NO-TOKEN';
+
+  // 出品者IDは秘密の値ではないため、IDを送るだけでお試しが始まると、第三者が他人のIDを
+  // 送り付けて本人が使い始める前に期限切れにできてしまう。トークンの提示を発行条件にする。
+  const res = createMockRes();
+  await routes
+    .match('GET', '/api/listings/restrictions')
+    .handler(
+      { query: { asin: 'B000TEST', condition: 'used_good' }, headers: { 'x-spapi-seller-id': sellerId } },
+      res
+    );
+  assert.equal(res.statusCode, 403);
+  assert.equal(res.body.error, 'plan_required');
+
+  // レコード自体が作られていないこと(この後で本人が使い始めたら満額7日から始まる)。
+  // write-onceなので、後から固定時刻で発行して開始日時がその時刻になれば
+  // 「それ以前にレコードは存在しなかった」と確定できる。
+  const laterNow = Date.now() + 60_000;
+  const status = await sellerTrial.getOrStart(sellerId, laterNow);
+  assert.equal(status.startedAt, laterNow);
+});
+
+test('ゲート: Pro会員のリクエストではお試しを発行しない(解約後のお試しを先に消費させない)', async () => {
+  await withEnv(ENV, async () => {
+    const routes = freshRoutes();
+    const sellerTrial = routes.sellerTrial;
+    const sellerId = 'SELLER-PRO-MEMBER';
+    const originalFetch = global.fetch;
+    global.fetch = mockFetch({
+      feesEstimate: (u, init, ok) => feesEstimateOk(ok, []),
+    });
+    try {
+      const res = createMockRes();
+      await routes.match('GET', '/api/fees-estimate').handler(
+        {
+          query: { asin: 'B000TEST', price: '1500' },
+          headers: {
+            'x-app-plan': 'pro',
+            'x-spapi-refresh-token': 'rt',
+            'x-spapi-seller-id': sellerId,
+          },
+        },
+        res
+      );
+      assert.equal(res.statusCode, 200);
+    } finally {
+      global.fetch = originalFetch;
+    }
+
+    // Proとして通過したので、お試しレコードは作られていないこと(検証方法は上のテストと同じ)。
+    const laterNow = Date.now() + 60_000;
+    const status = await sellerTrial.getOrStart(sellerId, laterNow);
+    assert.equal(status.startedAt, laterNow);
+  });
+});
+
 test('graph: Keepaグラフ(非出品系Proエンドポイント)は廃止済みのX-App-Trial:1だけでは通らず403 plan_required', async () => {
   const routes = freshRoutes();
   const res = createMockRes();

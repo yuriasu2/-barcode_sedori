@@ -155,11 +155,19 @@ function attachQuota(res, quota) {
 async function requireProByoCredentials(req, res) {
   const sellerId =
     req.headers && (req.headers['x-spapi-seller-id'] || req.headers['X-Spapi-Seller-Id']);
+  const headerToken =
+    req.headers && (req.headers['x-spapi-refresh-token'] || req.headers['X-Spapi-Refresh-Token']);
 
-  // sellerIdがあるときだけお試し状態を引く(getOrStartはレコードが無ければその場で新規発行する
-  // write-once操作なので、sellerIdが無い=誰のお試しか特定できない状態で呼ばない)。
+  // getOrStartはレコードが無ければその場で7日間を発行してしまうwrite-once操作なので、
+  // 「本当にお試し判定が要るとき」以外は呼ばない。条件を絞る理由は2つ:
+  //
+  // 1. Pro会員では引かない。課金中に発行してしまうと、解約後に使えるはずのお試しを
+  //    気付かないうちに消費させてしまう。
+  // 2. リフレッシュトークンの提示を条件にする。出品者IDは秘密の値ではないため、ID単体で
+  //    発行できると、第三者が他人の出品者IDを送るだけでその人のお試しを勝手に開始・満了
+  //    させられてしまう(本人が使い始める前に期限切れにされる)。
   let trialActive = false;
-  if (sellerId) {
+  if (!isProRequest(req.headers) && sellerId && headerToken) {
     const status = await sellerTrial.getOrStart(String(sellerId));
     trialActive = !!(status && status.active);
   }
@@ -168,8 +176,6 @@ async function requireProByoCredentials(req, res) {
     res.status(403).json({ error: 'plan_required', message: PLAN_REQUIRED_MESSAGE });
     return null;
   }
-  const headerToken =
-    req.headers && (req.headers['x-spapi-refresh-token'] || req.headers['X-Spapi-Refresh-Token']);
   if (!headerToken) {
     res.status(403).json({ error: 'spapi_link_required', message: SPAPI_LINK_REQUIRED_MESSAGE });
     return null;
