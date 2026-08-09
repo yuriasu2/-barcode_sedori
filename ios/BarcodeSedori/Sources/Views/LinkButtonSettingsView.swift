@@ -30,8 +30,17 @@ struct LinkButtonSettingsView: View {
             } footer: {
                 Text("現在\(selection.count)/4個選択中。4つ選ぶと結果カードに反映されます。4つ選択済みのときは他を外してから選んでください。")
             }
+
+            // 楽天アフィリエイトIDはアプリ運営者の収益に結びつくものであり利用者が入力する項目
+            // ではないため、サーバー管理(AdsConfigStore経由)に一本化した。この画面には出さない。
+            Section {
+                Toggle("型番で検索する", isOn: $settings.linkSearchByModelNumber)
+                Text("オフのときは商品名で検索します。型番が無い商品(書籍など)は自動的に商品名で検索します。")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+            }
         }
-        .navigationTitle("リンクボタン")
+        .navigationTitle("リンクボタン設定")
     }
 
     @ViewBuilder

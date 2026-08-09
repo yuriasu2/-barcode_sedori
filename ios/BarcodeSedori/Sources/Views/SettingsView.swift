@@ -259,9 +259,7 @@ struct SettingsView: View {
                     }
                 }
 
-                profitAlertSection
-
-                linkButtonSection
+                searchSection
 
                 listingSection
 
@@ -342,13 +340,7 @@ struct SettingsView: View {
                 }
                 #endif
 
-                keepaLinkSection
-
-                Section {
-                    NavigationLink("Amazon連携") {
-                        AmazonLinkSettingsView(viewModel: viewModel)
-                    }
-                }
+                linkSection
             }
             // 大タイトル「設定」は削除し、その分を画面上部の広告枠に充てる
             // (商品/仕入れタブでナビバーを隠した先例に合わせる)。
@@ -411,8 +403,14 @@ struct SettingsView: View {
     /// 「アラート設定」と表記が混在していた。見出しをそちらに揃えると行と同じ文字が
     /// 二重表示されるため、見出し自体を無くしリンクの文言だけで示す)。
     @ViewBuilder
-    private var profitAlertSection: some View {
-        Section {
+    /// 「検索」セクション: リンクボタン設定・アラート設定・バイブレーションをまとめる。
+    /// 検索タブの挙動に関わる設定を1箇所に集約する(以前は別々のSectionだった)。
+    private var searchSection: some View {
+        Section("検索") {
+            NavigationLink("リンクボタン設定") {
+                LinkButtonSettingsView()
+            }
+
             if entitlements.isProOrTrial {
                 NavigationLink("アラート設定") {
                     ProfitAlertSettingsView()
@@ -433,16 +431,23 @@ struct SettingsView: View {
                 }
                 .buttonStyle(.plain)
             }
+
+            // 利益アラート発火時のバイブレーション。設定の実体はProfitAlertSettingsViewと共通
+            // (settings.profitAlertHapticsEnabled)なので、ここで変えても向こうの表示に反映される。
+            Toggle("バイブレーション", isOn: $settings.profitAlertHapticsEnabled)
         }
     }
 
-    // MARK: - Keepa連携
+    // MARK: - 連携
 
-    /// 利用者自身のKeepa APIキー(BYO)設定セクション。無料は鍵行のみでタップでペイウォール
-    /// (profitAlertSectionと全く同じ作法)。Proではグラフ取得の消費先を自分の枠に切り替えられる。
-    @ViewBuilder
-    private var keepaLinkSection: some View {
-        Section("Keepa連携") {
+    /// 「連携」セクション: Amazon連携・Keepa連携をまとめる。どちらも外部サービスとの
+    /// 連携設定であり、以前は離れた場所に別々のSectionとして置かれていた。
+    private var linkSection: some View {
+        Section("連携") {
+            NavigationLink("Amazon連携") {
+                AmazonLinkSettingsView(viewModel: viewModel)
+            }
+
             // Keepa BYOキーはグラフ無制限に直結し、7日間お試しの対象外(仕様上isProのみ許可)のため
             // isProOrTrialにはしない。
             if entitlements.isPro {
@@ -465,25 +470,6 @@ struct SettingsView: View {
                 }
                 .buttonStyle(.plain)
             }
-        }
-    }
-
-    // MARK: - リンクボタン
-
-    /// リンクボタン設定セクション。無料でも使える機能のためPro限定にしない
-    /// (profitAlertSection/listingSectionと違い鍵行を出さない)。
-    private var linkButtonSection: some View {
-        Section("リンクボタン") {
-            NavigationLink("表示するボタンを選ぶ") {
-                LinkButtonSettingsView()
-            }
-
-            Toggle("型番で検索する", isOn: $settings.linkSearchByModelNumber)
-            Text("オフのときは商品名で検索します。型番が無い商品(書籍など)は自動的に商品名で検索します。")
-                .font(.footnote)
-                .foregroundColor(.secondary)
-            // 楽天アフィリエイトIDはアプリ運営者の収益に結びつくものであり利用者が入力する項目
-            // ではないため、サーバー管理(AdsConfigStore経由)に一本化した。設定画面には出さない。
         }
     }
 
