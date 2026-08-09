@@ -1,11 +1,28 @@
 import SwiftUI
 import StoreKit
 
+/// 課金画面に必須のリンク先。
+///
+/// Appleのガイドライン3.1.2により、自動更新サブスクリプションを扱うアプリは
+/// 「利用規約(EULA)」と「プライバシーポリシー」への機能するリンクを**アプリ内に**
+/// 持たなければ審査を通過できない(App Store Connectのメタデータ側だけでは不足)。
+private enum LegalConfig {
+    /// Apple提供の標準EULA。自前の規約を用意しない場合はこれを提示すればよい
+    /// (App Store Connectで独自EULAを設定した場合はそのURLへ差し替えること)。
+    static let termsOfUseURL = "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/"
+
+    /// 自社のプライバシーポリシー。**リリース前にsellira.jp側でページを公開すること**
+    /// (未公開のままだとリンク切れで審査に落ちる。企画書の「公開前 必須TODO」参照)。
+    static let privacyPolicyURL = "https://sellira.jp/privacy/"
+}
+
 /// 課金訴求(ペイウォール)画面。各ゲート(OCR・グラフ・オファー・日次上限)からsheetで提示する。
 /// 価格・トライアルは可能なら StoreKit の Product から取得し、未ロード時は既定文言でフォールバックする。
 struct PaywallView: View {
     @ObservedObject private var entitlements = EntitlementStore.shared
     @Environment(\.dismiss) private var dismiss
+    /// 利用規約・プライバシーポリシーをアプリ内ブラウザで開くための対象。
+    @State private var browserTarget: BrowserTarget?
 
     /// 価格表示。Productがあればローカライズ済み価格、無ければ既定(¥1,980/月)。
     private var priceText: String {
@@ -142,6 +159,19 @@ struct PaywallView: View {
                         .font(.caption2)
                         .foregroundColor(.secondary)
 
+                    // ガイドライン3.1.2により、この2つのリンクは課金画面に必須。
+                    // 外部ブラウザではなくアプリ内ブラウザで開き、読んだあとそのまま購入へ戻れるようにする。
+                    HStack(spacing: 16) {
+                        Button("利用規約") {
+                            openLegalPage(LegalConfig.termsOfUseURL)
+                        }
+                        Button("プライバシーポリシー") {
+                            openLegalPage(LegalConfig.privacyPolicyURL)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .font(.caption2)
+
                     if entitlements.product == nil {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("※ 商品情報を読み込めませんでした。ネットワーク接続、またはStoreKit設定をご確認ください。")
@@ -175,6 +205,9 @@ struct PaywallView: View {
             }
         }
         .navigationViewStyle(.stack)
+        .sheet(item: $browserTarget) { target in
+            SafariView(url: target.url)
+        }
         .task {
             // 画面表示のたびに、商品未取得なら再取得を試みる(起動時取得が失敗したままでも購入不能にしない)
             if entitlements.product == nil && !entitlements.isLoadingProduct {
@@ -194,5 +227,11 @@ struct PaywallView: View {
         } message: {
             Text(entitlements.lastActionErrorMessage ?? "")
         }
+    }
+
+    /// 利用規約・プライバシーポリシーをアプリ内ブラウザで開く。
+    private func openLegalPage(_ urlString: String) {
+        guard let url = URL(string: urlString) else { return }
+        browserTarget = BrowserTarget(url: url)
     }
 }
