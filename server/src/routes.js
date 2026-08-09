@@ -71,6 +71,24 @@ function isProRequest(headers) {
 }
 
 /**
+ * アプリが自己申告するSP-API連携特典のお試し中フラグ(X-App-Trial ヘッダー)。
+ * '1' のときのみ true。ヘッダー無し/その他は非お試し(false)扱い(安全側)。
+ * requireProByoCredentials()のみで使う想定(出品制限チェック/手数料見積り/一括出品)。
+ * Keepaグラフやスキャン枠クォータの判定にはisProRequestのみを使い続け、このフラグは混ぜない
+ * (お試しはSP-API出品系のみが対象で、Keepaグラフ無制限は明示的に対象外のため)。
+ *
+ * セキュリティ上の位置づけ: X-App-Planと同様に自己申告かつ詐称可能。ただしこのフラグで開く
+ * エンドポイントは追加でリクエスト元自身のX-Spapi-Refresh-TokenとX-Spapi-Seller-Idを要求するため、
+ * 詐称してもリクエスト元自身のAmazonアカウントに対してしか行動できない。これはX-App-Planに
+ * ついて既に文書化済みの既知の弱点と同じもの(FREEMIUM-PLAN.mdのレシート検証TODO参照)であり、
+ * ここで新たな緩和策を導入するものではない。
+ */
+function isTrialRequest(headers) {
+  const trial = headers && (headers['x-app-trial'] || headers['X-App-Trial']);
+  return String(trial || '') === '1';
+}
+
+/**
  * リクエストヘッダーからデバイスID(端末識別子)を取り出す。無ければnull。
  */
 function deviceIdOf(headers) {
@@ -144,7 +162,10 @@ function attachQuota(res, quota) {
  * 通過時はsellerId込みのcredentialsを返し、弾いた場合はresへ403/503を書き込んでnullを返す。
  */
 function requireProByoCredentials(req, res) {
-  if (!isProRequest(req.headers)) {
+  // Pro本会員に加え、SP-API連携の7日間お試し中(X-App-Trial)もここだけは通す。
+  // お試しはSP-API出品系(このゲートが守る3エンドポイント)のみが対象で、Keepaグラフや
+  // スキャン枠クォータは対象外のため、他のisProRequest呼び出し箇所は変更しない。
+  if (!isProRequest(req.headers) && !isTrialRequest(req.headers)) {
     res.status(403).json({ error: 'plan_required', message: PLAN_REQUIRED_MESSAGE });
     return null;
   }

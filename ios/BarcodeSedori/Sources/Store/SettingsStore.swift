@@ -643,10 +643,21 @@ final class SettingsStore: ObservableObject {
             && !spapiRefreshToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    /// お試し期間中か。
+    /// お試し期間中か。判定は静的ヘルパーに委譲し、判定ロジックを1箇所に保つ。
     var isSpApiTrialActive: Bool {
-        guard let spapiTrialStartedAt else { return false }
-        return spapiTrialStartedAt.addingTimeInterval(Self.spapiTrialDuration) > Date()
+        Self.isSpApiTrialActive(defaults: defaults)
+    }
+
+    /// APIClient(非メインアクター・同期)からも読めるお試し判定。
+    /// インスタンスの`isSpApiTrialActive`もこれを使い、判定を1箇所に保つ。
+    /// markSpApiTrialStartIfNeeded()がインスタンスの`spapiTrialStartedAt`とUserDefaultsを
+    /// 同じタイミングで書き込むため、両者は常に一致する。
+    static func isSpApiTrialActive(defaults: UserDefaults = .standard) -> Bool {
+        guard let storedTrialStart = defaults.object(forKey: Keys.spapiTrialStartedAt) as? Double else {
+            return false
+        }
+        let startedAt = Date(timeIntervalSince1970: storedTrialStart)
+        return startedAt.addingTimeInterval(spapiTrialDuration) > Date()
     }
 
     /// SP-API連携特典のお試し開始日時を記録する。連携が利用可能になった瞬間かつ未記録のときだけ
