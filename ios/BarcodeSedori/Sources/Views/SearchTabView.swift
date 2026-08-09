@@ -123,8 +123,8 @@ final class SearchTabViewModel: ObservableObject {
             // 無料枠ユニットの残量をローカルへ反映する(Pro・SP-API連携済みはquota==nilで何もしない)。
             ScanQuotaStore.shared.apply(result.quota)
 
-            // 利益アラートはPro限定(無料は設定が残っていても発火しない二重ゲート)。
-            if EntitlementStore.shared.isPro {
+            // 利益アラートはPro限定(無料は設定が残っていても発火しない二重ゲート)。Amazon連携のお試し中も使える。
+            if EntitlementStore.shared.isProOrTrial {
                 let verdict = ProfitAlertEvaluator.evaluate(result: result, settings: Self.profitAlertSettings())
                 profitAlertVerdict = verdict
                 if verdict.isTriggered && SettingsStore.shared.profitAlertHapticsEnabled {
@@ -188,7 +188,7 @@ final class SearchTabViewModel: ObservableObject {
     /// 連続スキャンで古い結果が新しい結果を上書きしないよう、PurchaseFormViewと同じ連番ガードを使う。
     private func startListingRestrictionCheck(asin: String?) {
         guard let asin,
-              EntitlementStore.shared.isPro,
+              EntitlementStore.shared.isProOrTrial,
               SettingsStore.shared.isListingReady else { return }
 
         restrictionCheckSequence += 1
@@ -300,6 +300,9 @@ struct SearchTabView: View {
 
                     // 非Proはユニット残があればグラフを表示する(サーバーが429を返せば次回検索で
                     // quotaが是正され、この分岐がfreeAdAreaへ切り替わる)。
+                    // スキャン枠はサーバー側でX-App-Plan(isPro専用)により判定するため、ここも
+                    // isProのまま揃える(お試し中でもisSearchUnlimited経由でisSpApiLinkUsableが
+                    // trueになり無制限になる。詳細はisSearchUnlimitedのコメント参照)。
                     if entitlements.isPro || quota.canScanToday {
                         keepaGraph
                     } else {
@@ -400,6 +403,8 @@ struct SearchTabView: View {
     }
 
     /// 検索(=Keepa消費)が無制限か。Proと、SP-API連携済み(自分のAPI枠を使うためサーバーはユニットを消費しない)。
+    /// スキャン枠はサーバー側がX-App-Planで判定するためisPro自体は広げないが、連携済みなら
+    /// settings.isSpApiLinkUsableの方で既に無制限になるため、お試し中のユーザーも実質困らない。
     private var isSearchUnlimited: Bool { entitlements.isPro || settings.isSpApiLinkUsable }
     /// 無料枠を使い切っており、これ以上スキャンできないか。
     private var isQuotaExhausted: Bool { !isSearchUnlimited && !quota.canScanToday }
@@ -427,8 +432,8 @@ struct SearchTabView: View {
     private var topContent: some View {
         ScannerView(
             onScan: { scanned in
-                // OCRモードの無料お試し枠(1日5回)。超過でOCR専用ポップアップ。
-                if viewModel.scanMode.isOCRMode && !entitlements.isPro
+                // OCRモードの無料お試し枠(1日5回)。超過でOCR専用ポップアップ。Amazon連携のお試し中は無制限。
+                if viewModel.scanMode.isOCRMode && !entitlements.isProOrTrial
                     && !ScanQuotaStore.shared.registerOcrUseIfAllowed() {
                     showOcrLimitAlert = true
                     return
@@ -479,7 +484,7 @@ struct SearchTabView: View {
     /// この端末の検索が共有Keepaキーのトークンを消費するか。
     /// 自前キーの条件はAPIClient.addKeepaKeyHeaderIfNeededと一致させること
     /// (Proかつキーが非空のときだけX-Keepa-Keyを送るため、無料プランではキーを
-    /// 設定していても共有トークンを消費する)。
+    /// 設定していても共有トークンを消費する)。BYOキーはお試し対象外のためここもisProのまま。
     private var consumesSharedKeepaToken: Bool {
         if settings.isSpApiLinkUsable { return false }
         if entitlements.isPro && settings.isKeepaKeyUsable { return false }
@@ -727,7 +732,7 @@ struct SearchTabView: View {
             ForEach(ScanMode.allCases) { mode in
                 let isSelected = viewModel.scanMode == mode
                 // フリーミアム: OCRは無料でも1日5回まで試せる。使い切ると鍵表示→タップでOCR専用ポップアップ。
-                let ocrExhausted = (mode == .ocr && !entitlements.isPro && !ScanQuotaStore.shared.canUseOcrToday)
+                let ocrExhausted = (mode == .ocr && !entitlements.isProOrTrial && !ScanQuotaStore.shared.canUseOcrToday)
                 Button {
                     if ocrExhausted {
                         showOcrLimitAlert = true
@@ -782,7 +787,7 @@ struct SearchTabView: View {
                 scannedCode: viewModel.latestScannedCode ?? "",
                 profitVerdict: viewModel.profitAlertVerdict,
                 isListingRestricted: viewModel.isListingRestricted,
-                isPro: entitlements.isPro,
+                isPro: entitlements.isProOrTrial,
                 isInPurchaseList: result.asin.map { purchaseList.contains(asin: $0) } ?? false,
                 onAddToPurchaseList: {
                     guard let asin = result.asin, !asin.isEmpty else { return }

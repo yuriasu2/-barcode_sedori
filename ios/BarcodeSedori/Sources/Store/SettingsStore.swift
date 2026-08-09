@@ -22,6 +22,8 @@ final class SettingsStore: ObservableObject {
         /// OAuth認可コールバックのselling_partner_id(公開の出品者ID)。
         /// リフレッシュトークンと異なり機密度が低いためKeychainではなくUserDefaultsに保存する。
         static let spapiSellerId = "settings.spapiSellerId"
+        /// Amazon連携(SP-API)による7日間のProお試しの開始日時(timeIntervalSince1970)。
+        static let spapiTrialStartedAt = "settings.spapiTrialStartedAt"
 
         /// 旧: UserDefaultsに平文保存していた利用者自身のKeepa APIキー(BYO)。
         /// 現在はKeychainへ移行済み(初回起動時に自動移行して削除)。
@@ -113,6 +115,7 @@ final class SettingsStore: ObservableObject {
     @Published var spapiLinkEnabled: Bool {
         didSet {
             defaults.set(spapiLinkEnabled, forKey: Keys.spapiLinkEnabled)
+            markSpApiTrialStartIfNeeded()
         }
     }
 
@@ -122,8 +125,13 @@ final class SettingsStore: ObservableObject {
     @Published var spapiRefreshToken: String {
         didSet {
             KeychainStore.set(spapiRefreshToken, for: Self.keychainRefreshTokenAccount)
+            markSpApiTrialStartIfNeeded()
         }
     }
+
+    /// Amazon連携(SP-API)による7日間のProお試しの開始日時。
+    /// 連携解除しても消さない(「連携された日から7日間」という仕様のため)。再連携でも上書きしない。
+    @Published private(set) var spapiTrialStartedAt: Date?
 
     /// SP-API出品者ID(selling_partner_id)。OAuth認可コールバックでAmazonから受け取る公開ID。
     /// Sellers APIからは取得不可能(応答にsellerId相当のフィールドが無い)なため、認可時に一度だけ
@@ -499,11 +507,19 @@ final class SettingsStore: ObservableObject {
     /// Cloudflare Workers を指すが、DNSで切替可能なため将来サーバーを移してもアプリ更新は不要。
     static let defaultServerURL = "https://api.sellira.jp"
 
+    /// Amazon連携(SP-API)特典のPro機能お試し期間。ここを直せば期間を調整できる。
+    static let spapiTrialDuration: TimeInterval = 7 * 24 * 60 * 60
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         self.serverURLString = defaults.string(forKey: Keys.serverURL) ?? Self.defaultServerURL
         self.spapiLinkEnabled = defaults.bool(forKey: Keys.spapiLinkEnabled)
         self.spapiSellerId = defaults.string(forKey: Keys.spapiSellerId) ?? ""
+        if let storedTrialStart = defaults.object(forKey: Keys.spapiTrialStartedAt) as? Double {
+            self.spapiTrialStartedAt = Date(timeIntervalSince1970: storedTrialStart)
+        } else {
+            self.spapiTrialStartedAt = nil
+        }
 
         // リンクボタン。未設定/デコード失敗時は既定4つ(仕入れ/Amazon/メルカリ/楽天市場)で読み込む。
         if let data = defaults.data(forKey: Keys.linkButtons),
@@ -613,12 +629,33 @@ final class SettingsStore: ObservableObject {
             self.keepaApiKey = ""
             defaults.removeObject(forKey: Keys.legacyKeepaApiKey)
         }
+
+        // init内の代入はdidSetを発火しないため、既に連携済みの状態で読み込んだユーザー
+        // (=このお試し機能より前から連携していたTestFlightユーザー等)にも、ここで改めて
+        // お試し開始日時を付与する。spapiTrialStartedAtが未記録のときだけ効くので、
+        // 既に記録済みのユーザーを上書きすることはない。
+        markSpApiTrialStartIfNeeded()
     }
 
     /// SP-API連携が利用可能か(有効かつリフレッシュトークンが非空)
     var isSpApiLinkUsable: Bool {
         spapiLinkEnabled
             && !spapiRefreshToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// お試し期間中か。
+    var isSpApiTrialActive: Bool {
+        guard let spapiTrialStartedAt else { return false }
+        return spapiTrialStartedAt.addingTimeInterval(Self.spapiTrialDuration) > Date()
+    }
+
+    /// SP-API連携特典のお試し開始日時を記録する。連携が利用可能になった瞬間かつ未記録のときだけ
+    /// 記録する(再連携での上書きや、連携解除での消去はしない=「連携された日から7日間」の仕様)。
+    private func markSpApiTrialStartIfNeeded() {
+        guard isSpApiLinkUsable, spapiTrialStartedAt == nil else { return }
+        let now = Date()
+        spapiTrialStartedAt = now
+        defaults.set(now.timeIntervalSince1970, forKey: Keys.spapiTrialStartedAt)
     }
 
     /// 利用者自身のKeepa APIキーが設定済みか(非空)。Pro限定機能のためisPro判定は

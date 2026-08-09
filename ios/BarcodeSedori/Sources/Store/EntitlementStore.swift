@@ -21,6 +21,11 @@ final class EntitlementStore: ObservableObject {
 
     /// Proが有効か。ゲートはこれを参照する。
     @Published private(set) var isPro: Bool = UserDefaults.standard.bool(forKey: EntitlementStore.isProCachedKey)
+
+    /// Pro機能を使えるか(課金済み、またはAmazon連携による7日間のお試し中)。
+    /// 機能ゲートは原則こちらを見る。ただしKeepaグラフ無制限と広告非表示はお試し対象外なので、
+    /// それらは引き続き`isPro`を直接参照すること。
+    var isProOrTrial: Bool { isPro || SettingsStore.shared.isSpApiTrialActive }
     /// Proサブスク商品(価格・トライアル表示に使う)。未ロード/未設定時は nil。
     @Published private(set) var product: Product?
     @Published private(set) var isLoadingProduct = false

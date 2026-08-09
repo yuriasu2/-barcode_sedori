@@ -67,9 +67,9 @@ struct PurchaseTabView: View {
         }
     }
 
-    /// 一括出品の導線を出してよいか(単品出品フォームと同じゲート)。
+    /// 一括出品の導線を出してよいか(単品出品フォームと同じゲート)。Amazon連携のお試し中も使える。
     private var canBulkList: Bool {
-        entitlements.isPro && settings.isListingReady
+        entitlements.isProOrTrial && settings.isListingReady
     }
 
     var body: some View {
@@ -295,13 +295,13 @@ struct PurchaseTabView: View {
 
     private var listContent: some View {
         List(selection: $selectedIds) {
-            if entitlements.isPro && !settings.isSpApiLinkUsable {
+            if entitlements.isProOrTrial && !settings.isSpApiLinkUsable {
                 Section {
                     Text("出品するには設定タブでAmazon連携(SP-API)が必要です。")
                         .font(.footnote)
                         .foregroundColor(.secondary)
                 }
-            } else if entitlements.isPro && settings.isSpApiLinkUsable && !settings.isListingReady {
+            } else if entitlements.isProOrTrial && settings.isSpApiLinkUsable && !settings.isListingReady {
                 // 連携済みだがsellerId未取得(旧認可のまま)のケース。
                 // Sellers APIからは取得不可能なため、再認可でOAuthコールバックのselling_partner_idを
                 // 取得し直してもらう必要がある。

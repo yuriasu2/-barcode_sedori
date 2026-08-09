@@ -166,7 +166,7 @@ struct ProductDetailView: View {
         ResultCardActionButtons(
             result: searchResultForLinks,
             kinds: LinkButtonKind.allCases,
-            isPro: entitlements.isPro,
+            isPro: entitlements.isProOrTrial,
             isInPurchaseList: isInPurchaseList,
             onAddToPurchaseList: { purchaseFormDraft = makePurchaseDraft() },
             onLockedPurchaseTap: {

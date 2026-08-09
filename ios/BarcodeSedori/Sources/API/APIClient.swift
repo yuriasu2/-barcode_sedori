@@ -138,6 +138,10 @@ final class APIClient {
     /// フリーミアム: 自己申告のプランヘッダー(X-App-Plan)を付与する。
     /// Pro状態は EntitlementStore(メインアクター)が UserDefaults にミラーした値を同期で読む。
     /// キーは EntitlementStore.isProCachedKey と一致させること。
+    ///
+    /// 意図的にisPro(isProOrTrialではない)を使う: サーバーはこのヘッダーでKeepaグラフ無制限や
+    /// スキャン枠無制限を判定するため、お試し中に"pro"を送るとKeepaグラフが無制限になってしまう
+    /// (7日間お試しの対象外と明示的に決めている機能)。
     private func addPlanHeader(to request: inout URLRequest) {
         let isPro = UserDefaults.standard.bool(forKey: "settings.isProCached")
         request.setValue(isPro ? "pro" : "free", forHTTPHeaderField: "X-App-Plan")
@@ -167,6 +171,9 @@ final class APIClient {
     /// 送っても意味が無い)。Pro状態はaddPlanHeaderと同じくEntitlementStoreがミラーした
     /// UserDefaultsを同期で読む(EntitlementStore.shared.isProはメインアクター隔離のため、
     /// 非メインアクターのAPIClientから直接は参照できない)。
+    ///
+    /// ここも意図的にisProのみ。BYOキーはグラフ無制限に直結し7日間お試しの対象外のため、
+    /// お試し中でもisProOrTrialへは広げない(SettingsView.keepaLinkSectionと同じ理由)。
     private func addKeepaKeyHeaderIfNeeded(to request: inout URLRequest) {
         let isPro = UserDefaults.standard.bool(forKey: EntitlementStore.isProCachedKey)
         guard isPro else { return }
