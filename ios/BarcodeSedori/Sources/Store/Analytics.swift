@@ -27,9 +27,10 @@ import PostHog
 /// PostHogプロジェクトの接続設定。
 private enum AnalyticsConfig {
     /// PostHogプロジェクトのAPIキー。**未設定(空)の間は初期化も送信も一切行わない**。
-    static let apiKey = ""
-    /// プロジェクトを作成したリージョンに合わせること(USなら https://us.i.posthog.com)。
-    static let host = "https://eu.i.posthog.com"
+    static let apiKey = "phc_tDE6r5xXxtBvJAnXQdaidSC2bXiHMqPPFPKnfVvNvW5S"
+    /// PostHogプロジェクトのリージョン。プロジェクト作成時に選んだ側と一致していないと
+    /// 送信しても記録されない(EUリージョンなら https://eu.i.posthog.com)。
+    static let host = "https://us.i.posthog.com"
 }
 
 /// アプリ全体で計測してよい行動イベント。連想値はすべて安全なスカラー/enumのみ
