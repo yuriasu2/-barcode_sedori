@@ -165,11 +165,25 @@ final class RewardedAdManager: ObservableObject {
     /// 開発中にコンソールで原因を切り分けられないと再現性のない不具合になってしまうため、
     /// エラーを握りつぶさずログに残す。
     private static func load(unitId: String) async -> GADRewardedAd? {
-        await withCheckedContinuation { (continuation: CheckedContinuation<GADRewardedAd?, Never>) in
+        // どのユニットIDで要求したかを必ず出す。サーバー配信(/api/ads)の設定が
+        // 端末のUserDefaultsにキャッシュされるため、KVを空にしても古い本番IDが
+        // 残っていれば在庫なしになり得る。フォールバックのテストIDと実際の要求先が
+        // 一致しているかは、ここを見ないと確認できない。
+        let adapterStatuses = GADMobileAds.sharedInstance()
+            .initializationStatus
+            .adapterStatusesByClassName
+            .map { "\($0.key)=\($0.value.state == .ready ? "ready" : "notReady")" }
+            .sorted()
+            .joined(separator: ", ")
+        print("[RewardedAdManager] 読み込み開始: unitId=\(unitId) adapters=[\(adapterStatuses)]")
+
+        return await withCheckedContinuation { (continuation: CheckedContinuation<GADRewardedAd?, Never>) in
             GADRewardedAd.load(withAdUnitID: unitId, request: GADRequest()) { ad, error in
                 if let error {
                     let nsError = error as NSError
                     print("[RewardedAdManager] 読み込み失敗: domain=\(nsError.domain) code=\(nsError.code) \(nsError.localizedDescription)")
+                } else {
+                    print("[RewardedAdManager] 読み込み成功")
                 }
                 continuation.resume(returning: error == nil ? ad : nil)
             }
