@@ -24,6 +24,7 @@
 - バンドルID `com.example.barcodesedori` → 本番IDへ変更。
 - AdMob を本番IDへ差し替え（現在Googleテストの `GADApplicationIdentifier` / `bannerAdUnitID`）。SKAdNetworkは全リスト追加、PrivacyInfo の TrackingDomains 記載。
 - 試験用の手動SP-APIキー入力欄（`SettingsView` の SecureField）を削除しOAuthのみに。
+- **PostHogのAPIキーを `Analytics.swift` の `AnalyticsConfig.apiKey` に設定する**（現在は空で、空の間はSDKの初期化も送信も一切行わない）。プロジェクトを作成したリージョンに合わせて `host` も確認すること（既定はEU）。**併せてプライバシーポリシーに「分析ツール（PostHog）へ利用状況を送信する」旨の記載が必須**。App Store Connectのプライバシー表示でも「使用状況データ → 製品操作」を申告する（`PrivacyInfo.xcprivacy` は対応済み）。なおAmazon DPP上、ASIN・JAN・価格・出品者ID等のAmazon由来データは送ってはならず、`Analytics.swift` はそれを型で防ぐ設計になっている（同ファイル冒頭のコメント参照）。
 - **プライバシーポリシーのページを `https://sellira.jp/privacy/` に公開する**（別リポジトリ sellira-site）。課金画面（`PaywallView` の `LegalConfig.privacyPolicyURL`）から直接リンクしており、ページが無いとリンク切れになる。Appleのガイドライン3.1.2は自動更新サブスクリプションのアプリに「利用規約」と「プライバシーポリシー」への**機能する**リンクをアプリ内に持つことを求めているため、**未公開のままだと審査に落ちる**。利用規約側はApple標準EULAのURLを使っているため対応不要。URLを変える場合は `LegalConfig` も合わせて直すこと。
 - **App Store アプリIDを `SettingsView.swift` の `AppStoreReviewConfig.appId` に設定する**（現在は空文字）。App Store Connect でアプリを登録すると採番される数字のID。空の間は設定タブの「レビューを書く」行が非表示になり、レビューページへの導線が存在しない状態のまま公開されてしまう。自動のレビュー依頼（`ReviewPromptController`）はIDに依存しないため動作するが、**設定からユーザーが自発的にレビューを書く導線だけが欠ける**ので気付きにくい。
 - （推奨・非ブロッカー）SP-API refresh token を UserDefaults → Keychain へ移行。
