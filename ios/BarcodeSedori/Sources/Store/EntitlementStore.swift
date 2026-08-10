@@ -116,6 +116,9 @@ final class EntitlementStore: ObservableObject {
                 if case .verified(let transaction) = verification {
                     await transaction.finish()
                     await refreshEntitlements()
+                    if isPro {
+                        Analytics.shared.capture(.proPurchased)
+                    }
                     return isPro
                 }
                 lastActionErrorMessage = "購入を完了できませんでした。通信環境をご確認のうえ再度お試しください。"

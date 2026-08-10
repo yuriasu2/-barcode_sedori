@@ -38,6 +38,9 @@ struct BarcodeSedoriApp: App {
                     entitlements.start()
                     // 起動時にサーバー管理型広告設定を取得する(キャッシュ即反映→裏で更新)。
                     AdsConfigStore.shared.start()
+                    // 行動ログ計測(PostHog)。APIキー未設定の間は内部で何もしない。
+                    Analytics.shared.start()
+                    Analytics.shared.capture(.appLaunched)
                     await requestTrackingIfNeeded()
                 }
         }
@@ -93,6 +96,8 @@ private struct RootContainerView: View {
               !refreshToken.isEmpty else { return }
         SettingsStore.shared.spapiRefreshToken = refreshToken
         SettingsStore.shared.spapiLinkEnabled = true
+        // 連携が完了したという事実のみ送る(refresh_token・selling_partner_idは送らない)。
+        Analytics.shared.capture(.amazonLinkCompleted)
         // selling_partner_id(公開の出品者ID)。Sellers APIからは取得不可能なため、
         // この認可コールバックで受け取れた場合のみ保存する(空なら保存しない=既存値を維持)。
         if let sellerId = items.first(where: { $0.name == "selling_partner_id" })?.value,

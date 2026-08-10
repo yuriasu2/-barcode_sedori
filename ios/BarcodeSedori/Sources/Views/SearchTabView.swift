@@ -97,7 +97,7 @@ final class SearchTabViewModel: ObservableObject {
     /// スキャンされたバーコード/OCR認識コード、または検索バーから入力されたコードを処理する。
     /// 192/191始まりの除外やデデュープはScannerView側で完結しているため、
     /// ここに届いた時点でそのまま検索パイプラインへ流す。
-    func handleScan(_ code: String) {
+    func handleScan(_ code: String, source: AnalyticsEvent.SearchSource) {
         // 新しいスキャンが来たらカード・パネル・グラフ用の状態を全てリセットしてから再取得する。
         isSearching = true
         searchErrorMessage = nil
@@ -111,15 +111,17 @@ final class SearchTabViewModel: ObservableObject {
         profitAlertVerdict = nil
         isListingRestricted = false
 
-        Task { await self.search(code: code) }
+        Task { await self.search(code: code, source: source) }
     }
 
-    private func search(code: String) async {
+    private func search(code: String, source: AnalyticsEvent.SearchSource) async {
         do {
             let result = try await apiClient.search(code: code)
             latestResult = result
             isSearching = false
             ReviewPromptController.shared.recordSearchSucceeded()
+            // 検索経路(バーコード/OCR/手入力)のみを送る。コード自体・商品名は送らない(DPP制約)。
+            Analytics.shared.capture(.searchSucceeded(source: source))
             // 無料枠ユニットの残量をローカルへ反映する(Pro・SP-API連携済みはquota==nilで何もしない)。
             ScanQuotaStore.shared.apply(result.quota)
 
@@ -167,14 +169,19 @@ final class SearchTabViewModel: ObservableObject {
                 // 混雑は専用カード(再試行+SP-API/Keepaキー誘導)で表示する。
                 // searchErrorMessage(赤文字の汎用エラー)には流さない。
                 keepaBusyMessage = message ?? "混み合っているので時間を空けてお試しください。"
+                Analytics.shared.capture(.searchFailed(reason: .keepaBusy))
             } else if case APIClientError.quotaExceeded(let quota, _) = error {
                 ScanQuotaStore.shared.apply(quota)
+                Analytics.shared.capture(.searchFailed(reason: .quotaExceeded))
             } else if case APIClientError.httpError(let status, _) = error, status == 429 {
                 // quota_exceeded形式でない429(旧サーバー互換)のフォールバック。
                 // こちらはquotaを受け取れずオーバーレイが自動では出ないため、文言で案内する。
                 searchErrorMessage = "本日の無料スキャン上限に達しました。Proにアップグレードすると無制限に使えます。"
+                Analytics.shared.capture(.searchFailed(reason: .network))
             } else {
+                // error.localizedDescriptionには識別子が含まれ得るため、Analyticsへは分類名のみ送る。
                 searchErrorMessage = error.localizedDescription
+                Analytics.shared.capture(.searchFailed(reason: .other))
             }
         }
     }
@@ -320,6 +327,7 @@ struct SearchTabView: View {
             .alert("OCR機能を無制限に使うにはProにアップグレードしてください。", isPresented: $showOcrLimitAlert) {
                 Button("アップグレード") {
                     ReviewPromptController.shared.recordNegativeEvent()
+                    Analytics.shared.capture(.paywallShown(trigger: .ocrLimitAlert))
                     showPaywall = true
                 }
                 Button("閉じる", role: .cancel) {}
@@ -368,7 +376,8 @@ struct SearchTabView: View {
             #if DEBUG
             .onReceive(navigation.$pendingDebugSearchCode.compactMap { $0 }) { code in
                 navigation.pendingDebugSearchCode = nil
-                startSearch(code)
+                // デバッグ専用の注入経路(実ユーザーには発生しない)。分類上は手入力扱いにする。
+                startSearch(code, source: .manual)
             }
             #endif
             .background {
@@ -438,7 +447,7 @@ struct SearchTabView: View {
                     showOcrLimitAlert = true
                     return
                 }
-                startSearch(scanned.code)
+                startSearch(scanned.code, source: viewModel.scanMode.isOCRMode ? .ocr : .barcode)
             },
             isOCRMode: viewModel.scanMode.isOCRMode,
             isActive: isScannerActive,
@@ -462,6 +471,7 @@ struct SearchTabView: View {
                     isProcessingAd: isProcessingRewardedAd,
                     onUpgradeTap: {
                         ReviewPromptController.shared.recordNegativeEvent()
+                        Analytics.shared.capture(.paywallShown(trigger: .scanQuotaOverlay))
                         showPaywall = true
                     },
                     onWatchAdTap: { startRewardedAdFlow() },
@@ -500,9 +510,11 @@ struct SearchTabView: View {
     /// クールダウンの起点(最後に検索した時刻)はカメラ側と共有する(SearchCooldownStore)。
     /// 経路ごとに別々のタイマーを持つと「スキャン直後に手入力」ですり抜けられるため。
     /// 弾いたときはカメラ上の「あと◯秒」オーバーレイで伝える(スキャン時と同じ見せ方)。
-    private func startSearch(_ code: String) {
+    private func startSearch(_ code: String, source: AnalyticsEvent.SearchSource) {
         guard isSearchUnlimited || quota.canScanToday else {
             ReviewPromptController.shared.recordNegativeEvent()
+            Analytics.shared.capture(.quotaExhausted)
+            Analytics.shared.capture(.paywallShown(trigger: .searchQuotaGuard))
             showPaywall = true
             return
         }
@@ -515,7 +527,7 @@ struct SearchTabView: View {
         if !isSearchUnlimited {
             quota.consumeLocally()
         }
-        viewModel.handleScan(code)
+        viewModel.handleScan(code, source: source)
     }
 
     /// リワード広告フロー(枠切れオーバーレイの「動画を見てスキャン+5回」/グラフ枠の「動画を見てグラフを見る」の共通処理)。
@@ -528,6 +540,7 @@ struct SearchTabView: View {
         guard !isProcessingRewardedAd else { return }
         // 広告を見ないと先に進めない=枠が尽きている状態なので、ネガティブイベントとして記録する。
         ReviewPromptController.shared.recordNegativeEvent()
+        Analytics.shared.capture(.rewardedAdWatched)
         isProcessingRewardedAd = true
 
         Task { @MainActor in
@@ -574,6 +587,7 @@ struct SearchTabView: View {
 
             Button {
                 ReviewPromptController.shared.recordNegativeEvent()
+                Analytics.shared.capture(.paywallShown(trigger: .graphQuotaExhausted))
                 showPaywall = true
             } label: {
                 HStack(spacing: 6) {
@@ -627,7 +641,8 @@ struct SearchTabView: View {
                 // 再スキャン不要で同じコードを再検索する。startSearch(カメラ用クールダウン)は
                 // 通さない(混雑待ちからの再試行にスキャン間隔の制限を重ねる意味が無いため)。
                 if let code = viewModel.latestScannedCode {
-                    viewModel.handleScan(code)
+                    // 直前の検索経路の分類は保持していないため、実質手入力に近い明示的な再試行として扱う。
+                    viewModel.handleScan(code, source: .manual)
                 }
             } label: {
                 Label("再試行", systemImage: "arrow.clockwise")
@@ -714,14 +729,14 @@ struct SearchTabView: View {
         guard !trimmed.isEmpty else { return }
 
         if trimmed.count == 13, trimmed.allSatisfy({ $0.isNumber }) {
-            startSearch(trimmed)
+            startSearch(trimmed, source: .manual)
             return
         }
 
         // ISBN-10はチェック文字が"X"になり得るため大文字化してから検証する。
         let upper = trimmed.uppercased()
         if upper.count == 10, ISBN10Validator.isValid(upper) {
-            startSearch(ISBN10Validator.toIsbn13(upper))
+            startSearch(ISBN10Validator.toIsbn13(upper), source: .manual)
             return
         }
 
@@ -802,6 +817,7 @@ struct SearchTabView: View {
                 },
                 onLockedPurchaseTap: {
                     ReviewPromptController.shared.recordNegativeEvent()
+                    Analytics.shared.capture(.paywallShown(trigger: .purchaseListLock))
                     showPaywall = true
                 },
                 onOpenLink: { url in

@@ -10,6 +10,11 @@ packages:
     # v11系に固定(GADプレフィックスAPI)。最新v12系へ上げる場合はコード側のシンボル名も変更が必要。
     url: https://github.com/googleads/swift-package-manager-google-mobile-ads.git
     from: 11.0.0
+  PostHog:
+    # 行動ログ計測用。3.x系のAPI(PostHogConfig/PostHogSDK.shared)を前提にコードを書いているため、
+    # メジャーアップグレード時はSources/Store/Analytics.swiftのAPI呼び出しも合わせて見直すこと。
+    url: https://github.com/PostHog/posthog-ios.git
+    from: 3.0.0
 
 settings:
   base:
@@ -34,6 +39,7 @@ targets:
         optional: true
     dependencies:
       - package: GoogleMobileAds
+      - package: PostHog
     info:
       path: Generated/Info.plist
       properties:

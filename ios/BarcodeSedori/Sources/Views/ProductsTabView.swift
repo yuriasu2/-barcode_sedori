@@ -206,6 +206,7 @@ struct ProductsTabView: View {
                     addSelectedToPurchaseList()
                 } else {
                     ReviewPromptController.shared.recordNegativeEvent()
+                    Analytics.shared.capture(.paywallShown(trigger: .bulkAddToPurchaseListLock))
                     showPaywall = true
                 }
             } label: {

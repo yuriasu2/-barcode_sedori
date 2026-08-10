@@ -153,6 +153,8 @@ struct PurchaseTabView: View {
                     // 一括出品が全件成功したときだけ「満足度が高い瞬間」とみなす(主トリガー)。
                     if alert.failures.isEmpty && alert.successCount >= 1 {
                         ReviewPromptController.shared.recordBulkListingSuccess()
+                        // 件数のみ送る(商品名・ASIN・価格等は含めない)。
+                        Analytics.shared.capture(.bulkListingSucceeded(count: alert.successCount))
                         Task { @MainActor in
                             // アラートの消えるアニメーションと重ならないよう少し間を空けてから依頼する。
                             try? await Task.sleep(nanoseconds: 800_000_000)

@@ -171,6 +171,7 @@ struct ProductDetailView: View {
             onAddToPurchaseList: { purchaseFormDraft = makePurchaseDraft() },
             onLockedPurchaseTap: {
                 ReviewPromptController.shared.recordNegativeEvent()
+                Analytics.shared.capture(.paywallShown(trigger: .purchaseListLock))
                 showPaywall = true
             },
             onOpenLink: { url in browserTarget = BrowserTarget(url: url) }

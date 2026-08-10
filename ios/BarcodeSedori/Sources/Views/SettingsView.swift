@@ -230,6 +230,7 @@ struct SettingsView: View {
                     if !entitlements.isPro {
                         Button {
                             ReviewPromptController.shared.recordNegativeEvent()
+                            Analytics.shared.capture(.paywallShown(trigger: .settingsUpgradeButton))
                             showPaywall = true
                         } label: {
                             Text("Proにアップグレード")
@@ -418,6 +419,7 @@ struct SettingsView: View {
             } else {
                 Button {
                     ReviewPromptController.shared.recordNegativeEvent()
+                    Analytics.shared.capture(.paywallShown(trigger: .profitAlertLock))
                     showPaywall = true
                 } label: {
                     HStack(spacing: 6) {
@@ -465,6 +467,7 @@ struct SettingsView: View {
             } else {
                 Button {
                     ReviewPromptController.shared.recordNegativeEvent()
+                    Analytics.shared.capture(.paywallShown(trigger: .keepaLinkLock))
                     showPaywall = true
                 } label: {
                     HStack(spacing: 6) {
@@ -509,6 +512,7 @@ struct SettingsView: View {
             } else {
                 Button {
                     ReviewPromptController.shared.recordNegativeEvent()
+                    Analytics.shared.capture(.paywallShown(trigger: .listingLock))
                     showPaywall = true
                 } label: {
                     HStack(spacing: 6) {

@@ -46,6 +46,7 @@ final class PurchaseListStore: ObservableObject {
         // 検索タブ・商品タブ一括追加・仕入れフォームの3経路すべてがここを通るため、
         // レビュー依頼の利用バー計測はここ1箇所で行う。
         ReviewPromptController.shared.recordPurchaseListAdd()
+        Analytics.shared.capture(.purchaseListAdded)
     }
 
     /// 旧データ(採番導入前に追加された項目)にSKU枝番が無い場合に遅延採番する。
