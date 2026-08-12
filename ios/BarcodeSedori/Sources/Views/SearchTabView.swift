@@ -574,55 +574,63 @@ struct SearchTabView: View {
     /// Proではないがユニット残がある間はkeepaGraphを表示するため、ここに来るのは
     /// 「非Pro・グラフ表示に使うユニットを使い切った」場合のみ。
     ///
-    /// グラフ専用の案内(枠切れ文言・「動画を見てグラフを見る」)は連携状態に関わらず常に出す。
-    ///
-    /// 以前はSP-API連携済みのときだけ出していた(未連携ならカメラ上の枠切れオーバーレイが
-    /// 同じ導線を持つため重複を避ける意図)。しかしお試し中に連携を解除した場合など、
-    /// グラフが消えた理由も「動画を見てグラフを見る」で復活できることも一切分からなくなる
-    /// 状態が生まれていた。オーバーレイはスキャン枠、こちらはグラフ枠と対象が別で、
-    /// 画面上の位置も離れているため、両方出ても取り違えは起きない。
+    /// グラフ専用の案内(枠切れ文言・「動画を見てグラフを見る」)は、Amazon未連携の無料ユーザーには
+    /// 出さない。この場合はスキャン自体が止まりカメラ上に枠切れオーバーレイ
+    /// (Pro/動画を見てスキャン+5回/Amazon連携)が既に出ており、ここにほぼ同じ内容の導線を
+    /// 重ねると同じ案内が2箇所に並んで煩雑になるため。
+    /// 連携済み・お試し中はスキャン自体は無制限でグラフ枠だけが尽きる状態になり得るため、
+    /// カメラ側のオーバーレイと重複しない。その場合は引き続きここで案内する。
     private var freeAdArea: some View {
         VStack(spacing: 8) {
             AdSlotView(slotId: "search_ad")
 
-            Button {
-                ReviewPromptController.shared.recordNegativeEvent()
-                Analytics.shared.capture(.paywallShown(trigger: .graphQuotaExhausted))
-                showPaywall = true
-            } label: {
-                HStack(spacing: 6) {
-                    LockIconView(size: 16)
-                    Text("本日のグラフ表示枠を使い切りました。Proなら無制限")
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.caption)
-                }
-                .foregroundColor(.primary)
-                .padding(.horizontal, 4)
-            }
-            .buttonStyle(.plain)
-
-            // リワード広告で枠を増やせば、グラフ表示に使うユニットが復活する。
-            if showsRewardedAdOption {
+            if showsGraphQuotaGuidance {
                 Button {
-                    startRewardedAdFlow()
+                    ReviewPromptController.shared.recordNegativeEvent()
+                    Analytics.shared.capture(.paywallShown(trigger: .graphQuotaExhausted))
+                    showPaywall = true
                 } label: {
                     HStack(spacing: 6) {
-                        Image(systemName: "play.rectangle.fill")
-                        Text(isProcessingRewardedAd ? "反映中…" : "動画を見てグラフを見る")
+                        LockIconView(size: 16)
+                        Text("本日のグラフ表示枠を使い切りました。Proなら無制限")
                             .font(.subheadline)
                             .fontWeight(.semibold)
                         Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption)
                     }
                     .foregroundColor(.primary)
                     .padding(.horizontal, 4)
                 }
                 .buttonStyle(.plain)
-                .disabled(isProcessingRewardedAd)
+
+                // リワード広告で枠を増やせば、グラフ表示に使うユニットが復活する。
+                if showsRewardedAdOption {
+                    Button {
+                        startRewardedAdFlow()
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "play.rectangle.fill")
+                            Text(isProcessingRewardedAd ? "反映中…" : "動画を見てグラフを見る")
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                            Spacer()
+                        }
+                        .foregroundColor(.primary)
+                        .padding(.horizontal, 4)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isProcessingRewardedAd)
+                }
             }
         }
+    }
+
+    /// グラフ枠切れの案内(枠切れ文言・「動画を見てグラフを見る」)を出してよいか。
+    /// Amazon未連携の無料ユーザーはスキャン自体が止まりカメラ上の枠切れオーバーレイと
+    /// 内容が重複するため出さない(freeAdAreaのコメント参照)。
+    private var showsGraphQuotaGuidance: Bool {
+        entitlements.isProOrTrial || settings.isSpApiLinkUsable
     }
 
     /// Keepa混雑(keepa_busy)時のカード。再試行と、混雑を回避できる連携への誘導を出す
