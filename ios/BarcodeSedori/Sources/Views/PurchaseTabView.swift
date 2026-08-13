@@ -124,19 +124,23 @@ struct PurchaseTabView: View {
             }
             Button("キャンセル", role: .cancel) {}
         }
-        .confirmationDialog(
-            "選択\(selectedIds.count)件を出品します。各商品の仕入れフォームで保存した価格・数量で出品します。",
-            isPresented: $showListingConfirm,
-            titleVisibility: .visible
-        ) {
-            Button("出品する") {
-                let ids = Array(selectedIds)
-                Task {
-                    await bulkListingViewModel.run(itemIds: ids)
-                }
+        .overlay {
+            if showListingConfirm {
+                ListingConfirmDialog(
+                    count: selectedIds.count,
+                    onConfirm: {
+                        showListingConfirm = false
+                        let ids = Array(selectedIds)
+                        Task {
+                            await bulkListingViewModel.run(itemIds: ids)
+                        }
+                    },
+                    onCancel: { showListingConfirm = false }
+                )
+                .transition(.opacity)
             }
-            Button("キャンセル", role: .cancel) {}
         }
+        .animation(.easeInOut(duration: 0.2), value: showListingConfirm)
         // 出品ボタンがロック中(未連携/非Pro)にタップされたときの案内。
         .alert(
             "Amazon連携されていない、またはProプランでないためご利用できません。",
