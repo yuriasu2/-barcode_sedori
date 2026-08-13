@@ -187,6 +187,7 @@ private enum AppStoreReviewConfig {
 /// AppStoreReviewConfig.appIdと違いこのURLは既に存在し有効なため、行を隠す条件は無く常に表示する。
 private enum SupportConfig {
     static let contactURL = "https://sellira.jp/contact/"
+    static let noticesURL = "https://sellira.jp/amalens/news/"
 }
 
 struct SettingsView: View {
@@ -259,6 +260,12 @@ struct SettingsView: View {
                 listingSection
 
                 Section("サポート") {
+                    Button {
+                        openNoticesPage()
+                    } label: {
+                        Text("お知らせ")
+                    }
+
                     Button {
                         openSupportContactPage()
                     } label: {
@@ -553,6 +560,14 @@ struct SettingsView: View {
               let url = URL(string: "https://apps.apple.com/app/id\(AppStoreReviewConfig.appId)?action=write-review")
         else { return }
         UIApplication.shared.open(url)
+    }
+
+    /// 「お知らせ」ボタンから、お知らせ一覧ページを開く。中身はWebサイト側で管理するため
+    /// アプリ側に自前画面は作らず、お問い合わせフォームと同じくSafariView(アプリ内ブラウザ)で開く。
+    /// お問い合わせと違い診断情報のクエリは不要(単純にURLを開くだけ)。
+    private func openNoticesPage() {
+        guard let url = URL(string: SupportConfig.noticesURL) else { return }
+        browserTarget = BrowserTarget(url: url)
     }
 
     /// 「ご意見・お問い合わせ」ボタンから、診断情報付きのお問い合わせフォームを開く。

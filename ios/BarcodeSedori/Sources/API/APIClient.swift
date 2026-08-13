@@ -312,6 +312,12 @@ final class APIClient {
         return try await perform(request, as: AdsResponse.self)
     }
 
+    /// GET /api/notice — 障害告知・お知らせ(認証不要)。無ければ notice が null で返る。
+    func fetchNotice() async throws -> ServerNotice? {
+        let request = try makeRequest(path: "/api/notice")
+        return try await perform(request, as: NoticeResponse.self).notice
+    }
+
     /// POST /api/ads/event — 広告の表示(impression)/クリック(click)を計測する。
     /// 応答は200/204で本文が無いことがあるため、perform()のデコードは使わずステータスのみ確認する。
     func sendAdEvent(slot: String, adId: String, kind: String) async throws {

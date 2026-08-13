@@ -22,6 +22,7 @@ const searchCache = new LruCache();
 const graphCache = new LruCache({ ttlMs: 60 * 60 * 1000, maxSize: 200 }); // グラフ画像: 1時間キャッシュ
 const graphDataCache = new LruCache({ ttlMs: 60 * 60 * 1000, maxSize: 200 }); // グラフ生データ: 画像と同じ1時間キャッシュ
 const adsConfigCache = new LruCache({ ttlMs: 60 * 1000, maxSize: 1 }); // 広告配信設定: 60秒キャッシュ(KV読み取り抑制)
+const noticeCache = new LruCache({ ttlMs: 60 * 1000, maxSize: 1 }); // 障害告知: 60秒キャッシュ(KV読み取り抑制。KV書き換え後、最大60秒は古い告知が配信され得る=ads設定と同じ挙動)
 
 /**
  * /api/graph-dataのキャッシュキー。respondKeepaSearchResultでの先入れとエンドポイント本体で
@@ -1781,6 +1782,95 @@ router.post('/api/ads/event', async (req, res) => {
   res.status(200).json({});
 });
 
+// ============================================================
+// 障害告知(notice) — アプリ起動時のお知らせポップアップ配信。
+// KVは新規namespaceを作らず、既存の広告配信用ADS_CONFIG namespaceに
+// 別キー(notice)で同居させる(広告用namespaceを設定配信全般に流用している)。
+// ============================================================
+
+const NOTICE_KV_KEY = 'notice';
+const NOTICE_CACHE_KEY = 'notice';
+const NOTICE_ID_MAX_LEN = 128;
+const NOTICE_TITLE_MAX_LEN = 100;
+const NOTICE_BODY_MAX_LEN = 1000;
+
+/**
+ * KVに格納する告知JSONの形(例):
+ * {
+ *   "id": "2026-08-13-keepa-outage",
+ *   "active": true,
+ *   "title": "グラフの表示に不具合が発生しています",
+ *   "body": "現在、価格グラフが表示されない場合があります。復旧までお待ちください。",
+ *   "url": "https://sellira.jp/amalens/news/"
+ * }
+ */
+
+/**
+ * KVから読んだ生の告知オブジェクトを検証し、配信可能な形に絞り込む。
+ * フェイルセーフ設計: 少しでも不正なら null(=告知なし)を返す。誤った告知を出すよりは
+ * 出さない方が安全なため、長さ上限超過等も切り詰めではなく無効化(null)で扱う。
+ */
+function validateNotice(parsed) {
+  if (!parsed || typeof parsed !== 'object') return null;
+  if (parsed.active !== true) return null;
+
+  const id = parsed.id;
+  if (typeof id !== 'string' || !id.trim() || id.length > NOTICE_ID_MAX_LEN) return null;
+
+  const title = parsed.title;
+  if (typeof title !== 'string' || !title.trim() || title.length > NOTICE_TITLE_MAX_LEN) return null;
+
+  const body = parsed.body;
+  if (typeof body !== 'string' || !body.trim() || body.length > NOTICE_BODY_MAX_LEN) return null;
+
+  const notice = { id, title, body };
+
+  // urlは任意。文字列かつhttps://始まりの場合のみ採用し、それ以外はキー自体を省略する
+  // (url不正でも告知本体は出す)。
+  if (typeof parsed.url === 'string' && parsed.url.startsWith('https://')) {
+    notice.url = parsed.url;
+  }
+
+  return notice;
+}
+
+/**
+ * GET /api/notice の本体(障害告知)をKVから読み込む。
+ * loadAdsConfig()と同じ流儀でWorkerメモリ60秒キャッシュを使う。
+ * KV未設定・キー無し・JSON破損・バリデーション不正はすべてnull(=告知なし)にフォールバックする。
+ */
+async function loadNotice() {
+  const cached = noticeCache.get(NOTICE_CACHE_KEY);
+  if (cached !== undefined) return cached;
+
+  const kv = getAdsKv();
+  if (!kv) {
+    noticeCache.set(NOTICE_CACHE_KEY, null);
+    return null;
+  }
+
+  let notice = null;
+  try {
+    const raw = await kv.get(NOTICE_KV_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      notice = validateNotice(parsed);
+    }
+  } catch (err) {
+    console.error('[notice] config parse failed:', err.message);
+    notice = null;
+  }
+
+  noticeCache.set(NOTICE_CACHE_KEY, notice);
+  return notice;
+}
+
+// GET /api/notice — 障害告知(お知らせポップアップ)。認証不要(秘匿情報を含まない)。
+router.get('/api/notice', async (req, res) => {
+  const notice = await loadNotice();
+  res.json({ notice });
+});
+
 /**
  * GET /api/admob/ssv — AdMobリワード広告のサーバーサイド検証(SSV)コールバック。
  * Googleのサーバーが「ユーザーが広告を最後まで視聴した」と確認したときだけ、署名付きの
@@ -1886,6 +1976,10 @@ router.buildFeesBreakdown = buildFeesBreakdown;
 router.adsConfigCache = adsConfigCache;
 router.loadAdsConfig = loadAdsConfig;
 router.validateAdEventInput = validateAdEventInput;
+// テスト用途に障害告知配信ヘルパー・キャッシュを公開する。
+router.noticeCache = noticeCache;
+router.loadNotice = loadNotice;
+router.validateNotice = validateNotice;
 // テスト用途にAdMob SSV検証モジュールを公開する(_setKeysForTestでの鍵注入用)。
 router.admobSsv = admobSsv;
 // テスト用途に出品者ID単位お試し期間モジュールを公開する。

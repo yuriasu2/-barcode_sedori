@@ -6,6 +6,9 @@ struct RootTabView: View {
     /// Amazon連携シート用のViewModel。設定タブのSettingsViewが持つインスタンスとは別物だが、
     /// 接続テストの結果アラートはAmazonLinkSettingsView自身に付いているためこれで完結する。
     @StateObject private var amazonLinkViewModel = SettingsViewModel()
+    /// 障害告知・お知らせポップアップの表示状態。
+    @ObservedObject private var noticeStore = NoticeStore.shared
+    @Environment(\.openURL) private var openURL
 
     var body: some View {
         TabView(selection: $nav.selectedTab) {
@@ -64,6 +67,30 @@ struct RootTabView: View {
             // 起動時にサーバー権威のお試し期限を最新化する(SettingsStore側のキャッシュ更新)。
             // 未連携ならメソッド内でガードされ何もしない。
             await SettingsStore.shared.refreshSpApiTrialStatusIfNeeded()
+
+            // 障害告知は即座に取得を開始する(表示の遅延はNoticeStore.refresh()側で行う)。
+            // 取得を遅らせるとレビュー抑制(recordNegativeEvent)がSearchTabViewの2.5秒後の
+            // 判定に間に合わなくなるため、取得自体は待たない。
+            NoticeStore.shared.start()
+        }
+        // NoticeStore.pendingはprivate(set)のため、$noticeStore.pendingで直接バインドできない。
+        // 読み取りはpendingから、書き込み(=閉じる操作)はmarkShown()経由に限定する。
+        // markShown()の呼び出しはisPresentedのset(閉じられたとき)の1箇所のみに集約する。
+        // どのボタンを押してもアラートは閉じてこのsetを通るため、ボタン側では呼ばない。
+        .alert(
+            noticeStore.pending?.title ?? "",
+            isPresented: Binding(
+                get: { noticeStore.pending != nil },
+                set: { if !$0 { NoticeStore.shared.markShown() } }
+            ),
+            presenting: noticeStore.pending
+        ) { notice in
+            if let urlString = notice.url, let url = URL(string: urlString) {
+                Button("詳しく見る") { openURL(url) }
+            }
+            Button("閉じる", role: .cancel) {}
+        } message: { notice in
+            Text(notice.body)
         }
     }
 }
