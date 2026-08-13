@@ -334,12 +334,14 @@ final class ScannerContainerView: UIView {
 
         // 「最短撮影距離まで下がったとき、バーコードがプレビュー幅のどれだけを占めるか」から
         // 必要な倍率を逆算する(Appleがバーコードスキャン向けに示している考え方)。
-        // EAN-13の一般的な印字幅を約30mmとし、プレビュー幅の30%を占めれば読めるとみなす。
-        // 目標割合を欲張って0.5にすると、最近のiPhone(最短撮影距離15〜20cm)では必要倍率が
-        // 3〜4倍になり常に上限へ張り付いてしまい、機種差を吸収する意味が無くなる上に画角が
-        // 狭くなりすぎる。検出自体は3割程度写っていれば十分なため0.3とする。
+        // EAN-13の一般的な印字幅を約30mmとし、プレビュー幅の20%を占めれば読めるとみなす。
+        // 目標割合を上げるほど倍率が上がり、ピントは合いやすくなるが画角が狭まって
+        // 狙いにくくなる。0.5では必要倍率が3〜4倍になり常に上限へ張り付き(機種差を吸収する
+        // 意味が無くなる)、0.3でも実機で画角が狭いという結果だったため0.2に落としている。
+        // 1920px幅のプレビューなら2割でも約380px確保でき、EAN-13の95モジュールに対して
+        // 1モジュールあたり4px前後あるため検出には十分。
         let assumedBarcodeWidthMm: Float = 30
-        let targetFillRatio: Float = 0.3
+        let targetFillRatio: Float = 0.2
         let radians = fieldOfViewDegrees / 2 * .pi / 180
         let focusableSubjectWidthMm = 2 * minimumFocusDistanceMm * tan(radians)
         guard focusableSubjectWidthMm > 0 else { return }
