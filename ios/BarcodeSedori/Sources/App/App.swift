@@ -14,18 +14,11 @@ struct BarcodeSedoriApp: App {
         configureTabBarAppearance()
     }
 
-    /// タブバーの背景を透過率50%(不透明度50%)にする。
-    /// SwiftUIの`.toolbarBackground(color, for:)`だけでは、iOS標準のぼかし素材
-    /// (UIBlurEffect相当)が指定色の上から重なって描画され、色の不透明度を下げても
-    /// 見た目上あまり透けなかった。UITabBarAppearanceで`backgroundEffect`を明示的に
-    /// nilにしてぼかし素材自体を外し、`backgroundColor`の不透明度だけで透過を制御する。
-    /// アイコン・ラベルはこのbackgroundColorとは別レイヤーで描画されるため、この設定では
-    /// 薄くならず通常通り不透明に見える。
+    /// タブバーの背景を不透明にする。
     private func configureTabBarAppearance() {
         let appearance = UITabBarAppearance()
-        appearance.configureWithTransparentBackground()
-        appearance.backgroundEffect = nil
-        appearance.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.5)
+        appearance.configureWithOpaqueBackground()
+        appearance.backgroundColor = UIColor.systemBackground
 
         UITabBar.appearance().standardAppearance = appearance
         UITabBar.appearance().scrollEdgeAppearance = appearance

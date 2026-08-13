@@ -41,9 +41,8 @@ struct RootTabView: View {
                 }
                 .tag(3)
         }
-        // タブバーの透過率(50%)はBarcodeSedoriApp.configureTabBarAppearance()で
-        // UITabBarAppearance経由により設定済み(ここでtoolbarBackgroundを重ねると
-        // 二重に色が乗って見た目がズレるため設定しない)。
+        // タブバーの外観(不透明)はBarcodeSedoriApp.configureTabBarAppearance()で設定済み
+        // (ここでtoolbarBackgroundを重ねると二重に色が乗って見た目がズレるため設定しない)。
         // Amazon連携画面。Pro案内・枠切れオーバーレイ・オファーロックなど、どの画面からでも
         // 同じ導線で開けるようTabViewの外側(=常に描画されている場所)から提示する。
         .sheet(isPresented: $nav.opensAmazonLink) {

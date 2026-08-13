@@ -409,7 +409,7 @@ struct PurchaseListRow: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .center, spacing: 12) {
             AsyncImage(url: item.imageUrl.flatMap(URL.init(string:))) { phase in
                 switch phase {
                 case .success(let image):
