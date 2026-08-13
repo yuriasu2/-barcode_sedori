@@ -301,17 +301,21 @@ struct PriceHistoryChartView: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: Self.reservedHeight)
         } else {
-            VStack(spacing: 6) {
+            VStack(spacing: 0) {
                 combinedChart(priceSeries: priceSeries, rankSeries: rank, domain: domain)
                 mainLegend
+                    .padding(.top, 2)
                 // 出品者数は3系列とも空(旧サーバー互換のキャッシュ等)なら、チャートも凡例も出さない。
                 if !sellerCountSeries.isEmpty {
                     sellerCountChart(series: sellerCountSeries, domain: domain)
+                        .padding(.top, 6)
                     sellerCountLegend
+                        .padding(.top, 2)
                 }
                 #if DEBUG
                 if SettingsStore.shared.keepaThrottleDebugEnabled, let debug = data.keepaDebug {
                     keepaDebugView(debug)
+                        .padding(.top, 6)
                 }
                 #endif
             }
