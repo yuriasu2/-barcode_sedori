@@ -39,9 +39,17 @@ struct ShippingSettingsView: View {
 
     var body: some View {
         Form {
+            // 画面の一番上に置く注意書き。この画面の設定がAmazon出品自体には反映されない
+            // (利益計算・最安値自動計算にのみ使う)ことを、個別セクションの説明より先に伝える。
+            Section {
+                Text("こちらの設定は利益計算や最安値自動計算のために使われます。\n出品の際にこちらの送料が反映されるわけではありません。")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+            }
+
             ShippingPresetSection(
                 title: "配送料",
-                footnote: "購入者が支払い、自分に入金される額です。",
+                footnote: "Amazonで設定している配送料を入力してください。(購入者が支払う金額)",
                 presets: $settings.purchaseShippingIncomePresets,
                 selectedId: $settings.purchaseShippingIncomeSelectedId,
                 focusedField: $focusedField,
@@ -50,7 +58,7 @@ struct ShippingSettingsView: View {
 
             ShippingPresetSection(
                 title: "発送費用",
-                footnote: "自分が支払う発送コストです。",
+                footnote: "発送する際にかかる費用を入力して下さい。(自分が支払う発送コスト)",
                 presets: $settings.purchaseShippingCostPresets,
                 selectedId: $settings.purchaseShippingCostSelectedId,
                 focusedField: $focusedField,
