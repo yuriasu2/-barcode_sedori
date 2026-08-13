@@ -336,6 +336,11 @@ struct PriceHistoryChartView: View {
     /// 個別に描画していたが、出品者数チャートが増えて2段構成になったため表示順を保つべくここへ移した。
     private var mainLegend: some View {
         HStack(spacing: 16) {
+            Text("価格とランキング")
+                .font(.caption2)
+                .fontWeight(.bold)
+                .foregroundColor(.secondary)
+            Spacer()
             legendItem(color: .green, label: "ランキング")
             legendItem(color: .orange, label: "Amazon")
             legendItem(color: .blue, label: "新品")
@@ -347,6 +352,11 @@ struct PriceHistoryChartView: View {
     /// 出品者数チャートの凡例(中古/新品/コレクター)。
     private var sellerCountLegend: some View {
         HStack(spacing: 16) {
+            Text("出品者数")
+                .font(.caption2)
+                .fontWeight(.bold)
+                .foregroundColor(.secondary)
+            Spacer()
             legendItem(color: .primary, label: "中古")
             legendItem(color: .blue, label: "新品")
             legendItem(color: Self.collectibleColor, label: "コレクター")
@@ -361,6 +371,7 @@ struct PriceHistoryChartView: View {
                 .frame(width: 7, height: 7)
             Text(label)
                 .font(.caption2)
+                .fontWeight(.bold)
                 .foregroundColor(.secondary)
         }
         .lineLimit(1)
