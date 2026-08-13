@@ -256,7 +256,7 @@ final class ScannerContainerView: UIView {
         captureSession.sessionPreset = .high
 
         guard
-            let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back),
+            let device = makeCaptureDevice(),
             let input = try? AVCaptureDeviceInput(device: device),
             captureSession.canAddInput(input)
         else {
@@ -293,6 +293,19 @@ final class ScannerContainerView: UIView {
         }
     }
 
+    /// スキャンに使う背面カメラを選ぶ。
+    /// 超広角を含む仮想デバイス(.builtInDualWideCamera)が使えるなら優先する。iOSが被写体距離に
+    /// 応じて超広角へ自動切り替えし(純正カメラアプリのマクロ撮影と同じ仕組み)、最短撮影距離が
+    /// 長いPro機でもデジタルズームに頼らず近距離へ合焦できるため。
+    /// 超広角を持たない機種(iPhone 16e等)では単眼の広角にフォールバックし、
+    /// configureFocus(for:)のズーム補正で近距離をカバーする。
+    private func makeCaptureDevice() -> AVCaptureDevice? {
+        if let dualWide = AVCaptureDevice.default(.builtInDualWideCamera, for: .video, position: .back) {
+            return dualWide
+        }
+        return AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
+    }
+
     /// 近くでピントが合わない主因は設定漏れではなく、広角カメラの物理的な最短撮影距離
     /// (新しめのiPhoneでは15〜20cm程度)。それより近い被写体には原理的に合焦できないため、
     /// 「近づかなくても大きく写る」ようズームで補正するのが本質的な対策になる。
@@ -322,6 +335,27 @@ final class ScannerContainerView: UIView {
         // 素早く合焦してほしいため無効化する。
         if device.isSmoothAutoFocusSupported {
             device.isSmoothAutoFocusEnabled = false
+        }
+
+        // 超広角を含む仮想デバイスでは、iOSが被写体距離に応じて超広角へ自動切り替える
+        // (純正カメラアプリのマクロ撮影と同じ仕組み)ため、デジタルズームによる補正は不要。
+        // むしろPro機は単眼カメラの最短撮影距離が長く、デジタルズームで倍率を上げると
+        // 画角が犠牲になりすぎる(実機検証: iPhone 17 Pro Maxで約2.5倍相当になり狭すぎた)。
+        // 一方、超広角を持たない機種(iPhone 16e等)ではハードウェアの切り替え先が無いため、
+        // 従来通りズーム補正が近距離合焦の唯一の手段になる。
+        if device.isVirtualDevice, !device.virtualDeviceSwitchOverVideoZoomFactors.isEmpty {
+            // 仮想デバイスでは倍率1.0が超広角を指すため、そのままだと極端に広い画角になる。
+            // 最初の切り替えポイント(=広角の等倍)に合わせることで、純正カメラアプリの
+            // 1倍と同じ見え方にする。
+            if let switchOver = device.virtualDeviceSwitchOverVideoZoomFactors.first {
+                let factor = CGFloat(truncating: switchOver)
+                device.videoZoomFactor = min(max(factor, device.minAvailableVideoZoomFactor), device.maxAvailableVideoZoomFactor)
+            }
+
+            // 被写体が近いとiOSが自動で超広角へ切り替える(マクロ)。既定値も.autoだが、
+            // 意図を明示するため明示的に設定する。
+            device.setPrimaryConstituentDeviceSwitchingBehavior(.auto, restrictedSwitchingBehaviorConditions: [])
+            return
         }
 
         // 端末の最短撮影距離(mm)。取得できない端末では -1 が返るため、その場合はズームしない。
