@@ -77,7 +77,7 @@ struct OffersPanelView: View {
 
             VStack(spacing: 2) {
                 LockIconView(size: 18)
-                Text("設定→Amazon連携で表示")
+                Text("価格一覧はAmazon連携で表示")
                     .font(.caption2)
                     .fontWeight(.bold)
                     .foregroundColor(.white)
@@ -89,6 +89,16 @@ struct OffersPanelView: View {
     }
 
     var body: some View {
+        VStack(spacing: 4) {
+            offerCard
+
+            Image(systemName: "chevron.down")
+                .font(.system(size: 10))
+                .foregroundColor(.white)
+        }
+    }
+
+    private var offerCard: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(title)
                 .font(.caption)
