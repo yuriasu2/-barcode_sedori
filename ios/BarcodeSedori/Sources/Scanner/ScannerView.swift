@@ -253,7 +253,7 @@ final class ScannerContainerView: UIView {
         captureSession.sessionPreset = .high
 
         guard
-            let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back),
+            let device = makeCaptureDevice(),
             let input = try? AVCaptureDeviceInput(device: device),
             captureSession.canAddInput(input)
         else {
@@ -288,6 +288,25 @@ final class ScannerContainerView: UIView {
             self?.attachPreviewLayerIfNeeded()
             self?.updateRectOfInterest()
         }
+    }
+
+    /// スキャンに使う背面カメラを選ぶ。超広角を最優先する。
+    ///
+    /// 超広角は最短撮影距離が数cmと極端に短く、近距離のバーコードに合焦できる。広角は
+    /// 機種によっては20〜30cm離さないと合焦せず、その距離ではバーコードが小さく写りすぎて
+    /// 読み取れない(実機検証で確認済み)。仮想デバイス(.builtInDualWideCamera)による
+    /// 自動切り替えは使わず、超広角に固定する。切り替え時の画面の跳ねを避けるため。
+    ///
+    /// フォールバックする条件が2つある:
+    /// - 超広角を持たない機種(iPhone 16e等)。この場合はdefault(...)がnilを返す。
+    /// - 超広角がオートフォーカス非対応の機種(一部の非Pro機は固定焦点)。ピントを
+    ///   合わせられないカメラを選ぶと本末転倒なので、広角に落とす。
+    private func makeCaptureDevice() -> AVCaptureDevice? {
+        if let ultraWide = AVCaptureDevice.default(.builtInUltraWideCamera, for: .video, position: .back),
+           ultraWide.isFocusModeSupported(.continuousAutoFocus) {
+            return ultraWide
+        }
+        return AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)
     }
 
     /// バーコードスキャン向けにオートフォーカスを設定する。
