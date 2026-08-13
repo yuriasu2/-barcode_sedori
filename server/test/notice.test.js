@@ -103,9 +103,68 @@ test('GET /api/notice: 正常な告知(active:true, 全フィールドあり)が
         title: VALID_NOTICE.title,
         body: VALID_NOTICE.body,
         url: VALID_NOTICE.url,
+        level: 'info',
       },
     });
     assert.equal('active' in res.body.notice, false);
+  });
+});
+
+// --- level ---
+
+test('GET /api/notice: level:"warning" はそのままwarningとして返る', async () => {
+  const kv = createMockKv({ notice: JSON.stringify({ ...VALID_NOTICE, level: 'warning' }) });
+  await withAdsKv(kv, async () => {
+    const routes = freshRoutes();
+    const res = createMockRes();
+    const route = routes.match('GET', '/api/notice');
+    await route.handler({ query: {}, headers: {} }, res);
+    assert.equal(res.body.notice.level, 'warning');
+  });
+});
+
+test('GET /api/notice: level:"info" はinfoとして返る', async () => {
+  const kv = createMockKv({ notice: JSON.stringify({ ...VALID_NOTICE, level: 'info' }) });
+  await withAdsKv(kv, async () => {
+    const routes = freshRoutes();
+    const res = createMockRes();
+    const route = routes.match('GET', '/api/notice');
+    await route.handler({ query: {}, headers: {} }, res);
+    assert.equal(res.body.notice.level, 'info');
+  });
+});
+
+test('GET /api/notice: levelが未指定はinfoとして返る', async () => {
+  const { level, ...noticeWithoutLevel } = VALID_NOTICE;
+  const kv = createMockKv({ notice: JSON.stringify(noticeWithoutLevel) });
+  await withAdsKv(kv, async () => {
+    const routes = freshRoutes();
+    const res = createMockRes();
+    const route = routes.match('GET', '/api/notice');
+    await route.handler({ query: {}, headers: {} }, res);
+    assert.equal(res.body.notice.level, 'info');
+  });
+});
+
+test('GET /api/notice: levelが未知の値("critical")はinfoとして返る', async () => {
+  const kv = createMockKv({ notice: JSON.stringify({ ...VALID_NOTICE, level: 'critical' }) });
+  await withAdsKv(kv, async () => {
+    const routes = freshRoutes();
+    const res = createMockRes();
+    const route = routes.match('GET', '/api/notice');
+    await route.handler({ query: {}, headers: {} }, res);
+    assert.equal(res.body.notice.level, 'info');
+  });
+});
+
+test('GET /api/notice: levelが文字列以外(数値1)はinfoとして返る', async () => {
+  const kv = createMockKv({ notice: JSON.stringify({ ...VALID_NOTICE, level: 1 }) });
+  await withAdsKv(kv, async () => {
+    const routes = freshRoutes();
+    const res = createMockRes();
+    const route = routes.match('GET', '/api/notice');
+    await route.handler({ query: {}, headers: {} }, res);
+    assert.equal(res.body.notice.level, 'info');
   });
 });
 

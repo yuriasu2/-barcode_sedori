@@ -149,6 +149,7 @@ function printCurrentState(loaded) {
   const n = loaded.notice;
   console.log(`  状態  : ${n.active === true ? '配信中' : '停止中'}`);
   console.log(`  id    : ${n.id}`);
+  console.log(`  種類  : ${n.level === 'warning' ? '障害・注意' : 'お知らせ'}`);
   console.log(`  題名  : ${n.title}`);
   console.log(`  本文  : ${n.body}`);
   console.log(`  URL   : ${n.url || '(無し)'}`);
@@ -207,6 +208,23 @@ async function askYesNo(rl, promptLabel) {
   return answer === 'yes';
 }
 
+/**
+ * 告知の種類(level)を選ばせる。
+ * 戻り値は 'info' または 'warning'。それ以外の入力は聞き直す。
+ */
+async function askLevel(rl) {
+  for (;;) {
+    console.log('種類を選んでください:');
+    console.log('  1) お知らせ (青いアイコン。新機能や案内など)');
+    console.log('  2) 障害・注意 (オレンジのアイコン。不具合や障害の告知)');
+    const answer = (await rl.question('> ')).trim();
+    if (answer === '1') return 'info';
+    if (answer === '2') return 'warning';
+    console.log('1か2の数字で入力してください。');
+    console.log('');
+  }
+}
+
 async function askMenuChoice(rl) {
   for (;;) {
     console.log('何をしますか?');
@@ -223,6 +241,8 @@ async function askMenuChoice(rl) {
 // --- 各メニューの処理 ---
 
 async function handleNewNotice(rl, loaded) {
+  const level = await askLevel(rl);
+  console.log('');
   const title = await askRequiredText(rl, `題名 (${TITLE_MAX_LEN}文字以内): `, TITLE_MAX_LEN);
   const body = await askRequiredText(rl, `本文 (${BODY_MAX_LEN}文字以内): `, BODY_MAX_LEN);
   const url = await askOptionalUrl(rl);
@@ -231,6 +251,7 @@ async function handleNewNotice(rl, loaded) {
   console.log('');
   console.log('▼ この内容で配信します');
   console.log(`  id    : ${id}`);
+  console.log(`  種類  : ${level === 'warning' ? '障害・注意' : 'お知らせ'}`);
   console.log(`  題名  : ${title}`);
   console.log(`  本文  : ${body}`);
   console.log(`  URL   : ${url || '(無し)'}`);
@@ -248,7 +269,7 @@ async function handleNewNotice(rl, loaded) {
     return;
   }
 
-  const notice = { id, active: true, title, body, ...(url ? { url } : {}) };
+  const notice = { id, active: true, title, body, ...(url ? { url } : {}), level };
   const result = kvPut(JSON.stringify(notice, null, 2));
   if (result.status === 0) {
     console.log('配信しました。反映まで最大60秒かかります。');

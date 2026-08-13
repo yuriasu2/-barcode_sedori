@@ -1796,6 +1796,8 @@ const NOTICE_BODY_MAX_LEN = 1000;
 // 告知は全ユーザーの画面に出るため、万一KVへの書き込み手段が漏れた場合に外部サイトへ
 // 誘導される余地を無くす。自社サイト配下に限定しておけばフィッシングの踏み台になりにくい。
 const NOTICE_URL_PREFIX = 'https://sellira.jp/';
+// levelは告知の見た目(アイコン・色)を切り替えるための種別。取り得る値はこの2つのみ。
+const NOTICE_LEVELS = ['info', 'warning'];
 
 /**
  * KVに格納する告知JSONの形(例):
@@ -1804,7 +1806,8 @@ const NOTICE_URL_PREFIX = 'https://sellira.jp/';
  *   "active": true,
  *   "title": "グラフの表示に不具合が発生しています",
  *   "body": "現在、価格グラフが表示されない場合があります。復旧までお待ちください。",
- *   "url": "https://sellira.jp/amalens/news/"
+ *   "url": "https://sellira.jp/amalens/news/",
+ *   "level": "warning"
  * }
  */
 
@@ -1833,6 +1836,12 @@ function validateNotice(parsed) {
   if (typeof parsed.url === 'string' && parsed.url.startsWith(NOTICE_URL_PREFIX)) {
     notice.url = parsed.url;
   }
+
+  // levelは任意。"warning"の場合のみwarningとして扱い、それ以外(info・未指定・null・
+  // 型不正・未知の値すべて)は"info"に正規化する。逆(未知の値をwarningに倒す)にすると、
+  // 単なるお知らせが警告表示になりユーザーを不必要に不安にさせるため、
+  // 不明な場合は必ず穏やかな見た目(info)側に倒す。
+  notice.level = NOTICE_LEVELS.includes(parsed.level) ? parsed.level : 'info';
 
   return notice;
 }

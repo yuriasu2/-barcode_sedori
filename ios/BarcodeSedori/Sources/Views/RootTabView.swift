@@ -8,7 +8,6 @@ struct RootTabView: View {
     @StateObject private var amazonLinkViewModel = SettingsViewModel()
     /// 障害告知・お知らせポップアップの表示状態。
     @ObservedObject private var noticeStore = NoticeStore.shared
-    @Environment(\.openURL) private var openURL
 
     var body: some View {
         TabView(selection: $nav.selectedTab) {
@@ -74,23 +73,16 @@ struct RootTabView: View {
             NoticeStore.shared.start()
         }
         // NoticeStore.pendingはprivate(set)のため、$noticeStore.pendingで直接バインドできない。
-        // 読み取りはpendingから、書き込み(=閉じる操作)はmarkShown()経由に限定する。
-        // markShown()の呼び出しはisPresentedのset(閉じられたとき)の1箇所のみに集約する。
-        // どのボタンを押してもアラートは閉じてこのsetを通るため、ボタン側では呼ばない。
-        .alert(
-            noticeStore.pending?.title ?? "",
-            isPresented: Binding(
-                get: { noticeStore.pending != nil },
-                set: { if !$0 { NoticeStore.shared.markShown() } }
-            ),
-            presenting: noticeStore.pending
-        ) { notice in
-            if let urlString = notice.url, let url = URL(string: urlString) {
-                Button("詳しく見る") { openURL(url) }
+        // 読み取りはpendingから、閉じる操作はNoticePopupViewのonCloseに渡すmarkShown()の
+        // 1箇所のみに集約する。
+        .overlay {
+            if let notice = noticeStore.pending {
+                NoticePopupView(notice: notice) {
+                    NoticeStore.shared.markShown()
+                }
+                .transition(.opacity)
             }
-            Button("閉じる", role: .cancel) {}
-        } message: { notice in
-            Text(notice.body)
         }
+        .animation(.easeInOut(duration: 0.2), value: noticeStore.pending)
     }
 }
