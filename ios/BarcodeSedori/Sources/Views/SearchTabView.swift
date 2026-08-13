@@ -585,6 +585,9 @@ struct SearchTabView: View {
             AdSlotView(slotId: "search_ad")
 
             if showsGraphQuotaGuidance {
+                // 「動画を見てグラフを見る」(リワード広告でグラフ枠を延長する導線)は廃止した。
+                // グラフ枠が尽きたらPro案内のみを出す。1日5回の数値は無料枠の基本付与量
+                // (サーバーのBASE_DAILY_UNITS)と一致させていること。変更したらこの文言も直す。
                 Button {
                     ReviewPromptController.shared.recordNegativeEvent()
                     Analytics.shared.capture(.paywallShown(trigger: .graphQuotaExhausted))
@@ -592,7 +595,7 @@ struct SearchTabView: View {
                 } label: {
                     HStack(spacing: 6) {
                         LockIconView(size: 16)
-                        Text("本日のグラフ表示枠を使い切りました。Proなら無制限")
+                        Text("グラフの表示は1日5回まで。Proなら無制限")
                             .font(.subheadline)
                             .fontWeight(.semibold)
                         Spacer()
@@ -603,25 +606,6 @@ struct SearchTabView: View {
                     .padding(.horizontal, 4)
                 }
                 .buttonStyle(.plain)
-
-                // リワード広告で枠を増やせば、グラフ表示に使うユニットが復活する。
-                if showsRewardedAdOption {
-                    Button {
-                        startRewardedAdFlow()
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "play.rectangle.fill")
-                            Text(isProcessingRewardedAd ? "反映中…" : "動画を見てグラフを見る")
-                                .font(.subheadline)
-                                .fontWeight(.semibold)
-                            Spacer()
-                        }
-                        .foregroundColor(.primary)
-                        .padding(.horizontal, 4)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(isProcessingRewardedAd)
-                }
             }
         }
     }
