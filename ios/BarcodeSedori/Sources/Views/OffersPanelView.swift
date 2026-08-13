@@ -43,7 +43,7 @@ struct OffersPanelView: View {
     /// オファーがカード内に収まりきらず、スクロールしないと続きが見えない状態か。
     /// 収まりきる場合に矢印を出すと「まだ下がある」と誤認させるため、超過時のみ表示する。
     private var hasMoreOffers: Bool {
-        sortedOffers.count > Self.maxVisibleRows
+        !isLocked && sortedOffers.count > Self.maxVisibleRows
     }
 
     /// オファー取得前の仮表示に使う簡易価格行。
@@ -148,15 +148,6 @@ struct OffersPanelView: View {
                     // 1行あたり約20pt(caption+spacing4)として5件分。オファーが5件以下なら
                     // その分だけの高さに収まり余白は出ない。
                     .frame(maxHeight: CGFloat(min(sortedOffers.count, Self.maxVisibleRows)) * Self.rowHeight)
-                    .overlay(alignment: .bottom) {
-                        if hasMoreOffers {
-                            Image(systemName: "chevron.down")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundColor(.white)
-                                .shadow(color: .black.opacity(0.35), radius: 2, x: 0, y: 0)
-                                .allowsHitTesting(false)
-                        }
-                    }
                 } else if isLoading {
                     // オファー読込中: 簡易価格を仮表示しつつスピナー(オファー到着で上書き)。
                     // 現在は/api/searchが同期でオファーを返す(ロック時を除く)ため、実質到達しない。
@@ -179,6 +170,18 @@ struct OffersPanelView: View {
                 }
             }
             .padding(8)
+        }
+        // 続きがあることを示す▼。カード内側のpaddingではなくカード自体の最下端へ置きたいので、
+        // スクロール枠ではなくカード全体にoverlayしている。
+        .overlay(alignment: .bottom) {
+            if hasMoreOffers {
+                Image(systemName: "arrowtriangle.down.fill")
+                    .font(.system(size: 9))
+                    .foregroundColor(.white)
+                    .shadow(color: .black.opacity(0.35), radius: 2, x: 0, y: 0)
+                    .padding(.bottom, 2)
+                    .allowsHitTesting(false)
+            }
         }
         // ベタ塗り(opacity 0.85)から、同系色の斜めグラデーション+淡い色付きシャドウへ。
         // 白文字はそのままなのでライト/ダークどちらのモードでも成立する。
