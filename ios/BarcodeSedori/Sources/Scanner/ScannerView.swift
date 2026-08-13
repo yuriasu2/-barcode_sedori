@@ -134,6 +134,9 @@ final class ScannerContainerView: UIView {
     /// 前後に数字が続く場合(13桁コードの一部など)は除外するため境界条件付き。
     private static let isbn10Regex = try! NSRegularExpression(pattern: "(?<!\\d)4\\d{8}[0-9X](?!\\d)")
 
+    /// 近距離ズーム補正の上限倍率。画角が狭くなりすぎて狙いにくくなるのを防ぐ上限。
+    private static let maxAutoZoomFactor: CGFloat = 3.0
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .black
@@ -261,6 +264,7 @@ final class ScannerContainerView: UIView {
             return
         }
         captureSession.addInput(input)
+        configureFocus(for: device)
 
         // バーコード(EAN-13のみ, CHANGES-v2.md準拠)
         if captureSession.canAddOutput(metadataOutput) {
@@ -287,6 +291,66 @@ final class ScannerContainerView: UIView {
             self?.attachPreviewLayerIfNeeded()
             self?.updateRectOfInterest()
         }
+    }
+
+    /// 近くでピントが合わない主因は設定漏れではなく、広角カメラの物理的な最短撮影距離
+    /// (新しめのiPhoneでは15〜20cm程度)。それより近い被写体には原理的に合焦できないため、
+    /// 「近づかなくても大きく写る」ようズームで補正するのが本質的な対策になる。
+    /// 端末ごとの minimumFocusDistance から必要倍率を計算するので、元々寄れる古い機種では
+    /// ズームは行われない(機種差を自動で吸収する)。
+    ///
+    /// バーコードとOCRは同一のAVCaptureSessionを共有しているため、この設定は両モードに効く。
+    private func configureFocus(for device: AVCaptureDevice) {
+        do {
+            try device.lockForConfiguration()
+        } catch {
+            return
+        }
+        defer { device.unlockForConfiguration() }
+
+        if device.isFocusModeSupported(.continuousAutoFocus) {
+            device.focusMode = .continuousAutoFocus
+        }
+
+        // 遠景まで探しに行かせない。バーコードは常に近距離にあるため、探索範囲を絞ると
+        // 合焦が速く確実になる。
+        if device.isAutoFocusRangeRestrictionSupported {
+            device.autoFocusRangeRestriction = .near
+        }
+
+        // 既定値は動画撮影向けにゆっくり滑らかに合わせる挙動。スキャン用途では
+        // 素早く合焦してほしいため無効化する。
+        if device.isSmoothAutoFocusSupported {
+            device.isSmoothAutoFocusEnabled = false
+        }
+
+        // 端末の最短撮影距離(mm)。取得できない端末では -1 が返るため、その場合はズームしない。
+        let minimumFocusDistanceMm = Float(device.minimumFocusDistance)
+        guard minimumFocusDistanceMm > 0 else { return }
+
+        // 水平画角(度)。
+        let fieldOfViewDegrees = device.activeFormat.videoFieldOfView
+        guard fieldOfViewDegrees > 0 else { return }
+
+        // 「最短撮影距離まで下がったとき、バーコードがプレビュー幅のどれだけを占めるか」から
+        // 必要な倍率を逆算する(Appleがバーコードスキャン向けに示している考え方)。
+        // EAN-13の一般的な印字幅を約30mmとし、プレビュー幅の30%を占めれば読めるとみなす。
+        // 目標割合を欲張って0.5にすると、最近のiPhone(最短撮影距離15〜20cm)では必要倍率が
+        // 3〜4倍になり常に上限へ張り付いてしまい、機種差を吸収する意味が無くなる上に画角が
+        // 狭くなりすぎる。検出自体は3割程度写っていれば十分なため0.3とする。
+        let assumedBarcodeWidthMm: Float = 30
+        let targetFillRatio: Float = 0.3
+        let radians = fieldOfViewDegrees / 2 * .pi / 180
+        let focusableSubjectWidthMm = 2 * minimumFocusDistanceMm * tan(radians)
+        guard focusableSubjectWidthMm > 0 else { return }
+
+        // 最短撮影距離ではこれだけの幅が写る。その中でバーコードが目標割合を占めるのに必要な倍率。
+        let requiredZoom = focusableSubjectWidthMm * targetFillRatio / assumedBarcodeWidthMm
+        guard requiredZoom > 1 else { return }   // 元々寄れる端末では何もしない
+
+        // 上限を設ける。倍率を上げすぎると画角が狭くなり、今度は狙いを定めにくくなるため。
+        let maxZoom = min(device.activeFormat.videoMaxZoomFactor, Self.maxAutoZoomFactor)
+        device.videoZoomFactor = min(CGFloat(requiredZoom), maxZoom)
     }
 
     private func attachPreviewLayerIfNeeded() {
