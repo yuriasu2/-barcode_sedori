@@ -910,6 +910,11 @@ router.get('/api/search', async (req, res) => {
       // 無料枠を数える経路なので端末IDは必須(無ければ枠が無制限になる)。
       if (!deviceId) return sendDeviceIdRequired(res);
       if (cached) {
+        // deviceIdは自己申告値であり検証もされないため、computeQuotaを呼ぶ前にIP単位の
+        // レート制限を掛ける(/api/quotaと同じ理由)。この分岐は既に!isProの内側なので、
+        // Keepa呼び出し経路と同様Proはそもそも通らない(Proの挙動を変えない)。
+        const rateLimitResult = await ipRateLimit.checkAndCount(clientIpOf(req.headers));
+        if (!rateLimitResult.allowed) return sendRateLimited(res, rateLimitResult.retryAfterSec);
         attachQuota(res, await deviceQuota.computeQuota(deviceId));
         return res.json(
           hasKeepaDebugHeader(req.headers) ? attachKeepaDebug(cached, cacheBypassKeepaDebug()) : cached
@@ -1229,7 +1234,13 @@ router.get('/api/graph-data', async (req, res) => {
     // キャッシュヒットはPro判定より前に返す(誰であっても消費なし)。非Proにはquotaを同梱する。
     // BYOキーの有無に関わらずキャッシュキー(graphDataCacheKey)は共通のまま
     // (キャッシュヒット時は誰のKeepaトークンも消費しないため、キーを分ける必要がない)。
-    if (!isPro) attachQuota(res, await deviceQuota.computeQuota(deviceId));
+    if (!isPro) {
+      // deviceIdは自己申告値であり検証もされないため、computeQuotaを呼ぶ前にIP単位の
+      // レート制限を掛ける(/api/quota・/api/searchと同じ理由)。
+      const rateLimitResult = await ipRateLimit.checkAndCount(clientIpOf(req.headers));
+      if (!rateLimitResult.allowed) return sendRateLimited(res, rateLimitResult.retryAfterSec);
+      attachQuota(res, await deviceQuota.computeQuota(deviceId));
+    }
     return res.json(
       hasKeepaDebugHeader(req.headers) ? attachKeepaDebug(cached, cacheBypassKeepaDebug()) : cached
     );
@@ -1237,6 +1248,9 @@ router.get('/api/graph-data', async (req, res) => {
 
   // 残ユニットの事前チェック(消費はしない)。理由は/api/searchの同等処理と同じ。
   if (!isPro) {
+    // 同上の理由でIP単位のレート制限を先に掛ける。
+    const rateLimitResult = await ipRateLimit.checkAndCount(clientIpOf(req.headers));
+    if (!rateLimitResult.allowed) return sendRateLimited(res, rateLimitResult.retryAfterSec);
     const preCheckQuota = await deviceQuota.computeQuota(deviceId);
     if (preCheckQuota && preCheckQuota.unitsRemaining !== undefined && preCheckQuota.unitsRemaining <= 0) {
       return res.status(429).json({
@@ -1354,6 +1368,12 @@ router.get('/api/quota', async (req, res) => {
   }
   const deviceId = deviceIdOf(req.headers);
   if (!deviceId) return sendDeviceIdRequired(res);
+  // deviceIdは自己申告値であり検証もされないため、これをそのままDOのID(idFromName)に
+  // 使ってcomputeQuotaを呼ぶ前にIP単位のレート制限を掛ける。無ければ任意の値を大量に
+  // 送るだけでDurable Objectsインスタンス(課金対象)を無制限に生成できてしまう。
+  // 応答形式はKeepa呼び出し経路(fetchKeepaProductWithDebug)のrate_limited応答と揃える。
+  const rateLimitResult = await ipRateLimit.checkAndCount(clientIpOf(req.headers));
+  if (!rateLimitResult.allowed) return sendRateLimited(res, rateLimitResult.retryAfterSec);
   res.json(await deviceQuota.computeQuota(deviceId));
 });
 
@@ -1956,6 +1976,8 @@ router.get('/oauth/callback', oauth.handleOAuthCallback);
 router.searchCache = searchCache;
 router.graphCache = graphCache;
 router.graphDataCache = graphDataCache;
+// テスト用途にキャッシュキー生成関数を公開する(/api/graph-dataのキャッシュヒットを仕込むため)。
+router.graphDataCacheKey = graphDataCacheKey;
 // テスト用途にプラン判定関数を公開する。
 router.isProRequest = isProRequest;
 // テスト用途にKeepa BYOキー解決関数を公開する。
