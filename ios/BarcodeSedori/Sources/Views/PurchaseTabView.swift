@@ -32,6 +32,12 @@ struct PurchaseTabView: View {
     @State private var showListingConfirm = false
     /// 出品ボタンがロック中(未連携/非Pro)にタップされたときの案内アラート。
     @State private var showLockedListingAlert = false
+    /// CSV書き出しの確認ダイアログ表示状態。
+    @State private var showCsvConfirm = false
+    /// 共有シートに渡すCSVファイルのURL(.sheet(item:)用にラップして使う)。
+    @State private var csvFileURL: IdentifiableURL?
+    /// CSVファイル書き出しに失敗した場合のエラーアラート文言(nilなら非表示)。
+    @State private var csvExportErrorMessage: String?
     /// App Storeレビュー依頼(一括出品成功=主トリガー)。iOS 16+のApple推奨経路。
     @Environment(\.requestReview) private var requestReview
 
@@ -140,13 +146,42 @@ struct PurchaseTabView: View {
                 .transition(.opacity)
             }
         }
+        .overlay {
+            if showCsvConfirm {
+                CsvExportConfirmDialog(
+                    count: selectedIds.count,
+                    onConfirm: {
+                        showCsvConfirm = false
+                        exportCsv()
+                    },
+                    onCancel: { showCsvConfirm = false }
+                )
+                .transition(.opacity)
+            }
+        }
         .animation(.easeInOut(duration: 0.2), value: showListingConfirm)
+        .animation(.easeInOut(duration: 0.2), value: showCsvConfirm)
+        .sheet(item: $csvFileURL) { wrapped in
+            ShareSheet(items: [wrapped.url])
+        }
         // 出品ボタンがロック中(未連携/非Pro)にタップされたときの案内。
         .alert(
             "Amazon連携されていない、またはProプランでないためご利用できません。",
             isPresented: $showLockedListingAlert
         ) {
             Button("閉じる", role: .cancel) {}
+        }
+        // CSVファイルの書き出しに失敗した場合の案内。
+        .alert(
+            "CSVファイルの作成に失敗しました。",
+            isPresented: Binding(
+                get: { csvExportErrorMessage != nil },
+                set: { if !$0 { csvExportErrorMessage = nil } }
+            )
+        ) {
+            Button("閉じる", role: .cancel) {}
+        } message: {
+            Text(csvExportErrorMessage ?? "")
         }
         .alert(item: $bulkListingViewModel.resultAlert) { alert in
             Alert(
@@ -266,6 +301,17 @@ struct PurchaseTabView: View {
             .foregroundColor(selectedIds.isEmpty ? .gray : .blue)
             .disabled(selectedIds.isEmpty || bulkListingViewModel.isRunning)
 
+            // CSV書き出しは端末内で完結するローカル操作のため、削除・コンディション変更と同じく
+            // Amazon連携やProの制限は掛けない(出品ボタンだけがcanBulkListのゲートを持つ)。
+            Button {
+                showCsvConfirm = true
+            } label: {
+                Image(systemName: "tablecells")
+                    .font(.system(size: Self.optionIconSize))
+            }
+            .foregroundColor(selectedIds.isEmpty ? .gray : .blue)
+            .disabled(selectedIds.isEmpty || bulkListingViewModel.isRunning)
+
             // 出品ボタンは常に表示する。ゴミ箱・コンディションはローカル操作のため出品可否に
             // 関わらず使えるが、出品だけはAmazon連携+Pro(またはお試し中)が要る(canBulkList)。
             // ロック中も.disabledにはせず、タップでロック理由のアラートを出す(理由が伝わらなくなるため)。
@@ -290,6 +336,28 @@ struct PurchaseTabView: View {
         }
         .padding(.horizontal)
         .padding(.vertical, 8)
+    }
+
+    /// 選択中の商品を画面の表示順(filteredVisibleItems順)でCSVに書き出し、共有シートを開く。
+    private func exportCsv() {
+        let items = filteredVisibleItems.filter { selectedIds.contains($0.id) }
+        let csvBody = PurchaseListCsv.makeCsv(items: items)
+        // UTF-8 BOM(\u{FEFF})を先頭に付ける。BOMが無いとWindows版Excelで日本語が文字化けするため。
+        let csvText = "\u{FEFF}" + csvBody
+
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "ja_JP")
+        formatter.timeZone = TimeZone(identifier: "Asia/Tokyo")
+        formatter.dateFormat = "yyyyMMdd_HHmm"
+        let fileName = "仕入れリスト_\(formatter.string(from: Date())).csv"
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
+
+        do {
+            try csvText.write(to: url, atomically: true, encoding: .utf8)
+            csvFileURL = IdentifiableURL(url: url)
+        } catch {
+            csvExportErrorMessage = error.localizedDescription
+        }
     }
 
     /// 一括出品処理中のオーバーレイ(「出品中 i/N」)。二重実行防止のためタップも吸収する。
@@ -492,4 +560,10 @@ struct PurchaseListRow: View {
         }
         .padding(.vertical, 4)
     }
+}
+
+/// URLは標準でIdentifiableではないため、.sheet(item:)で使うための薄いラッパー。
+private struct IdentifiableURL: Identifiable {
+    let url: URL
+    var id: URL { url }
 }
