@@ -10,6 +10,7 @@
   "scripts": {
     "start": "node src/index.js",
     "test": "node --test test/*.test.js",
+    "notice": "node scripts/notice.js",
     "dev:cf": "wrangler dev",
     "deploy:cf": "wrangler deploy"
   },

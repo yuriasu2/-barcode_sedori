@@ -193,6 +193,30 @@ test('GET /api/notice: urlがhttp://(https以外)の場合、告知は返るがu
   });
 });
 
+test('GET /api/notice: urlが他ドメイン(https://example.com/)の場合、告知は返るがurlは含まれない', async () => {
+  const kv = createMockKv({ notice: JSON.stringify({ ...VALID_NOTICE, url: 'https://example.com/' }) });
+  await withAdsKv(kv, async () => {
+    const routes = freshRoutes();
+    const res = createMockRes();
+    const route = routes.match('GET', '/api/notice');
+    await route.handler({ query: {}, headers: {} }, res);
+    assert.notEqual(res.body.notice, null);
+    assert.equal('url' in res.body.notice, false);
+  });
+});
+
+test('GET /api/notice: urlがhttps://sellira.jp/amalens/news/の場合、urlが含まれる', async () => {
+  const kv = createMockKv({ notice: JSON.stringify({ ...VALID_NOTICE, url: 'https://sellira.jp/amalens/news/' }) });
+  await withAdsKv(kv, async () => {
+    const routes = freshRoutes();
+    const res = createMockRes();
+    const route = routes.match('GET', '/api/notice');
+    await route.handler({ query: {}, headers: {} }, res);
+    assert.notEqual(res.body.notice, null);
+    assert.equal(res.body.notice.url, 'https://sellira.jp/amalens/news/');
+  });
+});
+
 test('GET /api/notice: 長さ上限超過(title 101文字)は {notice:null}', async () => {
   const kv = createMockKv({ notice: JSON.stringify({ ...VALID_NOTICE, title: 'あ'.repeat(101) }) });
   await withAdsKv(kv, async () => {

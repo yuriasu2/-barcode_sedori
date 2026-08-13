@@ -1793,6 +1793,9 @@ const NOTICE_CACHE_KEY = 'notice';
 const NOTICE_ID_MAX_LEN = 128;
 const NOTICE_TITLE_MAX_LEN = 100;
 const NOTICE_BODY_MAX_LEN = 1000;
+// 告知は全ユーザーの画面に出るため、万一KVへの書き込み手段が漏れた場合に外部サイトへ
+// 誘導される余地を無くす。自社サイト配下に限定しておけばフィッシングの踏み台になりにくい。
+const NOTICE_URL_PREFIX = 'https://sellira.jp/';
 
 /**
  * KVに格納する告知JSONの形(例):
@@ -1825,9 +1828,9 @@ function validateNotice(parsed) {
 
   const notice = { id, title, body };
 
-  // urlは任意。文字列かつhttps://始まりの場合のみ採用し、それ以外はキー自体を省略する
-  // (url不正でも告知本体は出す)。
-  if (typeof parsed.url === 'string' && parsed.url.startsWith('https://')) {
+  // urlは任意。文字列かつ自社サイト配下(NOTICE_URL_PREFIX)始まりの場合のみ採用し、
+  // それ以外はキー自体を省略する(url不正でも告知本体は出す)。
+  if (typeof parsed.url === 'string' && parsed.url.startsWith(NOTICE_URL_PREFIX)) {
     notice.url = parsed.url;
   }
 
