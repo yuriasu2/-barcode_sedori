@@ -307,30 +307,34 @@ struct SearchTabView: View {
         NavigationView {
             // 全体を1つのScrollViewにする(検索バーも中に含める)。ScrollViewがキーボード回避を
             // 適切に処理するため、結果表示中にキーボードを出しても検索バーが画面外へ消えない。
-            ScrollView {
-                VStack(spacing: 0) {
-                    searchBar
+            // 広告バナーはこのScrollViewの外(下)に置き、スクロール位置に関わらず画面下部に
+            // 固定表示する(連携済み/未連携どちらのユーザーでも同じ位置に固定する)。
+            VStack(spacing: 0) {
+                ScrollView {
+                    VStack(spacing: 0) {
+                        searchBar
 
-                    topContent
+                        topContent
 
-                    // 非Proはユニット残があればグラフを表示する(サーバーが429を返せば次回検索で
-                    // quotaが是正され、この分岐がfreeAdAreaへ切り替わる)。
-                    // スキャン枠はサーバー側でX-App-Plan(isPro専用)により判定するため、ここも
-                    // isProのまま揃える(お試し中でもisSearchUnlimited経由でisSpApiLinkUsableが
-                    // trueになり無制限になる。詳細はisSearchUnlimitedのコメント参照)。
-                    if entitlements.isPro || quota.canScanToday {
-                        keepaGraph
-                    } else {
-                        freeAdArea
+                        // 非Proはユニット残があればグラフを表示する(サーバーが429を返せば次回検索で
+                        // quotaが是正され、この分岐がfreeAdAreaへ切り替わる)。
+                        // スキャン枠はサーバー側でX-App-Plan(isPro専用)により判定するため、ここも
+                        // isProのまま揃える(お試し中でもisSearchUnlimited経由でisSpApiLinkUsableが
+                        // trueになり無制限になる。詳細はisSearchUnlimitedのコメント参照)。
+                        if entitlements.isPro || quota.canScanToday {
+                            keepaGraph
+                        } else {
+                            freeAdArea
+                        }
                     }
+                }
 
-                    // 検索広告バナーはグラフの有無に関わらず常時表示する(非Pro全員が対象。
-                    // 他の広告枠と同じく、7日間お試し中も広告は隠さない=isProのみで判定)。
-                    // 枠切れ時のfreeAdAreaにも同じスロットIDの広告を出すと二重表示になるため、
-                    // ここへ集約した(freeAdArea側からはAdSlotViewを取り除いてある)。
-                    if !entitlements.isPro {
-                        AdSlotView(slotId: "search_ad")
-                    }
+                // 検索広告バナー。ScrollViewの外に置くことで画面下部に固定し、スクロールしても
+                // 流れない(非Pro全員が対象。他の広告枠と同じく、7日間お試し中も広告は隠さない
+                // =isProのみで判定)。枠切れ時のfreeAdAreaにも同じスロットIDの広告を出すと
+                // 二重表示になるため、ここへ集約した(freeAdArea側からはAdSlotViewを取り除いてある)。
+                if !entitlements.isPro {
+                    AdSlotView(slotId: "search_ad")
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
