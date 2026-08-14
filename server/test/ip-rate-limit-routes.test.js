@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 
 const routes = require('../src/routes');
 const ipRateLimit = require('../src/ipRateLimit');
+const keepaThrottle = require('../src/keepaThrottle');
 
 test('clientIpOf: CF-Connecting-IPを読む。無ければnull', () => {
   assert.equal(routes.clientIpOf({ 'cf-connecting-ip': '203.0.113.9' }), '203.0.113.9');
@@ -329,4 +330,125 @@ test('/api/graph-data: 事前チェック経路(未キャッシュ)でIP制限�
     routes.deviceQuota.computeQuota = originalComputeQuota;
     ipRateLimit._setDurableBinding(undefined);
   }
+});
+
+// ---------------------------------------------------------------------------
+// /api/keepa-throttle-demo/seed, /probe — 認証無しで公開されているデモ専用エンドポイント。
+// 'demo'インスタンス限定でDOの大量生成は起きないが、連打を防ぐ手段が無かったためIP単位の
+// レート制限を追加した(3dd8ad7の/api/quota・/api/searchと同じ理由)。
+// ---------------------------------------------------------------------------
+
+test('POST /api/keepa-throttle-demo/seed: IP制限に引っかかるとseedDemoStateを呼ばずに429 rate_limitedを返す', async () => {
+  ipRateLimit._reset();
+  ipRateLimit._setDurableBinding(null);
+
+  const ip = '198.51.100.40';
+  for (let i = 0; i < ipRateLimit.DEFAULT_LIMIT_PER_MIN; i += 1) {
+    await ipRateLimit.checkAndCount(ip);
+  }
+
+  const originalSeedDemoState = keepaThrottle.seedDemoState;
+  let seedDemoStateCalled = false;
+  keepaThrottle.seedDemoState = async (...args) => {
+    seedDemoStateCalled = true;
+    return originalSeedDemoState(...args);
+  };
+
+  try {
+    const headers = { 'cf-connecting-ip': ip };
+    const res = {
+      statusCode: 200,
+      body: undefined,
+      status(code) { this.statusCode = code; return this; },
+      json(body) { this.body = body; return this; },
+    };
+    const route = routes.match('POST', '/api/keepa-throttle-demo/seed');
+    await route.handler({ query: { tokens: '3' }, headers }, res);
+
+    assert.equal(res.statusCode, 429);
+    assert.equal(res.body.error, 'rate_limited');
+    assert.equal(seedDemoStateCalled, false, 'IP制限で弾かれた場合seedDemoStateは呼ばれないはず');
+  } finally {
+    keepaThrottle.seedDemoState = originalSeedDemoState;
+    ipRateLimit._setDurableBinding(undefined);
+  }
+});
+
+test('POST /api/keepa-throttle-demo/seed: IP制限が正常なときは従来通り200でsnapshotを返す(回帰)', async () => {
+  ipRateLimit._reset();
+  ipRateLimit._setDurableBinding(null);
+
+  const headers = { 'cf-connecting-ip': '198.51.100.41' };
+  const res = {
+    statusCode: 200,
+    body: undefined,
+    status(code) { this.statusCode = code; return this; },
+    json(body) { this.body = body; return this; },
+  };
+  const route = routes.match('POST', '/api/keepa-throttle-demo/seed');
+  await route.handler({ query: { tokens: '3' }, headers }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.ok, true);
+  assert.equal(res.body.snapshot.tokensEstimate, 3);
+
+  ipRateLimit._setDurableBinding(undefined);
+});
+
+test('POST /api/keepa-throttle-demo/probe: IP制限に引っかかるとacquireを呼ばずに429 rate_limitedを返す', async () => {
+  ipRateLimit._reset();
+  ipRateLimit._setDurableBinding(null);
+
+  const ip = '198.51.100.42';
+  for (let i = 0; i < ipRateLimit.DEFAULT_LIMIT_PER_MIN; i += 1) {
+    await ipRateLimit.checkAndCount(ip);
+  }
+
+  const originalAcquire = keepaThrottle.acquire;
+  let acquireCalled = false;
+  keepaThrottle.acquire = async (...args) => {
+    acquireCalled = true;
+    return originalAcquire(...args);
+  };
+
+  try {
+    const headers = { 'cf-connecting-ip': ip };
+    const res = {
+      statusCode: 200,
+      body: undefined,
+      status(code) { this.statusCode = code; return this; },
+      json(body) { this.body = body; return this; },
+    };
+    const route = routes.match('POST', '/api/keepa-throttle-demo/probe');
+    await route.handler({ query: { priority: 'free' }, headers }, res);
+
+    assert.equal(res.statusCode, 429);
+    assert.equal(res.body.error, 'rate_limited');
+    assert.equal(acquireCalled, false, 'IP制限で弾かれた場合acquireは呼ばれないはず');
+  } finally {
+    keepaThrottle.acquire = originalAcquire;
+    ipRateLimit._setDurableBinding(undefined);
+  }
+});
+
+test('POST /api/keepa-throttle-demo/probe: IP制限が正常なときは従来通り200でallowed等を返す(回帰)', async () => {
+  ipRateLimit._reset();
+  ipRateLimit._setDurableBinding(null);
+  await keepaThrottle.seedDemoState({ tokens: 5 });
+
+  const headers = { 'cf-connecting-ip': '198.51.100.43' };
+  const res = {
+    statusCode: 200,
+    body: undefined,
+    status(code) { this.statusCode = code; return this; },
+    json(body) { this.body = body; return this; },
+  };
+  const route = routes.match('POST', '/api/keepa-throttle-demo/probe');
+  await route.handler({ query: { priority: 'free' }, headers }, res);
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.priority, 'free');
+  assert.equal(res.body.allowed, true);
+
+  ipRateLimit._setDurableBinding(undefined);
 });

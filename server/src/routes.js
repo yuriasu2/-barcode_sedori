@@ -1319,6 +1319,11 @@ router.get('/api/graph-data', async (req, res) => {
  * のみへ作用するため、本番の共有インスタンス('global')・実利用者には一切影響しない。
  */
 router.post('/api/keepa-throttle-demo/seed', async (req, res) => {
+  // デモ専用だが認証が無いため、Durable Objectへのリクエストを外部から連打されないよう
+  // IP単位で制限する(/api/quota・/api/searchと同じ理由)。
+  const rateLimitResult = await ipRateLimit.checkAndCount(clientIpOf(req.headers));
+  if (!rateLimitResult.allowed) return sendRateLimited(res, rateLimitResult.retryAfterSec);
+
   const tokensRaw = req.query.tokens;
   const rateRaw = req.query.ratePerMin;
   const refillRaw = req.query.refillPerMin;
@@ -1352,6 +1357,11 @@ router.post('/api/keepa-throttle-demo/seed', async (req, res) => {
  * 一切作用しない)。
  */
 router.post('/api/keepa-throttle-demo/probe', async (req, res) => {
+  // デモ専用だが認証が無いため、Durable Objectへのリクエストを外部から連打されないよう
+  // IP単位で制限する(/api/quota・/api/searchと同じ理由)。
+  const rateLimitResult = await ipRateLimit.checkAndCount(clientIpOf(req.headers));
+  if (!rateLimitResult.allowed) return sendRateLimited(res, rateLimitResult.retryAfterSec);
+
   const priority = req.query.priority === 'pro' ? 'pro' : 'free';
   const startedAt = Date.now();
   const result = await keepaThrottle.acquire(priority, 'demo');
