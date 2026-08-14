@@ -120,6 +120,25 @@ npx wrangler kv key put "config" --binding ADS_CONFIG --remote --path <編集し
 
 **注意**: 本番IDに切り替えた後は、**自分で広告をタップしないこと**。無効なトラフィックと判定されAdMobアカウント停止のリスクがある。
 
+## プライバシーマニフェスト(2026-08-14追加・重要な発見)
+
+**`PrivacyInfo.xcprivacy` が長期間アプリバンドルに含まれていなかった**(2026-08-14に発覚・修正済み)。ファイルは `Resources/` に存在し企画書にも「対応済み」と書かれていたが、`project.yml` の `resources:` 指定ではXcodeGen(2.45.4)がCopy Bundle Resourcesフェーズに追加せず、**pbxprojに1件も登録されていなかった**(`grep -c PrivacyInfo project.pbxproj` が0件)。つまりトラッキングドメインもRequired Reason APIの申告も**一切効いていなかった**。
+
+`Assets.xcassets` で過去に同じ問題が起きていた(project.yml内にコメントあり)のと同種。**`sources:` にファイルを個別指定**して解決した。`Resources` フォルダごと `sources:` に入れると `.gitkeep` が混入するため、ファイル単位で指定している。
+
+**今後の検証方法**(マニフェストを変更したら必ずこれで確認すること。ビルドが通るだけでは意味が無い):
+```bash
+ls -la ~/Library/Developer/Xcode/DerivedData/BarcodeSedori-*/Build/Products/Debug-iphonesimulator/BarcodeSedori.app/PrivacyInfo.xcprivacy
+plutil -p ~/Library/Developer/Xcode/DerivedData/BarcodeSedori-*/Build/Products/Debug-iphonesimulator/BarcodeSedori.app/PrivacyInfo.xcprivacy
+```
+
+**`NSPrivacyTrackingDomains` の調べ方**(Googleは公式リストを公開していないため実測が必要):
+Xcodeでアプリを実機実行 → デバッグナビゲータ → Network → 「Profile in Instruments」→ **Restart**を選択(起動時の通信も取るため)→ 広告が出る画面を一通り操作 → 停止 → 「Points of Interest」に `Fault: <ドメイン> is not listed in your app's NSPrivacyTrackingDomain key...` として**Xcodeが名指しで教えてくれる**。
+
+2026-08-14の実測で判明したドメイン(記載済み): `googleads.g.doubleclick.net` / `g.doubleclick.net` / `www.googleadservices.com` / `pagead2.googlesyndication.com`。ただし計測結果には **`<private>` と伏せられた項目が最多(42件)** 残っており、まだ未特定のドメインがある可能性がある。**マニフェストがバンドルに入るようになった状態で再計測し、警告が消えるか要確認**。
+
+**注意**: ここに書いたドメインは、ATT未許可のユーザーに対してOSが接続を遮断する。書きすぎると広告配信が壊れるため、ATTを「許可しない」にした状態で広告が出るかの確認も推奨。
+
 ## 未解決の課題(次のセッションで判断・対応が必要)
 
 ### 1.【要判断】AdMobリワード広告のSSV(報酬付与)が機能しない
