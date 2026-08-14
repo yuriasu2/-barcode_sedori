@@ -21,11 +21,6 @@
           "familyShareable": false,
           "groupNumber": 1,
           "internalID": "21C90101",
-          "introductoryOffer": {
-            "internalID": "21C90201",
-            "paymentMode": "free",
-            "subscriptionPeriod": "P3D"
-          },
           "localizations": [
             {
               "description": "全機能・広告なしで利用できます。",

@@ -32,29 +32,14 @@ struct PaywallView: View {
         return "¥1,980 / 月"
     }
 
-    /// トライアル表示。Productの導入オファー(無料期間)があればそれ、無ければ既定(3日間無料)。
-    private var trialText: String {
-        if let offer = entitlements.product?.subscription?.introductoryOffer,
-           offer.paymentMode == .freeTrial {
-            let unit: String
-            switch offer.period.unit {
-            case .day: unit = "日間"
-            case .week: unit = "週間"
-            case .month: unit = "か月"
-            case .year: unit = "年間"
-            @unknown default: unit = "日間"
-            }
-            return "最初の\(offer.period.value)\(unit)は無料"
-        }
-        return "最初の3日間は無料"
-    }
-
     // クールダウン(5秒/1秒)はプランではなくSP-API連携の有無で決まるため、訴求には含めない。
     private let proFeatures: [String] = [
         "スキャン・検索が無制限(無料は1日5回まで)",
         "OCR(ISBN/JAN文字認識)スキャンが無制限",
         "Keepa価格推移グラフが無制限",
         "オファー一覧(送料込・最安順)をフル表示",
+        "Amazon出品制限警告の表示",
+        "アプリからAmazon出品登録",
         "広告なし",
         "仕入れリスト・利益アラートが使い放題",
     ]
@@ -88,15 +73,10 @@ struct PaywallView: View {
                     .background(Color(.secondarySystemBackground))
                     .cornerRadius(12)
 
-                    VStack(spacing: 4) {
-                        Text(priceText)
-                            .font(.title3)
-                            .fontWeight(.semibold)
-                        Text(trialText)
-                            .font(.footnote)
-                            .foregroundColor(.secondary)
-                    }
-                    .frame(maxWidth: .infinity)
+                    Text(priceText)
+                        .font(.title3)
+                        .fontWeight(.semibold)
+                        .frame(maxWidth: .infinity)
 
                     Button {
                         Task {
