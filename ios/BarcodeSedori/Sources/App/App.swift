@@ -110,11 +110,11 @@ private struct RootContainerView: View {
 
     #if DEBUG
     /// 開発ビルド専用: 起動引数で指定された初期状態を適用する。
-    /// URLスキーム(debug-search等)はiOSが「"アマレンズ"で開きますか?」の確認ダイアログを出しタップが必要になるため、
+    /// URLスキーム(debug-search等)はiOSが「"セラーレンズ"で開きますか?」の確認ダイアログを出しタップが必要になるため、
     /// タップ注入が使えない環境ではこちらを使う(起動引数は`-key value`形式でUserDefaultsから読める。
     /// NSArgumentDomainのため永続化されず、その起動限りで消える)。
-    ///   xcrun simctl launch booted com.example.barcodesedori -debugForcePro YES -debugSearchCode 9784566034600
-    ///   xcrun simctl launch booted com.example.barcodesedori -debugTab 2
+    ///   xcrun simctl launch booted jp.sellira.sellerlens -debugForcePro YES -debugSearchCode 9784566034600
+    ///   xcrun simctl launch booted jp.sellira.sellerlens -debugTab 2
     private func applyDebugLaunchArguments() {
         let defaults = UserDefaults.standard
 

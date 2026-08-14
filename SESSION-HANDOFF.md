@@ -1,6 +1,6 @@
 # セッション引き継ぎ(2026-08-09 時点)
 
-アプリ名: **アマレンズ**(旧「バーコードせどり」)。Amazonセラー向けの仕入れリサーチiPhoneアプリ。**まだ一般公開前**(App Store/Amazon掲載とも未申請)。改名を検討中(下記「保留中の意思決定」参照)。
+アプリ名: **セラーレンズ**に確定した(2026-08-14)。旧称アマレンズ(さらにその前は「バーコードせどり」)。Amazonセラー向けの仕入れリサーチiPhoneアプリ。**まだ一般公開前**(App Store/Amazon掲載とも未申請)。
 
 ## 関連リポジトリ
 
@@ -105,9 +105,11 @@
 - **A(推奨)**: 本番広告ユニットIDに戻し、AdMobコンソールでSSVコールバックURLを設定する。「URLを確認」ボタンで疎通確認は可能(サーバー側は署名不正・パラメータ欠落時も常に200を返す設計になっており、コンソールの検証に対応済み)。ただし広告本体はNo Fillのままなので、視聴からの一気通貫の動作確認はアプリ公開後になる。
 - **B**: `#if DEBUG`限定で、視聴完了後にアプリから直接枠を付与する開発用の抜け道を作る。「自己申告を信用しない」という現在の設計思想に穴を開けるため、Releaseビルドに残らないよう厳重に囲う必要がある。
 
-### 2.【要判断】アプリ名「アマレンズ」→「セラーレンズ」への変更検討
+### 2.【決定済み】アプリ名「アマレンズ」→「セラーレンズ」への変更
 
-ユーザーから改名の相談あり。Amazon Developer Consoleには既に「アマレンズ」でSP-APIアプリ登録済みだが、**Selling Partner Appstoreへの掲載申請はまだ行っていない**ため露出は限定的。コード側は`project.yml`の`CFBundleDisplayName`/`CFBundleName`のみで、`application_id`(認可フローで参照する値)には影響しない。実施する場合は企画書・LP文言・ドキュメント類の一括置換が必要。**まだ実施していない**。
+2026-08-14に「セラーレンズ」への改名を実施済み。`project.yml`の`CFBundleDisplayName`/`CFBundleName`/`bundleIdPrefix`/`PRODUCT_BUNDLE_IDENTIFIER`、`EntitlementStore.proProductID`、`KeychainStore`のフォールバック値、`BarcodeSedori.storekit`の商品ID、企画書・LP文言用ドキュメント類を一括更新した。バンドルIDも`com.example.barcodesedori`→`jp.sellira.sellerlens`に変更(開発端末に保存済みのSP-APIリフレッシュトークンはKeychainのサービス名変更により読めなくなるが、未公開アプリのため開発端末のみへの影響)。
+
+URLスキーム`barcodesedori://`はサーバー(`server/src/oauth.js`)にハードコードされているため据え置き(ユーザー判断)。Amazon Developer Consoleの`application_id`(認可フローで参照する値)には影響しない。**ただしAmazon Developer Console上のSP-APIアプリ表示名(まだ「アマレンズ」で登録済み)とSelling Partner Appstoreへの掲載申請は未対応**。掲載申請はまだ行っていないため露出は限定的だが、次回申請時は表示名の更新が必要。
 
 ### 3.【要確認】プライバシーポリシーの公開
 

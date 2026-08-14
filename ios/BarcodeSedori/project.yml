@@ -1,6 +1,6 @@
 name: BarcodeSedori
 options:
-  bundleIdPrefix: com.example
+  bundleIdPrefix: jp.sellira
   deploymentTarget:
     iOS: "16.0"
   createIntermediateGroups: true
@@ -43,10 +43,10 @@ targets:
     info:
       path: Generated/Info.plist
       properties:
-        CFBundleDisplayName: アマレンズ
+        CFBundleDisplayName: セラーレンズ
         # 権限ダイアログ(カメラ・トラッキング許可等)はCFBundleNameを表示するため、
         # 既定のターゲット名(BarcodeSedori)ではなくアプリ名に揃える。
-        CFBundleName: アマレンズ
+        CFBundleName: セラーレンズ
         CFBundleShortVersionString: "1.0"
         CFBundleVersion: "1"
         UILaunchScreen: {}
@@ -59,7 +59,7 @@ targets:
         CFBundleURLTypes:
           - CFBundleURLSchemes:
               - barcodesedori
-            CFBundleURLName: com.example.barcodesedori
+            CFBundleURLName: jp.sellira.sellerlens
         # AdMob: 現在はGoogleのテスト用アプリID。公開前に自分のAdMobアプリIDへ差し替えること。
         GADApplicationIdentifier: "ca-app-pub-3940256099942544~1458002511"
         NSUserTrackingUsageDescription: "広告をあなたに合わせて最適化するために使用します。許可しなくてもアプリは利用できます。"
@@ -119,7 +119,7 @@ targets:
           - SKAdNetworkIdentifier: 3qcr597p9d.skadnetwork
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.example.barcodesedori
+        PRODUCT_BUNDLE_IDENTIFIER: jp.sellira.sellerlens
         MARKETING_VERSION: "1.0"
         CURRENT_PROJECT_VERSION: "1"
         # Resources/Assets.xcassets の AppIcon を使う

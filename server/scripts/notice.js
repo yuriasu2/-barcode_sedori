@@ -320,7 +320,7 @@ async function handleStopNotice(rl, loaded) {
 // --- エントリポイント ---
 
 async function main() {
-  console.log('=== アマレンズ 障害告知の配信 ===');
+  console.log('=== セラーレンズ 障害告知の配信 ===');
   console.log('※ 本番環境(api.sellira.jp)に配信されます');
   console.log('');
   console.log('現在の告知を確認しています...');

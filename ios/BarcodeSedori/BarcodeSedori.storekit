@@ -33,7 +33,7 @@
               "locale" : "ja_JP"
             }
           ],
-          "productID" : "com.example.barcodesedori.pro.monthly",
+          "productID" : "jp.sellira.sellerlens.pro.monthly",
           "recurringSubscriptionPeriod" : "P1M",
           "referenceName" : "Pro Monthly",
           "subscriptionGroupID" : "21C90001",

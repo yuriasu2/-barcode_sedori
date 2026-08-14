@@ -15,7 +15,7 @@ import Security
 /// - Synchronizable は設定しない(iCloud Keychainで他端末へ同期させない)。
 enum KeychainStore {
     /// Keychain項目のサービス名(バンドルIDに紐づける)。
-    private static let service: String = Bundle.main.bundleIdentifier ?? "com.example.barcodesedori"
+    private static let service: String = Bundle.main.bundleIdentifier ?? "jp.sellira.sellerlens"
 
     /// 値を保存する。空文字を渡した場合は削除として扱う。
     @discardableResult

@@ -13,7 +13,7 @@ final class EntitlementStore: ObservableObject {
     static let shared = EntitlementStore()
 
     /// Proサブスクのプロダクト識別子。App Store Connect / `.storekit` の productID と一致させること。
-    static let proProductID = "com.example.barcodesedori.pro.monthly"
+    static let proProductID = "jp.sellira.sellerlens.pro.monthly"
 
     /// APIClient(非メインアクター)が同期で読むためのミラー用UserDefaultsキー。
     /// APIClient側でも同じ文字列を参照する。
