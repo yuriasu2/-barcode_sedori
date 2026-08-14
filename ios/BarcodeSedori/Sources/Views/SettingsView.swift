@@ -178,9 +178,10 @@ final class SettingsViewModel: ObservableObject {
 /// 呼び出してはいけないため、設定画面の「レビューを書く」行はここのURLへ直接ディープリンクする
 /// (ReviewPromptController経由の自動依頼とは別の導線)。
 private enum AppStoreReviewConfig {
-    /// App StoreのアプリID。このアプリは未リリースでIDがまだ存在しないため空文字のまま。
-    /// リリース前に実際のIDを設定すること。空の間は設定行ごと非表示になる(壊れたリンクを出さないため)。
-    static let appId = ""
+    /// App StoreのアプリID(App Store Connectでアプリを登録すると採番される)。
+    /// 2026-08-14にアプリ登録が完了したため設定済み。空の間は設定行ごと非表示になる仕様は
+    /// そのまま残している(万一空に戻したときに壊れたリンクを出さないため)。
+    static let appId = "6801570852"
 }
 
 /// お問い合わせフォームへの導線設定。
