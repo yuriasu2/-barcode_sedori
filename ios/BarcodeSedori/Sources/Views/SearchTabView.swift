@@ -323,6 +323,14 @@ struct SearchTabView: View {
                     } else {
                         freeAdArea
                     }
+
+                    // 検索広告バナーはグラフの有無に関わらず常時表示する(非Pro全員が対象。
+                    // 他の広告枠と同じく、7日間お試し中も広告は隠さない=isProのみで判定)。
+                    // 枠切れ時のfreeAdAreaにも同じスロットIDの広告を出すと二重表示になるため、
+                    // ここへ集約した(freeAdArea側からはAdSlotViewを取り除いてある)。
+                    if !entitlements.isPro {
+                        AdSlotView(slotId: "search_ad")
+                    }
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
@@ -634,7 +642,8 @@ struct SearchTabView: View {
     /// カメラ側のオーバーレイと重複しない。その場合は引き続きここで案内する。
     private var freeAdArea: some View {
         VStack(spacing: 8) {
-            AdSlotView(slotId: "search_ad")
+            // 広告バナー(AdSlotView)はbody側で常時表示するようになったため、ここには置かない
+            // (二重表示を避けるため)。ここに残すのは枠切れ時のPro案内のみ。
 
             if showsGraphQuotaGuidance {
                 // 「動画を見てグラフを見る」(リワード広告でグラフ枠を延長する導線)は廃止した。
