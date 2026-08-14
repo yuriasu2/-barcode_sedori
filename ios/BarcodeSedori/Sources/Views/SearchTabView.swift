@@ -298,6 +298,10 @@ struct SearchTabView: View {
     @Environment(\.requestReview) private var requestReview
     /// ATT(トラッキング許可)事前説明ダイアログの表示状態。
     @ObservedObject private var attPrompt = AttPromptController.shared
+    /// カメラへのアクセス許可状態。未許可時の案内オーバーレイの表示可否に使う。
+    @ObservedObject private var cameraPermission = CameraPermissionStore.shared
+    /// 設定アプリから戻ってきたときにカメラ許可状態を再取得するため監視する。
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         NavigationView {
@@ -422,6 +426,13 @@ struct SearchTabView: View {
         .task {
             await checkLaunchReviewTriggerIfNeeded()
         }
+        // 設定アプリでカメラ許可を変更してアプリへ戻ってきたとき、案内オーバーレイを
+        // 即座に消す(または出す)ためにアクティブ復帰のたびに最新状態を取り直す。
+        .onChange(of: scenePhase) { newPhase in
+            if newPhase == .active {
+                CameraPermissionStore.shared.refresh()
+            }
+        }
     }
 
     /// 起動のたびに1回だけ、少し待ってから「今アイドル状態か」を再確認してレビュー依頼を検討する。
@@ -500,6 +511,23 @@ struct SearchTabView: View {
                     },
                     onWatchAdTap: { startRewardedAdFlow() },
                     onSpApiLinkTap: { AppNavigation.shared.opensAmazonLink = true }
+                )
+            }
+        }
+        // カメラ許可の案内。次の2条件をすべて満たすときだけ出す。
+        // ①isQuotaExhausted == false: 枠切れが優先。枠切れ中はカメラ許可を得てもスキャンできず、
+        //   「設定で許可して戻ってきたのにスキャンできない」という混乱を招くため、その場で解決できる
+        //   行動を示す枠切れ側の案内(動画視聴・Pro案内)を優先する。
+        // ②status が .denied または .restricted: .notDetermined のときはiOSが
+        //   AVCaptureDeviceInput生成時(ScannerView.configureSessionIfNeeded)に自動でシステム
+        //   ダイアログを出すため、自前の案内を重ねると二重表示になる。
+        // .restrictedは設定アプリで解除できない場合があるが、何が起きているか分からないよりは
+        // よいため案内自体は出す。
+        .overlay {
+            if !isQuotaExhausted
+                && (cameraPermission.status == .denied || cameraPermission.status == .restricted) {
+                CameraPermissionOverlay(
+                    onOpenSettings: { CameraPermissionStore.shared.openSettings() }
                 )
             }
         }
