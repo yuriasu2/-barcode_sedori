@@ -135,7 +135,11 @@ plutil -p ~/Library/Developer/Xcode/DerivedData/BarcodeSedori-*/Build/Products/D
 **`NSPrivacyTrackingDomains` の調べ方**(Googleは公式リストを公開していないため実測が必要):
 Xcodeでアプリを実機実行 → デバッグナビゲータ → Network → 「Profile in Instruments」→ **Restart**を選択(起動時の通信も取るため)→ 広告が出る画面を一通り操作 → 停止 → 「Points of Interest」に `Fault: <ドメイン> is not listed in your app's NSPrivacyTrackingDomain key...` として**Xcodeが名指しで教えてくれる**。
 
-2026-08-14の実測で判明したドメイン(記載済み): `googleads.g.doubleclick.net` / `g.doubleclick.net` / `www.googleadservices.com` / `pagead2.googlesyndication.com`。ただし計測結果には **`<private>` と伏せられた項目が最多(42件)** 残っており、まだ未特定のドメインがある可能性がある。**マニフェストがバンドルに入るようになった状態で再計測し、警告が消えるか要確認**。
+2026-08-14の実測で判明したドメイン(記載済み): `googleads.g.doubleclick.net` / `g.doubleclick.net` / `www.googleadservices.com` / `pagead2.googlesyndication.com`。
+
+**重要: Instrumentsの警告が消えるかどうかは検証に使えない。** マニフェストをバンドルに含めた状態で再計測しても、記載済みの4件を含め警告(Fault)が出続けることを確認した。これは**Appleの既知のバグ**で、Apple社員がフォーラムで「NSPrivacyTrackingDomainsに追加すればfaultは出ないはず。バグのようなのでフィードバック報告してほしい」と回答している([forums/thread/744659](https://developer.apple.com/forums/thread/744659))。計測結果に `<private>`(80件)が残る点も同じバグの影響とみられ、**この計測からは未特定ドメインの有無を判断できない**。
+
+**確実な検証方法**: Xcode Organizer の **Generate Privacy Report**(アーカイブから実際のプライバシー情報のレポートを生成する公式機能)。アーカイブ作成が必要なため、**App Store提出用ビルドを作るタイミングで確認する**のが効率的。
 
 **注意**: ここに書いたドメインは、ATT未許可のユーザーに対してOSが接続を遮断する。書きすぎると広告配信が壊れるため、ATTを「許可しない」にした状態で広告が出るかの確認も推奨。
 
