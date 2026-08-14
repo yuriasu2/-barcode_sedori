@@ -143,6 +143,28 @@ Xcodeでアプリを実機実行 → デバッグナビゲータ → Network →
 
 **注意**: ここに書いたドメインは、ATT未許可のユーザーに対してOSが接続を遮断する。書きすぎると広告配信が壊れるため、ATTを「許可しない」にした状態で広告が出るかの確認も推奨。
 
+### マニフェストとApp Store Connectのプライバシー申告の使い分け
+
+**両方必要で、役割が違う**。片方だけでは不十分で、両者が矛盾していると審査で問題になる。
+
+| | 役割 | 何を書くか |
+|---|---|---|
+| `PrivacyInfo.xcprivacy` | 機械向け。Appleがバイナリを解析し、宣言と実際の挙動の一致を機械的に検証する | **自社アプリのコードが収集する分**。SDK分は各SDKが自前のマニフェストを同梱しており、Appleがアプリと全SDKの分を**合算して**評価するため書かなくてよい |
+| App Store Connectのプライバシー申告(Webフォーム) | 人間向け。App Store製品ページの「プライバシー」欄になる | **SDK分も含めた全体**。ここはアプリ提供者の責任範囲 |
+
+つまり **AdMob分をマニフェストに追加する必要はない**(Google側が申告済み)。代わりに**提出時のWebフォームでAdMob分を漏れなく申告する**こと。Googleが申告すべき内容を公式に公開している: <https://developers.google.com/admob/ios/privacy/data-disclosure>
+
+なお2026-08-14に追加したPostHog分(`NSPrivacyCollectedDataTypeOtherUsageData`)は、上記の整理からすると厳密には過剰(PostHog SDKが自前で申告済み)。ただし実態と矛盾せず害は無いためそのままにしている。
+
+### PostHogとATTの関係(2026-08-14確認)
+
+**PostHogにATTの許可は不要**。根拠:
+- PostHog SDK同梱のマニフェストで、収集データ2種とも `NSPrivacyCollectedDataTypeTracking = false` / `Linked = false` と申告。`NSPrivacyTracking` キー自体が無い
+- SDK内に `ASIdentifierManager` / `advertisingIdentifier` の参照がゼロ(IDFA不使用)
+- アプリ側も `distinct_id` を設定せず匿名IDのまま(`Analytics.swift`)。端末のdeviceIdと突き合わせられない
+
+Appleの言う「トラッキング」= 他社アプリ/サイトのデータと紐付けた個人識別 に当たらないため。**ATTを拒否されてもPostHogの計測は継続する**(広告が非パーソナライズになるだけ)。ATTが要るのは**AdMobのみ**。
+
 ## 未解決の課題(次のセッションで判断・対応が必要)
 
 ### 1.【要判断】AdMobリワード広告のSSV(報酬付与)が機能しない
