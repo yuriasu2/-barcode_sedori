@@ -17,11 +17,29 @@
         <string>www.googleadservices.com</string>
         <string>pagead2.googlesyndication.com</string>
     </array>
+    <!-- 収集データはアプリ自身のものに加え、組み込んでいるSDKが申告しているものも含める必要がある。
+         下記2件はPostHog SDK同梱のPrivacyInfo.xcprivacyの申告内容に合わせたもの
+         (2026-08-14にSDK実物を確認)。PostHogはIDFAを一切参照せず、SDK自身も
+         NSPrivacyCollectedDataTypeTracking=falseと申告しているため、ATTの許可対象外
+         (Appleの言う「トラッキング」= 他社アプリ/サイトのデータと紐付けた個人識別 に当たらない)。
+         このアプリ側もdistinct_idを設定せず匿名IDのままにしている(Analytics.swift参照)。 -->
     <key>NSPrivacyCollectedDataTypes</key>
     <array>
         <dict>
             <key>NSPrivacyCollectedDataType</key>
             <string>NSPrivacyCollectedDataTypeProductInteraction</string>
+            <key>NSPrivacyCollectedDataTypeLinked</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypeTracking</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypePurposes</key>
+            <array>
+                <string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
+            </array>
+        </dict>
+        <dict>
+            <key>NSPrivacyCollectedDataType</key>
+            <string>NSPrivacyCollectedDataTypeOtherUsageData</string>
             <key>NSPrivacyCollectedDataTypeLinked</key>
             <false/>
             <key>NSPrivacyCollectedDataTypeTracking</key>
