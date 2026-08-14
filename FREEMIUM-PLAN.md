@@ -19,23 +19,22 @@
   - ⏳ **アカウント（ログイン）は未着手・将来実装予定**（詳細は下記「4.2d アカウント（ログイン）— 将来実装予定」参照）。
 - **共有コスト削減**: ✅ Keepa経路の検索/オファー結果を **30分キャッシュ**に延長（`KEEPA_CACHE_TTL_MS`）。SP-API経路はBYOのため既定5分のまま。
 
-### 公開前 必須TODO（未対応）
-- サーバー `.env` から `LWA_REFRESH_TOKEN` を外す（置くと全ユーザーが開発者のSP-API枠にフォールバックしBYO前提が崩れる。clientId/clientSecretのみ）。
-- バンドルID `com.example.barcodesedori` → 本番IDへ変更。
-- **AdMob を本番IDへ差し替え**。差し替え箇所は**2系統あり、両方やらないと本番配信にならない**。
-  - **アプリ側**: `project.yml` の `GADApplicationIdentifier`（現在Googleのテスト用アプリID `ca-app-pub-3940256099942544~1458002511`）。変更後は `xcodegen generate` が必要。
-  - **サーバー側（KV `ADS_CONFIG` の `config`）**: 各スロットの `unitId`。現在は全スロットがGoogleのテストIDになっている（`search_ad` / `products_bottom` / `settings_bottom` / `rewarded_scan`）。**アプリ更新なしで差し替えられる**のが利点だが、逆にアプリ側だけ直しても本番にならない点に注意。
-    - 更新コマンド（**`--remote` 必須**。wrangler v4は既定でローカル環境を見るため、付け忘れると本番を見ずに「値が無い」と誤認する）:
-      `npx wrangler kv key get "config" --namespace-id <ADS_CONFIG_ID> --remote` で現在値を取得 → 編集 → `npx wrangler kv key put "config" --path <file> --namespace-id <ADS_CONFIG_ID> --remote`
-    - 書き換え時は `version` を1つ上げること（アプリ側キャッシュの更新契機になる）。
-  - **開発中にテストIDへ戻す理由**: 本番IDのまま自分で広告をタップすると無効なトラフィックと判定され、AdMobアカウント停止のリスクがある。また未公開アプリの新規ユニットは在庫が無く `No ad to show`（No Fill）になり動作確認できない。
-- PrivacyInfo の TrackingDomains 記載（SKAdNetworkの全50件追加は対応済み）。
-- 試験用の手動SP-APIキー入力欄（`SettingsView` の SecureField）を削除しOAuthのみに。
-- **PostHog**: APIキーとホスト（USリージョン）は `Analytics.swift` の `AnalyticsConfig` に設定済み。**併せてプライバシーポリシーに「分析ツール（PostHog）へ利用状況を送信する」旨の記載が必須**。App Store Connectのプライバシー表示でも「使用状況データ → 製品操作」を申告する（`PrivacyInfo.xcprivacy` は対応済み）。なおAmazon DPP上、ASIN・JAN・価格・出品者ID等のAmazon由来データは送ってはならず、`Analytics.swift` はそれを型で防ぐ設計になっている（同ファイル冒頭のコメント参照）。
-- **プライバシーポリシーのページを `https://sellira.jp/privacy/` に公開する**（別リポジトリ sellira-site）。課金画面（`PaywallView` の `LegalConfig.privacyPolicyURL`）から直接リンクしており、ページが無いとリンク切れになる。Appleのガイドライン3.1.2は自動更新サブスクリプションのアプリに「利用規約」と「プライバシーポリシー」への**機能する**リンクをアプリ内に持つことを求めているため、**未公開のままだと審査に落ちる**。利用規約側はApple標準EULAのURLを使っているため対応不要。URLを変える場合は `LegalConfig` も合わせて直すこと。
-- **App Store アプリIDを `SettingsView.swift` の `AppStoreReviewConfig.appId` に設定する**（現在は空文字）。App Store Connect でアプリを登録すると採番される数字のID。空の間は設定タブの「レビューを書く」行が非表示になり、レビューページへの導線が存在しない状態のまま公開されてしまう。自動のレビュー依頼（`ReviewPromptController`）はIDに依存しないため動作するが、**設定からユーザーが自発的にレビューを書く導線だけが欠ける**ので気付きにくい。
-- （推奨・非ブロッカー）SP-API refresh token を UserDefaults → Keychain へ移行。
-- （公開前・偽装対策）自己申告 X-App-Plan を廃し、App Store Server API レシート検証を導入。
+### 公開前 必須TODO（2026-08-14時点で更新。完了したものは取り消し線）
+
+- ~~サーバー `.env` から `LWA_REFRESH_TOKEN` を外す~~ → 本番はCloudflare Workersのため`.env`自体がデプロイされない。代わりに`wrangler secret list`でSecretに登録されていないことを確認する運用に変更（詳細は4.2の該当箇所）。
+- ~~バンドルID `com.example.barcodesedori` → 本番ID~~ `jp.sellira.sellerlens` に変更済み（2026-08-14）。
+- ~~AdMob を本番IDへ差し替え~~ アプリ側（`GADApplicationIdentifier`）・サーバー側KVとも本番ID取得・設定済み。**ただし開発中は動作確認のためKVをテストIDへ戻してある**（未公開アプリの本番ユニットはNo Fillで広告が出ないため）。本番IDと切り替え手順はSESSION-HANDOFF.mdの「AdMob本番IDと切り替え運用」に記録済み。
+- ~~PrivacyInfo の TrackingDomains 記載~~ 実測して記載済み（2026-08-14）。**ただし`PrivacyInfo.xcprivacy`が長期間アプリバンドルに含まれていない不具合があり、この記載も含めて何も効いていなかった**。`project.yml`の`sources:`への個別ファイル指定で修正済み。SESSION-HANDOFF.mdの「プライバシーマニフェスト」参照。
+- ~~試験用の手動SP-APIキー入力欄を削除~~ 対応済み（`SecureField`は現在Keepa BYOキー欄のみで、これは意図通り）。
+- **PostHog**: APIキー設定済み。プライバシーポリシーへの記載、App Store Connectのプライバシー表示申告は**未対応のまま**（下記参照）。
+- **プライバシーポリシーのページを `https://sellira.jp/privacy/` に公開する**（別リポジトリ sellira-site）。ページ自体は存在確認済み（2026-08-13）だが、**本番デプロイ済みかは未確認**。課金画面から直接リンクしており、未公開だと審査に落ちる。
+- **App Store アプリIDを `SettingsView.swift` の `AppStoreReviewConfig.appId` に設定する**（現在は空文字）。**App Store Connectでのアプリ登録が前提**。空の間は設定タブの「レビューを書く」行が非表示のまま公開されてしまう。
+- ~~SP-API refresh token を UserDefaults → Keychain へ移行~~ 対応済み。**あわせて出品者ID(sellerId)もKeychainへ移行済み**（2026-08-14。再インストールで連携が壊れるバグの修正。SESSION-HANDOFF.md参照）。
+- （公開前・偽装対策・未対応）自己申告 X-App-Plan を廃し、App Store Server API レシート検証を導入。
+- **App Store Connectのプライバシー申告（Webフォーム）を提出時に記入する**。`PrivacyInfo.xcprivacy`はアプリ自身のコード分のみでよい（AdMob/PostHog等SDK分は各SDKが自前で申告済みのためマニフェストへの追記は不要）が、**Webフォームの方はSDK分も含めて申告する必要がある**。AdMobの申告内容はGoogleが公開: <https://developers.google.com/admob/ios/privacy/data-disclosure>。詳細はSESSION-HANDOFF.mdの「マニフェストとApp Store Connectのプライバシー申告の使い分け」参照。
+- **無認証で公開されているデモ用エンドポイント2本**（`/api/keepa-throttle-demo/seed` `/probe`）にIPレート制限を追加済み（2026-08-14）。エンドポイント自体は本番検証用に維持する判断（削除しない）。
+- リワード広告のSSVコールバックURL（`https://api.sellira.jp/api/admob/ssv`）をAdMobコンソールで設定する（ユーザー作業・未対応）。
+- **忘れずに: Xcodeでアーカイブ（配布用ビルド）を作る際は必ずReleaseビルド構成にすること。** DEBUG限定の開発者向け機能（`EntitlementStore`のPro強制フラグ、Keepaスロットルのデモ機能等）は`#if DEBUG`で確実に除外されるため、Release構成でアーカイブすれば混入の心配はない（Debug構成のままアーカイブしようとするとXcodeが警告する）。Xcode Organizerでの「Generate Privacy Report」もこのタイミングで確認する（Instrumentsの警告はAppleの既知バグで信頼できないため）。
 
 ## 1. 目的
 
