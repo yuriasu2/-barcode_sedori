@@ -19,9 +19,14 @@ final class SettingsStore: ObservableObject {
         static let spapiLinkEnabled = "settings.spapiLinkEnabled"
         /// 旧: UserDefaultsに平文保存していたキー。現在はKeychainへ移行済み(初回起動時に自動移行して削除)。
         static let legacySpapiRefreshToken = "settings.spapiRefreshToken"
-        /// OAuth認可コールバックのselling_partner_id(公開の出品者ID)。
-        /// リフレッシュトークンと異なり機密度が低いためKeychainではなくUserDefaultsに保存する。
-        static let spapiSellerId = "settings.spapiSellerId"
+        /// 旧: UserDefaultsに平文保存していたselling_partner_id(公開の出品者ID)。
+        /// 現在はKeychainへ移行済み(初回起動時に自動移行して削除)。
+        ///
+        /// 当初は「機密度が低いためUserDefaultsで十分」という判断だったが、リフレッシュトークンは
+        /// Keychainに残る一方でこちらはアプリ再インストール時に消えてしまい、連携済みに見えるのに
+        /// 出品者IDだけが空になるという不整合(出品制限・出品が黙って使えなくなるバグ)の原因になった。
+        /// このため、機密度に関わらず永続性をリフレッシュトークンと揃えるためKeychainへ移した。
+        static let legacySpapiSellerId = "settings.spapiSellerId"
         /// 旧: クライアント側で計算していたお試し開始日時(timeIntervalSince1970)。
         /// サーバー権威化(sellerTrial.js)により読まなくなった。書いていたデータはそのまま放置してよい
         /// (このキー自体は再利用しない。新キーはspapiTrialExpiresAtCache)。
@@ -111,6 +116,9 @@ final class SettingsStore: ObservableObject {
     /// Keychain上のアカウント名(Keepa APIキー用)。
     private static let keychainKeepaApiKeyAccount = "keepa.apiKey"
 
+    /// Keychain上のアカウント名(SP-API出品者ID用)。
+    private static let keychainSellerIdAccount = "spapi.sellerId"
+
     private let defaults: UserDefaults
 
     @Published var serverURLString: String {
@@ -145,9 +153,12 @@ final class SettingsStore: ObservableObject {
     /// SP-API出品者ID(selling_partner_id)。OAuth認可コールバックでAmazonから受け取る公開ID。
     /// Sellers APIからは取得不可能(応答にsellerId相当のフィールドが無い)なため、認可時に一度だけ
     /// 受け取ってここに保持し、出品系APIリクエストのヘッダー(X-Spapi-Seller-Id)で送る。
+    ///
+    /// リフレッシュトークンと同じくKeychainに保存する(理由はKeys.legacySpapiSellerId参照)。
+    /// アプリ再インストール時もKeychainは残るため、トークンと出品者IDの永続性が揃う。
     @Published var spapiSellerId: String {
         didSet {
-            defaults.set(spapiSellerId, forKey: Keys.spapiSellerId)
+            KeychainStore.set(spapiSellerId, for: Self.keychainSellerIdAccount)
         }
     }
 
@@ -530,7 +541,8 @@ final class SettingsStore: ObservableObject {
         self.defaults = defaults
         self.serverURLString = defaults.string(forKey: Keys.serverURL) ?? Self.defaultServerURL
         self.spapiLinkEnabled = defaults.bool(forKey: Keys.spapiLinkEnabled)
-        self.spapiSellerId = defaults.string(forKey: Keys.spapiSellerId) ?? ""
+        // 出品者IDはKeychainから読む(移行処理はリフレッシュトークンと合わせて後段でまとめて行う)。
+        self.spapiSellerId = ""
         if let cachedExpiresAt = defaults.object(forKey: Keys.spapiTrialExpiresAtCache) as? Double {
             self.spapiTrialExpiresAt = Date(timeIntervalSince1970: cachedExpiresAt)
         } else {
@@ -633,6 +645,21 @@ final class SettingsStore: ObservableObject {
             defaults.removeObject(forKey: Keys.legacySpapiRefreshToken)
         }
 
+        // 出品者IDもリフレッシュトークンと同じ作法でKeychainから読む。
+        // 旧バージョンでUserDefaultsに平文保存されていた場合は、ここでKeychainへ移行し削除する。
+        if let keychainSellerId = KeychainStore.get(Self.keychainSellerIdAccount) {
+            self.spapiSellerId = keychainSellerId
+        } else if let legacySellerId = defaults.string(forKey: Keys.legacySpapiSellerId),
+                  !legacySellerId.isEmpty {
+            self.spapiSellerId = legacySellerId
+            KeychainStore.set(legacySellerId, for: Self.keychainSellerIdAccount)
+            defaults.removeObject(forKey: Keys.legacySpapiSellerId)
+        } else {
+            self.spapiSellerId = ""
+            // 空文字のまま残っている旧キーも掃除しておく。
+            defaults.removeObject(forKey: Keys.legacySpapiSellerId)
+        }
+
         // Keepa APIキーも同じ作法でKeychainから読む。
         // 2026-08の初期実装ではUserDefaultsに平文保存していたため、その値をKeychainへ移行して平文を削除する。
         if let keychainKeepaKey = KeychainStore.get(Self.keychainKeepaApiKeyAccount) {
@@ -651,6 +678,12 @@ final class SettingsStore: ObservableObject {
         // 旧トグルをOFFのまま(=spapiLinkEnabled=false)でもリフレッシュトークンだけは
         // 既に持っている利用者がいる場合、新画面にはONにする手段が無いため連携済み扱いに
         // ならず詰んでしまう。トークンが非空ならここで有効化して救済する。
+        //
+        // 注意: この処理は「旧トグルOFFのまま」以外に、アプリ再インストール時にも発動する。
+        // Keychain(リフレッシュトークン)は再インストール後も残るがUserDefaults
+        // (spapiLinkEnabled)は消えるため、ここでtrueに戻ってしまう。出品者ID(spapiSellerId)を
+        // Keychainへ移す前はこれが「連携済みと表示されるのに出品者IDが空で出品が黙って
+        // 使えなくなる」バグの一因だった(現在はneedsSpApiRelinkで不整合を検出して案内する)。
         if !self.spapiLinkEnabled && !self.spapiRefreshToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             self.spapiLinkEnabled = true
         }
@@ -720,6 +753,15 @@ final class SettingsStore: ObservableObject {
     var isListingReady: Bool {
         isSpApiLinkUsable
             && !spapiSellerId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// リフレッシュトークンはあるのに出品者IDが空という不整合状態か。
+    /// 再インストール時にKeychain(トークン)だけが残りUserDefaults(出品者ID)が消えると発生した。
+    /// 出品者IDはOAuth再認可時にしか取得できないため、この状態は再連携でしか解消できない。
+    /// 連携済みと見せかけたまま出品制限・出品が黙って使えなくなるのを防ぐため、明示的に検出する。
+    var needsSpApiRelink: Bool {
+        !spapiRefreshToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && spapiSellerId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     /// 出品フォームがコンディション選択に応じて自動適用するテンプレート本文を返す。

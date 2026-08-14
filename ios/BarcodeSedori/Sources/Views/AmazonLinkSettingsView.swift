@@ -37,12 +37,23 @@ struct AmazonLinkSettingsView: View {
 
                     // 連携状態はボタンの右隣に出す。押す対象と現在の状態を横に並べることで、
                     // 「押す前/押した後」がひと目で分かるようにする。
-                    Text(settings.isSpApiLinkUsable ? "連携済み" : "未連携")
+                    // needsSpApiRelink(トークンはあるが出品者IDが空という不整合)のときは
+                    // 「連携済み」と出すと矛盾するため、そちらを優先して「再連携が必要です」と出す。
+                    Text(statusText)
                         .font(.subheadline)
                         .fontWeight(.semibold)
-                        .foregroundColor(settings.isSpApiLinkUsable ? .blue : .secondary)
+                        .foregroundColor(statusColor)
 
                     Spacer(minLength: 0)
+                }
+
+                // 出品に必要な情報が欠けている(再インストール等でKeychainの出品者IDだけが
+                // 消えた等)ときの案内。既存のログインボタンで再認可すれば解消するため、
+                // 新しいボタンは作らず上のログインボタンへ誘導するだけにする。
+                if settings.needsSpApiRelink {
+                    Text("アプリの再インストールなどにより、出品に必要な情報が失われています。お手数ですが、もう一度ログインしてください。")
+                        .font(.footnote)
+                        .foregroundColor(.orange)
                 }
 
                 // 連携中のときだけ出す。未連携で押せても消すものが無く、意味が無いため。
@@ -122,6 +133,23 @@ struct AmazonLinkSettingsView: View {
                 dismissButton: .default(Text("OK"))
             )
         }
+    }
+
+    /// 連携状態の表示文言。needsSpApiRelink(トークンはあるが出品者IDが空の不整合)を
+    /// 「連携済み」より優先して出す(矛盾した表示を避けるため)。
+    private var statusText: String {
+        if settings.needsSpApiRelink {
+            return "再連携が必要です"
+        }
+        return settings.isSpApiLinkUsable ? "連携済み" : "未連携"
+    }
+
+    /// statusTextに対応する色。
+    private var statusColor: Color {
+        if settings.needsSpApiRelink {
+            return .orange
+        }
+        return settings.isSpApiLinkUsable ? .blue : .secondary
     }
 
     /// お試し期間中に使えるようになるPro機能。文言はこの1箇所だけを直せばよいようにまとめる。
