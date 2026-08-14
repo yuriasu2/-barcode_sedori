@@ -34,9 +34,13 @@ targets:
       # Asset Catalog(アプリアイコン)。XcodeGenでは resources ではなく sources に
       # 指定しないとビルドフェーズに入らず、Assets.car が生成されない。
       - path: Assets.xcassets
-    resources:
-      - path: Resources
-        optional: true
+      # PrivacyInfo.xcprivacy(プライバシーマニフェスト)も同様の問題があり、
+      # resources: に Resources フォルダごと指定してもCopy Bundle Resourcesフェーズに
+      # 追加されず、アプリバンドル直下に含まれない(XcodeGen 2.45.4で確認)。
+      # sources: にファイルを個別指定することで確実にバンドル直下へコピーされる。
+      # Resources フォルダごと sources に入れると .gitkeep もバンドルに混入するため、
+      # ファイル単位で指定している。
+      - path: Resources/PrivacyInfo.xcprivacy
     dependencies:
       - package: GoogleMobileAds
       - package: PostHog
