@@ -43,7 +43,7 @@
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>同一Wi-Fi内のPCで動作する価格検索サーバーに接続するためにローカルネットワークを使用します。</string>
 	<key>NSUserTrackingUsageDescription</key>
-	<string>広告をあなたに合わせて最適化するために使用します。許可しなくてもアプリは利用できます。</string>
+	<string>あなたに関係のある広告を表示するために使用します。無関係な広告が減り、アプリを無料で使い続けられます。</string>
 	<key>SKAdNetworkItems</key>
 	<array>
 		<dict>

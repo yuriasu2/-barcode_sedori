@@ -1,6 +1,5 @@
 import SwiftUI
 import GoogleMobileAds
-import AppTrackingTransparency
 
 @main
 struct BarcodeSedoriApp: App {
@@ -36,18 +35,7 @@ struct BarcodeSedoriApp: App {
                     // 行動ログ計測(PostHog)。APIキー未設定の間は内部で何もしない。
                     Analytics.shared.start()
                     Analytics.shared.capture(.appLaunched)
-                    await requestTrackingIfNeeded()
                 }
-        }
-    }
-
-    /// ATT(トラッキング許可)を要求する。起動直後は他のシステムダイアログと競合しやすいため少し待つ。
-    /// 許可の有無に関わらず広告は表示できる(未許可時は非パーソナライズ広告)。
-    private func requestTrackingIfNeeded() async {
-        guard AdsConfig.enabled else { return }
-        try? await Task.sleep(nanoseconds: 1_500_000_000)
-        if ATTrackingManager.trackingAuthorizationStatus == .notDetermined {
-            ATTrackingManager.requestTrackingAuthorization { _ in }
         }
     }
 }

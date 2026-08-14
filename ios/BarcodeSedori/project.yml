@@ -66,7 +66,7 @@ targets:
             CFBundleURLName: jp.sellira.sellerlens
         # AdMob: 本番のAdMobアプリID。
         GADApplicationIdentifier: "ca-app-pub-2265019305495449~6870745818"
-        NSUserTrackingUsageDescription: "広告をあなたに合わせて最適化するために使用します。許可しなくてもアプリは利用できます。"
+        NSUserTrackingUsageDescription: "あなたに関係のある広告を表示するために使用します。無関係な広告が減り、アプリを無料で使い続けられます。"
         # SKAdNetwork: Google Mobile Ads SDKが要求する全50件(developers.google.com/admob/ios/ios14 記載)。
         # 不足しているとGoogleのSDKが起動時に警告を出し、実際の広告(テスト広告ではなく本番在庫)の
         # 入札に参加できる広告主の範囲が狭まり在庫が減る(fillしにくくなる)。
