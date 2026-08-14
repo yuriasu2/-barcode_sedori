@@ -60,8 +60,8 @@ targets:
           - CFBundleURLSchemes:
               - barcodesedori
             CFBundleURLName: jp.sellira.sellerlens
-        # AdMob: 現在はGoogleのテスト用アプリID。公開前に自分のAdMobアプリIDへ差し替えること。
-        GADApplicationIdentifier: "ca-app-pub-3940256099942544~1458002511"
+        # AdMob: 本番のAdMobアプリID。
+        GADApplicationIdentifier: "ca-app-pub-2265019305495449~6870745818"
         NSUserTrackingUsageDescription: "広告をあなたに合わせて最適化するために使用します。許可しなくてもアプリは利用できます。"
         # SKAdNetwork: Google Mobile Ads SDKが要求する全50件(developers.google.com/admob/ios/ios14 記載)。
         # 不足しているとGoogleのSDKが起動時に警告を出し、実際の広告(テスト広告ではなく本番在庫)の

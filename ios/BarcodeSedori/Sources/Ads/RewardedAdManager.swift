@@ -17,9 +17,11 @@ final class RewardedAdManager: ObservableObject {
 
     /// AdsConfigStoreから引くリワード広告枠のスロットID。
     private static let slotId = "rewarded_scan"
-    /// Google公式のテスト用リワード広告ユニットID(サーバー設定が無い場合のフォールバック)。
-    /// 本番ユニットIDはサーバーの /api/ads で配信し、アプリ更新なしで差し替えられるようにする。
+    #if DEBUG
+    /// Google公式のテスト用リワード広告ユニットID。開発中に必ず在庫が返るようにするためのテストID。
+    /// Releaseでは使わない(本番ユニットIDはサーバーの /api/ads で配信し、アプリ更新なしで差し替えられるようにする)。
     private static let fallbackUnitId = "ca-app-pub-3940256099942544/1712485313"
+    #endif
 
     /// 広告を読み込み中か(ボタンのスピナー表示用)。
     @Published private(set) var isLoading = false
@@ -53,12 +55,18 @@ final class RewardedAdManager: ObservableObject {
     /// 表示に使う広告ユニットIDを解決する。
     ///   1. サーバー配信設定(/api/ads)のスロット `rewarded_scan` がadmob型ならそのunitId。
     ///      アプリ更新なしでユニットIDを差し替え・停止できるようにするため最優先で使う。
-    ///   2. 未配信ならGoogle公式のテストユニットIDへフォールバックする(開発中に必ず在庫が返るため)。
-    private var resolvedUnitId: String {
+    ///   2. 未配信の場合、DEBUGビルドではGoogle公式のテストユニットIDへフォールバックする
+    ///      (開発中に必ず在庫が返るため)。Releaseではnilを返し、広告を出さない
+    ///      (実ユーザーにテスト広告を見せるより、出さない方が安全という判断)。
+    private var resolvedUnitId: String? {
         if case .admob(let slot)? = AdsConfigStore.shared.slots[Self.slotId] {
             return slot.unitId
         }
+        #if DEBUG
         return Self.fallbackUnitId
+        #else
+        return nil
+        #endif
     }
 
     /// 広告を先読みしておく(枠切れオーバーレイが出る前に呼ぶ想定)。
@@ -138,8 +146,13 @@ final class RewardedAdManager: ObservableObject {
             task = loadTask
             token = loadToken
         } else {
+            guard let unitId = resolvedUnitId else {
+                // Releaseでサーバー配信設定(/api/ads)が無い場合。テスト広告を出すより
+                // 出さない方が安全なため、ここで諦める(呼び出し側には従来通りnilで伝わる)。
+                print("[RewardedAdManager] サーバー設定が無いためリワード広告を読み込まない")
+                return nil
+            }
             isLoading = true
-            let unitId = resolvedUnitId
             task = Task { await Self.load(unitId: unitId) }
             token = UUID()
             loadTask = task
