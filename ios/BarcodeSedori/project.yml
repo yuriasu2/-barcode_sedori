@@ -123,6 +123,11 @@ targets:
           - SKAdNetworkIdentifier: 3qcr597p9d.skadnetwork
     settings:
       base:
+        # iPhone専用(1)。プロジェクト全体のsettings.baseにも書いているが、そちらだけだと
+        # ターゲット側の既定値(1,2 = iPhone+iPad)に上書きされてiPad対応と判定され、
+        # 「iPadマルチタスク対応のため4方向すべての向きを指定せよ」というエラーで
+        # App Store Connectへのアップロードが弾かれる(90474)。ターゲット側に明示すること。
+        TARGETED_DEVICE_FAMILY: "1"
         PRODUCT_BUNDLE_IDENTIFIER: jp.sellira.sellerlens
         MARKETING_VERSION: "1.0"
         CURRENT_PROJECT_VERSION: "1"
