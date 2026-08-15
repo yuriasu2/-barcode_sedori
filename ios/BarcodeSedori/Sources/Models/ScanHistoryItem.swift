@@ -22,13 +22,20 @@ struct ScanHistoryItem: Codable, Equatable, Identifiable {
     /// 旧形式で保存された履歴データにはこのキーが存在しないため、Optionalにして後方互換を保つ
     /// (自動合成のDecodableはOptionalプロパティのキー欠如を許容するため、旧データも履歴が消えずに読める)。
     var offersResult: OffersResult?
+    /// スキャン時点で利益アラートの条件に該当したか。
+    /// 判定に使うbreakEven(損益分岐点)は履歴に保存していないため表示時の再計算ができず、
+    /// スキャン時の判定結果をここに記録する。したがってこれは「スキャン当時の設定・価格で
+    /// 条件を満たしていた」という記録であり、現在の相場や設定での再判定結果ではない。
+    /// 旧データとの互換性のためOptional(nil = 判定なし。非Proユーザーや導入前のデータ)。
+    var profitAlertTriggered: Bool?
 
     init(
         id: UUID = UUID(),
         scannedAt: Date = Date(),
         scannedCode: String,
         result: SearchResult,
-        offersResult: OffersResult? = nil
+        offersResult: OffersResult? = nil,
+        profitAlertTriggered: Bool? = nil
     ) {
         self.id = id
         self.scannedAt = scannedAt
@@ -43,5 +50,6 @@ struct ScanHistoryItem: Codable, Equatable, Identifiable {
         self.listPrice = result.profitInputs?.listPrice
         self.releaseDate = result.releaseDate
         self.offersResult = offersResult
+        self.profitAlertTriggered = profitAlertTriggered
     }
 }

@@ -141,7 +141,14 @@ final class SearchTabViewModel: ObservableObject {
             startListingRestrictionCheck(asin: result.asin)
 
             if result.codeType != .unresolved {
-                let historyItem = ScanHistoryItem(scannedCode: code, result: result)
+                // profitAlertVerdictはhandleScan冒頭でnilにリセット済みなので、非Proのときはnilのまま
+                // (=「判定していない」)になる。falseにしてしまうと「判定して該当しなかった」と
+                // 区別できなくなるため、isTriggeredの値をそのまま(nilを保ったまま)渡す。
+                let historyItem = ScanHistoryItem(
+                    scannedCode: code,
+                    result: result,
+                    profitAlertTriggered: profitAlertVerdict?.isTriggered
+                )
                 pendingHistoryItemId = historyItem.id
                 historyStore.add(historyItem)
             }

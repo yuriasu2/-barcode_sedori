@@ -421,6 +421,17 @@ private struct HistoryRow: View {
 
             Spacer(minLength: 0)
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 6)
+        .padding(.horizontal, 4)
+        // 検索タブの最新スキャン結果カード(LatestResultCardView)と同じ見せ方に揃える:
+        // 発火時は文言・バッジを出さず緑の縁取りだけで示す(一覧の可読性を落とさないため)。
+        // 線幅・角丸の値も検索タブと同一(3pt / cornerRadius 10)。
+        // 縦横のpaddingを4→6・0→4へ広げているのは、この縁取りが行の端やセパレーターに
+        // 詰まって見えないようにするための調整(既存の行の高さ・余白の見た目は大きく変えない範囲)。
+        .overlay(
+            item.profitAlertTriggered == true
+                ? RoundedRectangle(cornerRadius: 10).stroke(Color.green, lineWidth: 3)
+                : nil
+        )
     }
 }
