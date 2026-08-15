@@ -274,6 +274,12 @@ struct SettingsView: View {
                     }
                 }
 
+                // 接続先サーバーの変更は開発用途のみ(ローカルサーバーへ向ける等)。本番ユーザーが
+                // 誤って書き換えると接続不能になりサポート負荷になるだけなので、Releaseビルドには
+                // セクションごと存在しない(下の「開発者向け」セクションと同じ方針)。
+                // 既定値(SettingsStore.defaultServerURL)は本番の https://api.sellira.jp のため、
+                // このセクションが無くても常に正しいサーバーへ接続される。
+                #if DEBUG
                 Section("サーバー設定") {
                     TextField(SettingsStore.defaultServerURL, text: $viewModel.serverURLString)
                         .keyboardType(.URL)
@@ -305,6 +311,7 @@ struct SettingsView: View {
                         .font(.footnote)
                         .foregroundColor(.secondary)
                 }
+                #endif
 
                 // 開発ビルド専用。シミュレータではStoreKitの実購入ができずPro限定画面を検証できないため、
                 // 強制的にProとして扱えるようにする。Releaseビルドにはセクションごと存在しない。
