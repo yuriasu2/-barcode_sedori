@@ -45,6 +45,20 @@ enum SkuGenerator {
         return formatter.string(from: date)
     }
 
+    /// dateString(from:)の逆変換。skuSequenceDate(yyyyMMdd)からDateへ戻す。
+    /// 不正な文字列(旧データの破損等)はnilを返す。
+    ///
+    /// 桁数を先に検査しているのは、DateFormatterが空文字を2000-01-01として解釈してしまうため
+    /// (実測で確認)。そのまま通すとSKUの日付部分が20000101になり、別の項目と衝突しかねない。
+    static func date(fromDateString string: String) -> Date? {
+        guard string.count == 8, string.allSatisfy(\.isNumber) else { return nil }
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyyMMdd"
+        return formatter.date(from: string)
+    }
+
     /// 次の連番を計算する。日付が変わったら1にリセット、同日なら+1。
     static func nextSequence(lastDateString: String?, lastSequence: Int, todayString: String) -> Int {
         if lastDateString == todayString {

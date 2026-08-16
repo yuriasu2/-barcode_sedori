@@ -775,14 +775,19 @@ final class SettingsStore: ObservableObject {
         }
     }
 
-    /// 仕入れリスト項目の出品SKUを組み立てる。年月日は「仕入れリストに追加した日付」、
-    /// 枝番は追加時(または旧データは遅延採番時)に確定済みの値をそのまま使う。
+    /// 仕入れリスト項目の出品SKUを組み立てる。年月日は「枝番を採番した日」を使う。
+    /// 枝番(skuSequence)はPurchaseListStoreが採番時にskuSequenceDateへ採番日を記録しており、
+    /// 日付部分もそれに合わせないと、通常追加(追加日基準)と遅延採番(採番日基準)で枝番の
+    /// 基準日がズレたときに、日付+枝番の組み合わせが別の項目と衝突して同一SKUが二重発行され、
+    /// Amazon側で既存出品を上書きしてしまう事故になるため。
+    /// skuSequenceDateが無い/不正(旧データ、採番前呼び出し等)な場合はitem.addedAtにフォールバックする。
     /// 枝番が未採番(skuSequenceがnil)の場合は呼び出し側(PurchaseFormViewModel等)が
     /// PurchaseListStore.assignSkuSequenceIfNeededで先に採番してから呼ぶこと。
     func listingSku(for item: PurchaseListItem) -> String {
-        SkuGenerator.build(
+        let skuDate = item.skuSequenceDate.flatMap { SkuGenerator.date(fromDateString: $0) } ?? item.addedAt
+        return SkuGenerator.build(
             components: listingSkuFormat,
-            addedDate: item.addedAt,
+            addedDate: skuDate,
             asin: item.asin,
             jan: item.scannedCode,
             sequence: item.skuSequence ?? 1,
