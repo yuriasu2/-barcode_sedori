@@ -23,7 +23,7 @@ struct RootTabView: View {
                     AdSlotView(slotId: "products_bottom", fixedHeight: 50)
                 }
                 .tabItem {
-                    Label("商品", systemImage: "shippingbox")
+                    Label("履歴", systemImage: "shippingbox")
                 }
                 .tag(1)
 
