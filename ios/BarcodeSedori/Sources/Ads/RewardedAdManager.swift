@@ -149,7 +149,9 @@ final class RewardedAdManager: ObservableObject {
             guard let unitId = resolvedUnitId else {
                 // Releaseでサーバー配信設定(/api/ads)が無い場合。テスト広告を出すより
                 // 出さない方が安全なため、ここで諦める(呼び出し側には従来通りnilで伝わる)。
+                #if DEBUG
                 print("[RewardedAdManager] サーバー設定が無いためリワード広告を読み込まない")
+                #endif
                 return nil
             }
             isLoading = true
@@ -177,11 +179,15 @@ final class RewardedAdManager: ObservableObject {
     /// nilのみ返す(「準備できなかった」以上の理由をユーザーに出す設計にはしていないため)が、
     /// 開発中にコンソールで原因を切り分けられないと再現性のない不具合になってしまうため、
     /// エラーを握りつぶさずログに残す。
+    ///
+    /// ログはすべて #if DEBUG で囲む。本番では不要な出力であり、広告ユニットIDが
+    /// デバイスのログに残り続けるのも望ましくないため。
     private static func load(unitId: String) async -> GADRewardedAd? {
         // どのユニットIDで要求したかを必ず出す。サーバー配信(/api/ads)の設定が
         // 端末のUserDefaultsにキャッシュされるため、KVを空にしても古い本番IDが
         // 残っていれば在庫なしになり得る。フォールバックのテストIDと実際の要求先が
         // 一致しているかは、ここを見ないと確認できない。
+        #if DEBUG
         let adapterStatuses = GADMobileAds.sharedInstance()
             .initializationStatus
             .adapterStatusesByClassName
@@ -189,15 +195,18 @@ final class RewardedAdManager: ObservableObject {
             .sorted()
             .joined(separator: ", ")
         print("[RewardedAdManager] 読み込み開始: unitId=\(unitId) adapters=[\(adapterStatuses)]")
+        #endif
 
         return await withCheckedContinuation { (continuation: CheckedContinuation<GADRewardedAd?, Never>) in
             GADRewardedAd.load(withAdUnitID: unitId, request: GADRequest()) { ad, error in
+                #if DEBUG
                 if let error {
                     let nsError = error as NSError
                     print("[RewardedAdManager] 読み込み失敗: domain=\(nsError.domain) code=\(nsError.code) \(nsError.localizedDescription)")
                 } else {
                     print("[RewardedAdManager] 読み込み成功")
                 }
+                #endif
                 continuation.resume(returning: error == nil ? ad : nil)
             }
         }
