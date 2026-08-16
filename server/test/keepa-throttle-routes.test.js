@@ -87,6 +87,31 @@ const NO_SPAPI = {
   LWA_REFRESH_TOKEN: undefined,
 };
 
+// ---------------------------------------------------------------------------
+// keepaThrottleInstanceFor: 脆弱性修正(X-Keepa-Demoによる共有スロットルバイパス対策)。
+// BYOキー(X-Keepa-Key)提示時のみdemoインスタンスへ振ってよい。BYOが無ければ、
+// X-Keepa-Demoが付いていても常にglobal(共有インスタンス)へ振る。
+// ---------------------------------------------------------------------------
+
+test('keepaThrottleInstanceFor: X-Keepa-DemoがあってもBYOキーが無ければglobalが返る', () => {
+  const routes = freshRoutes();
+  assert.equal(routes.keepaThrottleInstanceFor({ 'x-keepa-demo': '1' }), 'global');
+});
+
+test('keepaThrottleInstanceFor: X-Keepa-Demoが無ければBYOキーの有無に関わらずglobalが返る', () => {
+  const routes = freshRoutes();
+  assert.equal(routes.keepaThrottleInstanceFor({}), 'global');
+  assert.equal(routes.keepaThrottleInstanceFor({ 'x-keepa-key': 'my-key' }), 'global');
+});
+
+test('keepaThrottleInstanceFor: X-Keepa-DemoとBYOキーの両方があればdemoが返る', () => {
+  const routes = freshRoutes();
+  assert.equal(
+    routes.keepaThrottleInstanceFor({ 'x-keepa-demo': '1', 'x-keepa-key': 'my-key' }),
+    'demo'
+  );
+});
+
 test('/api/graph-data: スロットル拒否(残量0で即拒否)は429 keepa_busyで、指定文言を返す', async (t) => {
   await withEnv({ ...NO_SPAPI, KEEPA_API_KEY: 'shared-key' }, async () => {
     const routes = freshRoutes();
@@ -677,43 +702,42 @@ test('POST /api/keepa-throttle-demo/probe: seedした残量ぶんはallowed:true
   assert.equal(results[3].reason, 'exhausted');
 });
 
-test('/api/search: X-Keepa-Demoでdemoをseedし残量0にすると、demo付き検索はkeepa_busyになるが、同時にdemo無しの通常検索(global)は影響を受けず成功する(安全設計の核心)', async (t) => {
+// 脆弱性修正(共有Keepaスロットルのバイパス対策): X-Keepa-Demoはヘッダー1本で誰でも
+// 付けられ、demoは本番('global')とは別のトークン残量を持つため、BYOキー無しでも
+// demoへ振ってしまうと共有キーを消費するリクエストがスロットル(毎分5トークン)を丸ごと
+// 迂回できてしまっていた(修正前)。修正後はBYOキー(X-Keepa-Key)提示時のみdemoへ
+// 振り、BYO無しなら常にglobalへ振る(keepaThrottleInstanceFor参照)。
+test('/api/search: X-Keepa-DemoだけではBYOキー無しならglobalとして扱われ、demoの残量に左右されない(修正後の挙動)', async (t) => {
   await withEnv({ ...NO_SPAPI, KEEPA_API_KEY: 'shared-key' }, async () => {
     const routes = freshRoutes();
     const keepa = require('../src/keepa/client');
     throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_REFILL_PER_MIN: '5' });
     keepa.getProduct = async () => ({
-      product: { asin: 'B000DEMOSAFE', title: 'デモ隔離テスト', csv: [] },
+      product: { asin: 'B000DEMOSAFE', title: 'demo単体はglobal扱いテスト', csv: [] },
       tokensLeft: 9,
     });
 
-    // demoインスタンスだけを残量0にする(globalには一切触れない)。
+    // demoインスタンスだけを残量0にする(globalには一切触れない)。BYOキー無しで
+    // X-Keepa-Demoだけ付けたリクエストがこのdemoの残量に影響されるなら、
+    // 共有キーのスロットルをヘッダー1本でバイパスできてしまうことになる。
     await keepaThrottle.seedDemoState({ tokens: 0 });
 
-    // demo付きリクエスト: demoインスタンスは枯渇済み(キューは無いので即座に拒否)なはず。
-    const demoReq = {
+    const demoHeaderOnlyReq = {
       query: { code: '9784873119045' },
-      headers: { 'x-app-plan': 'pro', 'x-device-id': 'dev-demo-1', 'x-keepa-demo': '1' },
+      headers: { 'x-app-plan': 'pro', 'x-device-id': 'dev-demo-header-only', 'x-keepa-demo': '1' },
     };
-    const demoRes = createMockRes();
-    await routes.match('GET', '/api/search').handler(demoReq, demoRes);
-    assert.equal(demoRes.statusCode, 429);
-    assert.equal(demoRes.body.error, 'keepa_busy');
+    const res = createMockRes();
+    await routes.match('GET', '/api/search').handler(demoHeaderOnlyReq, res);
 
-    // demo無しの通常リクエスト(global)は満タンのままなので通常通り成功するはず。
-    const normalReq = {
-      query: { code: '9784873119046' },
-      headers: { 'x-app-plan': 'pro', 'x-device-id': 'dev-normal-1' },
-    };
-    const normalRes = createMockRes();
-    await routes.match('GET', '/api/search').handler(normalReq, normalRes);
-    assert.equal(normalRes.statusCode, 200);
+    // BYOキーが無いのでglobalへ振られ、globalは満タンのまま=demoの枯渇状態に
+    // 一切左右されず成功する(=バイパスできていないことの確認)。
+    assert.equal(res.statusCode, 200);
 
     t.after(() => routes.searchCache.clear());
   });
 });
 
-test('/api/search: X-Keepa-Demo付きリクエストと通常(global)リクエストを同一商品コードへ同時に投げても、コアレッシングkeyのinstance軸で分離されKeepaは2回呼ばれる(M-5b)', async (t) => {
+test('/api/search: X-Keepa-Demo単体(BYO無し)は通常リクエストと同じglobalインスタンス・同じコアレッシングkeyへ束ねられる(修正後の挙動)', async (t) => {
   await withEnv({ ...NO_SPAPI, KEEPA_API_KEY: 'shared-key' }, async () => {
     const routes = freshRoutes();
     const keepa = require('../src/keepa/client');
@@ -724,29 +748,28 @@ test('/api/search: X-Keepa-Demo付きリクエストと通常(global)リクエ�
       callCount += 1;
       await new Promise((r) => setTimeout(r, 30)); // 同時実行の窓を作る
       return {
-        product: { asin: 'B000DEMOGLOBALCONCUR', title: 'demo/global同時隔離テスト', csv: [] },
+        product: { asin: 'B000DEMOGLOBALMERGE', title: 'demo単体とglobalが束ねられるテスト', csv: [] },
         tokensLeft: 9,
       };
     };
 
-    // 既存の「demoをseedして枯渇させ、demo無しのリクエストは影響を受けない」テスト(直上)は
-    // 2つのリクエストを逐次実行しているため、コアレッシングkeyにinstance軸が抜けて
-    // 'global'と'demo'が束ねられてしまう事故は検出できない(逐次なら同時にin-flightにならない)。
-    // ここでは同一商品コードへdemo付き/demo無しを同時に発火し、Keepaへの実呼び出しが
-    // 束ねられず2回になることまで見て、instance軸の分離をコアレッシングkeyレベルで保証する。
-    const demoReq = {
+    // 同一商品コードへ、X-Keepa-Demo単体(BYO無し)のリクエストと通常リクエストを
+    // 同時に投げる。修正後はどちらもinstance='global'・priority='pro'として扱われる
+    // ため、コアレッシングされてKeepaは1回しか呼ばれないはず(修正前はinstance軸で
+    // 'demo'と'global'に分離されコアレッシングされず2回呼ばれていた)。
+    const demoHeaderOnlyReq = {
       query: { code: '9784873119045' },
-      headers: { 'x-app-plan': 'pro', 'x-device-id': 'dev-demo-concur', 'x-keepa-demo': '1' },
+      headers: { 'x-app-plan': 'pro', 'x-device-id': 'dev-demo-header-merge', 'x-keepa-demo': '1' },
     };
     const normalReq = {
       query: { code: '9784873119045' },
-      headers: { 'x-app-plan': 'pro', 'x-device-id': 'dev-normal-concur' },
+      headers: { 'x-app-plan': 'pro', 'x-device-id': 'dev-normal-merge' },
     };
 
-    const [demoRes, normalRes] = await Promise.all([
+    const [demoHeaderRes, normalRes] = await Promise.all([
       (async () => {
         const res = createMockRes();
-        await routes.match('GET', '/api/search').handler(demoReq, res);
+        await routes.match('GET', '/api/search').handler(demoHeaderOnlyReq, res);
         return res;
       })(),
       (async () => {
@@ -756,8 +779,8 @@ test('/api/search: X-Keepa-Demo付きリクエストと通常(global)リクエ�
       })(),
     ]);
 
-    assert.equal(callCount, 2, `demo/globalが束ねられずKeepaは2回呼ばれるはず(実際: ${callCount}回)`);
-    assert.equal(demoRes.statusCode, 200);
+    assert.equal(callCount, 1, `demo単体はglobalとして束ねられるはず(実際: ${callCount}回)`);
+    assert.equal(demoHeaderRes.statusCode, 200);
     assert.equal(normalRes.statusCode, 200);
 
     t.after(() => routes.searchCache.clear());
@@ -797,26 +820,33 @@ test('/api/search: X-Keepa-Demo付きでもBYOキーが優先されスロット�
   });
 });
 
-test('/api/graph-data: X-Keepa-Demo経路の成功時は実Keepaのtokens Leftでdemoインスタンスを上書きしない', async (t) => {
-  await withEnv({ ...NO_SPAPI, KEEPA_API_KEY: 'shared-key' }, async () => {
+test('/api/graph-data: X-Keepa-Demo経路(BYOキー併用)の成功時は実Keepaのtokens Leftでdemoインスタンスを上書きしない', async (t) => {
+  // 修正後、demoインスタンスへ振られるのはBYOキー(X-Keepa-Key)も併せて提示したときだけ
+  // (keepaThrottleInstanceFor参照。BYO無しでX-Keepa-Demoだけ付けてもglobalへ振られる)。
+  await withEnv({ ...NO_SPAPI, KEEPA_API_KEY: undefined }, async () => {
     const routes = freshRoutes();
     const keepa = require('../src/keepa/client');
     throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_REFILL_PER_MIN: '5' });
     // demoを明示的に残量5にseedする。
     await keepaThrottle.seedDemoState({ tokens: 5 });
-    // 実Keepaは残量0を返す(通常経路ならreportTokensLeftでdemoが0に上書きされてしまうはず)。
+    // 実Keepaは残量0を返す(demoインスタンスがこの値で上書きされてしまわないことを見る)。
     keepa.getProduct = async ({ asin }) => ({ product: { asin, csv: [] }, tokensLeft: 0 });
 
     const req = {
       query: { asin: 'B000DEMOKEEP1' },
-      headers: { 'x-app-plan': 'pro', 'x-device-id': 'dev-demo-keep-1', 'x-keepa-demo': '1' },
+      headers: {
+        'x-app-plan': 'pro',
+        'x-device-id': 'dev-demo-keep-1',
+        'x-keepa-demo': '1',
+        'x-keepa-key': 'my-own-key',
+      },
     };
     const res = createMockRes();
     await routes.match('GET', '/api/graph-data').handler(req, res);
     assert.equal(res.statusCode, 200);
 
     // demoインスタンスのスナップショットが実Keepaのtokens Left(0)で上書きされていないこと
-    // (seedした5前後のまま=消費で1個減って4程度のはず。少なくとも0にはなっていない)。
+    // (seedした5のまま。BYO経路はスロットルの残量報告そのものを行わないため)。
     const snapshot = await keepaThrottle.debugSnapshot('demo');
     assert.ok(snapshot.tokensEstimate > 0, `demoが実Keepaの残量で上書きされている(tokensEstimate=${snapshot.tokensEstimate})`);
 

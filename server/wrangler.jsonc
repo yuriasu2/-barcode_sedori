@@ -63,7 +63,9 @@
     { "tag": "v3", "new_sqlite_classes": ["IpRateLimitDO"] },
     { "tag": "v4", "new_sqlite_classes": ["SellerTrialDO"] }
   ]
-  // Secrets(LWA_CLIENT_ID/LWA_CLIENT_SECRET/KEEPA_API_KEY/SPAPI_APP_ID)は
+  // Secrets(LWA_CLIENT_ID/LWA_CLIENT_SECRET/KEEPA_API_KEY/SPAPI_APP_ID/OAUTH_STATE_SECRET)は
   // `wrangler secret put` で登録する(このファイルに書かない)。
+  // OAUTH_STATE_SECRET: oauth.jsのstate署名(HMAC-SHA256)専用の鍵。他secretと使い回さない。
+  // 未設定だと/oauth/loginは503で拒否される(oauth.js参照)。
   // LWA_REFRESH_TOKEN はどの環境にも置かない(BYO前提)。
 }

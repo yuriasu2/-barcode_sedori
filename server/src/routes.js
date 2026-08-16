@@ -356,9 +356,19 @@ function hasKeepaDemoHeader(headers) {
  * このリクエストが使うべきスロットルのインスタンス名を返す。
  * X-Keepa-Demoが付いていれば'demo'(本番の共有インスタンスには一切影響しない隔離された
  * インスタンス)、無ければ従来通り'global'。
+ *
+ * ただしX-Keepa-Demoだけで'demo'へ切り替えると、共有Keepaキーを実際に消費する
+ * リクエスト(BYOキー無し)がヘッダー1つで本番の共有スロットル(global。毎分5トークン)を
+ * 丸ごと迂回できてしまう(demoは別のトークン残量を持つため実質無制限。かつ
+ * fetchKeepaProductCoalescedはisDemoのとき残量報告もしないため、本番側の推定が
+ * 実消費と食い違い正規ユーザーが429で締め出される)。BYOキー(X-Keepa-Key)を
+ * 提示している利用者は自分のKeepaキーを消費するだけで共有キーには一切触れないため、
+ * デモ経路へ逃がしても実害が無い。そこで「X-Keepa-Demoが付いていて、かつBYOキーも
+ * 提示されている」ときだけ'demo'を返し、BYOキーが無ければ(=共有キーを消費する
+ * リクエストであれば)常に'global'を返す。
  */
 function keepaThrottleInstanceFor(headers) {
-  return hasKeepaDemoHeader(headers) ? 'demo' : 'global';
+  return hasKeepaDemoHeader(headers) && hasByoKeepaKey(headers) ? 'demo' : 'global';
 }
 
 /**
@@ -459,8 +469,13 @@ async function fetchKeepaProductWithDebug(headers, { coalesceKey, fetchParams, p
   }
 
   const isByo = hasByoKeepaKey(headers);
-  const isDemo = hasKeepaDemoHeader(headers);
   const instance = keepaThrottleInstanceFor(headers);
+  // isDemoは「実際にdemoインスタンスを使っているか」であり、instanceの決定結果と揃える
+  // (単にhasKeepaDemoHeaderを見てしまうと、BYO無しでX-Keepa-Demoだけ付けたリクエストが
+  // instance='global'なのにisDemo=trueと判定され、fetchKeepaProductCoalesced内の
+  // 「isDemoのときは残量報告しない」という分岐がglobalインスタンスの残量報告を誤って
+  // スキップしてしまう=本番の推定が壊れるため)。
+  const isDemo = instance === 'demo';
   const debugEnabled = hasKeepaDebugHeader(headers);
 
   if (isByo) {
@@ -1392,6 +1407,14 @@ router.get('/api/quota', async (req, res) => {
 // 適当なseller IDを大量に送ってお試しを乱掘りする攻撃のハードルを上げる。トークン自体の
 // 有効性はここでは検証しない=お試し発行のためだけにSP-APIへ問い合わせるコストは掛けない)。
 router.get('/api/trial-status', async (req, res) => {
+  // X-Spapi-Refresh-Tokenは中身を検証しない(存在確認のみ)ため、出品者IDさえ分かれば
+  // 誰でも他人のお試し期間を開始・消化できてしまう(出品者IDはAmazonの商品ページから
+  // 誰でも取得可能で秘密ではない)。トークンの真正性検証(SP-APIへの問い合わせ)は
+  // コストが掛かるため見送り、代わりに/api/quota・/api/searchと同じパターンでIP単位の
+  // レート制限を掛け、大量の出品者IDを投入する乱掘り攻撃のコストを上げる。
+  const rateLimitResult = await ipRateLimit.checkAndCount(clientIpOf(req.headers));
+  if (!rateLimitResult.allowed) return sendRateLimited(res, rateLimitResult.retryAfterSec);
+
   const sellerId =
     req.headers && (req.headers['x-spapi-seller-id'] || req.headers['X-Spapi-Seller-Id']);
   const refreshToken =
@@ -1996,6 +2019,8 @@ router.resolveKeepaApiKey = resolveKeepaApiKey;
 router.hasByoKeepaKey = hasByoKeepaKey;
 // テスト用途にKeepaデモモードヘッダー判定を公開する。
 router.hasKeepaDemoHeader = hasKeepaDemoHeader;
+// テスト用途にスロットルインスタンス選択(BYO無しならX-Keepa-Demoを無視してglobal)を公開する。
+router.keepaThrottleInstanceFor = keepaThrottleInstanceFor;
 // テスト用途にデバイスID抽出関数、deviceQuotaモジュール本体を公開する。
 router.deviceIdOf = deviceIdOf;
 // テスト用途にデバイスID必須エラーの応答関数を公開する。

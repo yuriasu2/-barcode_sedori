@@ -5,7 +5,13 @@ const assert = require('node:assert/strict');
 
 const oauth = require('../src/oauth');
 
-function withEnv(vars, fn) {
+const TEST_SECRET = 'test-oauth-state-secret';
+
+// 注意: fnが非同期(Promiseを返す)場合、finally節がfnの内部処理(awaitを跨ぐ箇所)より
+// 先に実行されてしまうと、fnの途中でprocess.envが元に戻ってしまう(_createState/
+// _verifyAndConsumeStateはcrypto.subtle呼び出しでawaitを挟むため特に問題になる)。
+// そのためwithEnv自体をasyncにし、fn()の結果を必ずawaitしてから env を復元する。
+async function withEnv(vars, fn) {
   const saved = {};
   for (const key of Object.keys(vars)) {
     saved[key] = process.env[key];
@@ -16,7 +22,7 @@ function withEnv(vars, fn) {
     }
   }
   try {
-    return fn();
+    return await fn();
   } finally {
     for (const key of Object.keys(saved)) {
       if (saved[key] === undefined) {
@@ -59,62 +65,140 @@ function createMockReq({ query = {}, headers = {} } = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// state生成・検証・期限切れ
+// state生成・検証・改ざん・期限切れ
+//
+// 新方式(自己完結トークン: `<issuedAtMs>.<nonce>.<hmacHex>`)では、stateの真正性は
+// OAUTH_STATE_SECRETによるHMAC署名のみで担保する。サーバー側の状態(Map/DO)を
+// 持たないため、「一度きりの消費」ではなく「署名が正しく、かつTTL以内であるか」だけを
+// 検証する(oauth.js冒頭コメント参照)。
 // ---------------------------------------------------------------------------
 
-test('oauth._createState: stateを生成でき、_verifyAndConsumeStateで一度だけ有効', () => {
-  const state = oauth._createState();
-  assert.equal(typeof state, 'string');
-  assert.equal(state.length, 32); // randomBytes(16).toString('hex') => 32文字
-
-  // 1回目は有効
-  assert.equal(oauth._verifyAndConsumeState(state), true);
-  // 消費済みなので2回目は無効
-  assert.equal(oauth._verifyAndConsumeState(state), false);
+test('oauth._createState: OAUTH_STATE_SECRET設定時、署名付きstateを生成できる', async () => {
+  await withEnv({ OAUTH_STATE_SECRET: TEST_SECRET }, async () => {
+    const state = await oauth._createState();
+    assert.equal(typeof state, 'string');
+    const parts = state.split('.');
+    assert.equal(parts.length, 3);
+    const [issuedAtStr, nonce, sigHex] = parts;
+    assert.ok(Number.isFinite(Number(issuedAtStr)));
+    assert.match(nonce, /^[0-9a-f]{32}$/);
+    assert.match(sigHex, /^[0-9a-f]+$/);
+  });
 });
 
-test('oauth._verifyAndConsumeState: 存在しないstateは無効', () => {
-  assert.equal(oauth._verifyAndConsumeState('nonexistent-state-xxxx'), false);
+test('oauth._createState: OAUTH_STATE_SECRET未設定ならnullを返す', async () => {
+  await withEnv({ OAUTH_STATE_SECRET: undefined }, async () => {
+    const state = await oauth._createState();
+    assert.equal(state, null);
+  });
 });
 
-test('oauth._verifyAndConsumeState: 期限切れのstateは無効(テスト用フックでcreatedAtを過去に書き換え)', () => {
-  const state = oauth._createState();
-  oauth._expireStateForTest(state);
-  assert.equal(oauth._verifyAndConsumeState(state), false);
+test('oauth._verifyAndConsumeState: 正しく生成されたstateは有効(何度検証しても有効=自己完結トークンのため消費されない)', async () => {
+  await withEnv({ OAUTH_STATE_SECRET: TEST_SECRET }, async () => {
+    const state = await oauth._createState();
+    assert.equal(await oauth._verifyAndConsumeState(state), true);
+    assert.equal(await oauth._verifyAndConsumeState(state), true);
+  });
+});
+
+test('oauth._verifyAndConsumeState: 存在しない(形式が不正な)stateは無効', async () => {
+  await withEnv({ OAUTH_STATE_SECRET: TEST_SECRET }, async () => {
+    assert.equal(await oauth._verifyAndConsumeState('nonexistent-state-xxxx'), false);
+    assert.equal(await oauth._verifyAndConsumeState(''), false);
+    assert.equal(await oauth._verifyAndConsumeState(null), false);
+  });
+});
+
+test('oauth._verifyAndConsumeState: 改ざんしたstateは拒否される(署名部分を書き換え)', async () => {
+  await withEnv({ OAUTH_STATE_SECRET: TEST_SECRET }, async () => {
+    const state = await oauth._createState();
+    const [issuedAtStr, nonce, sigHex] = state.split('.');
+    // 署名の先頭1文字を別の16進文字へ変える(同じ長さを保ったまま改ざん)。
+    const tamperedChar = sigHex[0] === 'a' ? 'b' : 'a';
+    const tamperedSig = tamperedChar + sigHex.slice(1);
+    const tampered = `${issuedAtStr}.${nonce}.${tamperedSig}`;
+    assert.equal(await oauth._verifyAndConsumeState(tampered), false);
+  });
+});
+
+test('oauth._verifyAndConsumeState: nonceを書き換えたstateも拒否される(署名対象の改ざん)', async () => {
+  await withEnv({ OAUTH_STATE_SECRET: TEST_SECRET }, async () => {
+    const state = await oauth._createState();
+    const [issuedAtStr, nonce, sigHex] = state.split('.');
+    const tamperedNonce = nonce.split('').reverse().join('');
+    const tampered = `${issuedAtStr}.${tamperedNonce}.${sigHex}`;
+    assert.equal(await oauth._verifyAndConsumeState(tampered), false);
+  });
+});
+
+test('oauth._verifyAndConsumeState: TTL(STATE_TTL_MS)超過は拒否される', async () => {
+  await withEnv({ OAUTH_STATE_SECRET: TEST_SECRET }, async () => {
+    const expiredIssuedAt = Date.now() - oauth.STATE_TTL_MS - 1000;
+    const state = await oauth._createState(expiredIssuedAt);
+    assert.equal(await oauth._verifyAndConsumeState(state), false);
+  });
+});
+
+test('oauth._verifyAndConsumeState: 別のOAUTH_STATE_SECRETで生成されたstateは拒否される', async () => {
+  const state = await withEnv({ OAUTH_STATE_SECRET: 'secret-a' }, () => oauth._createState());
+  await withEnv({ OAUTH_STATE_SECRET: 'secret-b' }, async () => {
+    assert.equal(await oauth._verifyAndConsumeState(state), false);
+  });
+});
+
+test('oauth._verifyAndConsumeState: OAUTH_STATE_SECRET未設定なら検証も常に無効', async () => {
+  const state = await withEnv({ OAUTH_STATE_SECRET: TEST_SECRET }, () => oauth._createState());
+  await withEnv({ OAUTH_STATE_SECRET: undefined }, async () => {
+    assert.equal(await oauth._verifyAndConsumeState(state), false);
+  });
 });
 
 // ---------------------------------------------------------------------------
 // GET /oauth/login
 // ---------------------------------------------------------------------------
 
-test('handleOAuthLogin: SPAPI_APP_IDが未設定なら500', () => {
-  withEnv({ SPAPI_APP_ID: undefined }, () => {
+test('handleOAuthLogin: SPAPI_APP_IDが未設定なら500', async () => {
+  await withEnv({ SPAPI_APP_ID: undefined, OAUTH_STATE_SECRET: TEST_SECRET }, async () => {
     const req = createMockReq();
     const res = createMockRes();
-    oauth.handleOAuthLogin(req, res);
+    await oauth.handleOAuthLogin(req, res);
     assert.equal(res.statusCode, 500);
     assert.equal(typeof res.body, 'string');
     assert.match(res.body, /SPAPI_APP_ID/);
   });
 });
 
-test('handleOAuthLogin: SPAPI_APP_ID設定時はSeller Central認可URLへ302リダイレクト', () => {
-  withEnv(
+test('handleOAuthLogin: OAUTH_STATE_SECRET未設定なら503(フェイルセーフ。署名なしでは通さない)', async () => {
+  await withEnv(
+    { SPAPI_APP_ID: 'test-app-id', OAUTH_STATE_SECRET: undefined },
+    async () => {
+      const req = createMockReq();
+      const res = createMockRes();
+      await oauth.handleOAuthLogin(req, res);
+      assert.equal(res.statusCode, 503);
+      assert.equal(typeof res.body, 'string');
+    }
+  );
+});
+
+test('handleOAuthLogin: SPAPI_APP_ID・OAUTH_STATE_SECRET設定時はSeller Central認可URLへ302リダイレクト', async () => {
+  await withEnv(
     {
       SPAPI_APP_ID: 'test-app-id',
       SELLER_CENTRAL_URL: 'https://sellercentral.amazon.co.jp',
+      OAUTH_STATE_SECRET: TEST_SECRET,
     },
-    () => {
+    async () => {
       const req = createMockReq();
       const res = createMockRes();
-      oauth.handleOAuthLogin(req, res);
+      await oauth.handleOAuthLogin(req, res);
 
       assert.equal(res.statusCode, 302);
       const location = res.headers.Location;
       assert.equal(typeof location, 'string');
       assert.match(location, /^https:\/\/sellercentral\.amazon\.co\.jp\/apps\/authorize\/consent\?/);
       assert.match(location, /application_id=test-app-id/);
-      assert.match(location, /state=[0-9a-f]{32}/);
+      assert.match(location, /state=\d+\.[0-9a-f]{32}\.[0-9a-f]+/);
       assert.match(location, /version=beta/);
     }
   );
@@ -125,13 +209,15 @@ test('handleOAuthLogin: SPAPI_APP_ID設定時はSeller Central認可URLへ302リ
 // ---------------------------------------------------------------------------
 
 test('handleOAuthCallback: 存在しないstateは403', async () => {
-  const req = createMockReq({
-    query: { state: 'invalid-state', spapi_oauth_code: 'x', selling_partner_id: 'y' },
+  await withEnv({ OAUTH_STATE_SECRET: TEST_SECRET }, async () => {
+    const req = createMockReq({
+      query: { state: 'invalid-state', spapi_oauth_code: 'x', selling_partner_id: 'y' },
+    });
+    const res = createMockRes();
+    await oauth.handleOAuthCallback(req, res);
+    assert.equal(res.statusCode, 403);
+    assert.equal(typeof res.body, 'string');
   });
-  const res = createMockRes();
-  await oauth.handleOAuthCallback(req, res);
-  assert.equal(res.statusCode, 403);
-  assert.equal(typeof res.body, 'string');
 });
 
 test('handleOAuthCallback: LWA交換成功時、HTMLにディープリンクとrefresh_tokenが含まれる', async (t) => {
@@ -150,9 +236,10 @@ test('handleOAuthCallback: LWA交換成功時、HTMLにディープリンクとr
     {
       LWA_CLIENT_ID: 'env-client-id',
       LWA_CLIENT_SECRET: 'env-client-secret',
+      OAUTH_STATE_SECRET: TEST_SECRET,
     },
     async () => {
-      const state = oauth._createState();
+      const state = await oauth._createState();
       const req = createMockReq({
         query: { state, spapi_oauth_code: 'auth-code-xyz', selling_partner_id: 'SP123' },
       });
@@ -185,9 +272,10 @@ test('handleOAuthCallback: LWA交換失敗時(res.ok=false)は502でエラーHTM
     {
       LWA_CLIENT_ID: 'env-client-id',
       LWA_CLIENT_SECRET: 'env-client-secret',
+      OAUTH_STATE_SECRET: TEST_SECRET,
     },
     async () => {
-      const state = oauth._createState();
+      const state = await oauth._createState();
       const req = createMockReq({
         query: { state, spapi_oauth_code: 'auth-code-xyz', selling_partner_id: 'SP123' },
       });

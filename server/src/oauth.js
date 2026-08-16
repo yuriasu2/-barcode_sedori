@@ -10,6 +10,38 @@
  *
  * refresh_tokenは将来Supabase等のDBに永続化する設計とし、現時点ではメモリにも保持せず、
  * レスポンスHTML生成後は変数参照が失われて破棄される(ファイル・DB・ログいずれにも書き込まない)。
+ *
+ * stateの持ち方について(重要):
+ * かつてはstate文字列をモジュールスコープのMap(インメモリ)へ保存していたが、
+ * Cloudflare Workersは /oauth/login と /oauth/callback を別isolateへ振り分け得るため、
+ * コールバック側のisolateにログイン側で保存したstateが存在せず「認証セッションが無効です」
+ * で連携が失敗する不具合が本番で確認された。同じ問題は過去にdeviceQuota(旧実装)でも
+ * 発生しており(quotaDurableObject.js冒頭コメント参照)、そのときはDurable Objectで
+ * 状態を一箇所に集約して解決した。しかしstateはユーザーがAmazonの承認画面に滞在する間
+ * (数十秒〜数分)保持できればよく、サーバー側の永続状態は本質的に不要なので、
+ * ここではDOを増やすのではなく「サーバー側に状態を持たない自己完結トークン」にする方式を採る。
+ *
+ * 新方式: state = `<issuedAtMs>.<nonce>.<hmacHex>`
+ * - issuedAtMs: 発行時刻(ミリ秒)
+ * - nonce: ランダム値(推測不能性の担保。署名対象に含めることで改ざん検知にも使う)
+ * - hmacHex: `${issuedAtMs}.${nonce}` に対するHMAC-SHA256署名(hex)
+ * 検証は「署名が正しいこと」+「発行からSTATE_TTL_MS以内であること」の2点のみ。
+ * どちらもサーバー側の状態(Map/DO/DB)を一切参照せずに判定できるため、
+ * /oauth/login と /oauth/callback が別isolateであっても問題なく検証できる。
+ * 一方でこの方式は原理上「一度きりの使い捨て」を保証できない(署名とTTLが有効な間は
+ * 同じstateを何度でも検証に通せる)。これはAmazon側が同一state・同一認可コードを
+ * 使った再送を許さない(認可コードは一度きりで無効化される)ため実害は無いと判断している。
+ *
+ * 署名鍵はOAUTH_STATE_SECRET(既存のWorker secretとは別の専用環境変数)を使う。
+ * 未設定時は署名できないため、黙って署名なしで通す(=誰でも偽造stateを作れてしまう)ことは
+ * 絶対に避け、/oauth/login 自体を503で拒否する(フェイルセーフ優先)。
+ *
+ * 実行環境について(Node版 src/index.js と Workers版 src/worker.js の両方で動く):
+ * HMAC署名にはNode専用の crypto.createHmac ではなく、Node 18+・Cloudflare Workersの
+ * 両方でグローバルに使える crypto.subtle (WebCrypto) を使う(admobSsv.jsの
+ * getSubtle()と同じ流儀)。乱数生成(nonce)は元々のstate生成と同じくNodeの
+ * crypto.randomBytes を使う(worker.js側でnodejs_compatが有効なため、Workers上でも
+ * 既存コードとして動作実績がある)。
  */
 
 const crypto = require('crypto');
@@ -17,66 +49,97 @@ const crypto = require('crypto');
 const LWA_TOKEN_URL = 'https://api.amazon.com/auth/o2/token';
 
 const STATE_TTL_MS = 10 * 60 * 1000; // 10分
-const STATE_MAX_ENTRIES = 100;
 
-// state文字列 -> { createdAt }
-const stateStore = new Map();
+/** globalThis.crypto.subtle優先、無ければNodeのwebcryptoへフォールバックする(admobSsv.jsと同じ)。 */
+function getSubtle() {
+  if (globalThis.crypto && globalThis.crypto.subtle) return globalThis.crypto.subtle;
+  // eslint-disable-next-line global-require
+  return require('crypto').webcrypto.subtle;
+}
 
-/**
- * 期限切れのstateをクリーンアップする。
- */
-function cleanupExpiredStates(now = Date.now()) {
-  for (const [state, entry] of stateStore.entries()) {
-    if (now - entry.createdAt > STATE_TTL_MS) {
-      stateStore.delete(state);
-    }
+/** HMAC-SHA256用の鍵をインポートする。secretはOAUTH_STATE_SECRETの生文字列。 */
+async function importHmacKey(secret) {
+  const subtle = getSubtle();
+  return subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign', 'verify']
+  );
+}
+
+function bytesToHex(buf) {
+  return Array.from(new Uint8Array(buf))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+/** hex文字列をUint8Arrayへ変換する。長さが奇数・非hex文字を含む場合はnullを返す。 */
+function hexToBytes(hex) {
+  if (typeof hex !== 'string' || hex.length === 0 || hex.length % 2 !== 0) return null;
+  if (!/^[0-9a-fA-F]+$/.test(hex)) return null;
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < bytes.length; i += 1) {
+    bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
   }
+  return bytes;
 }
 
 /**
- * 新しいstateを生成し、ストアに保存して返す。
+ * 新しいstateを生成する。OAUTH_STATE_SECRET未設定時はnullを返す
+ * (呼び出し側=handleOAuthLoginがフェイルセーフに倒して503にする)。
+ * @param {number} [nowOverride] テスト用: 発行時刻を固定したいときに渡す。
  */
-function _createState() {
-  cleanupExpiredStates();
+async function _createState(nowOverride) {
+  const secret = process.env.OAUTH_STATE_SECRET;
+  if (!secret) return null;
 
-  // 上限を超える場合、最も古いものから削除する(Mapは挿入順を保持する)
-  while (stateStore.size >= STATE_MAX_ENTRIES) {
-    const oldestKey = stateStore.keys().next().value;
-    if (oldestKey === undefined) break;
-    stateStore.delete(oldestKey);
-  }
-
-  const state = crypto.randomBytes(16).toString('hex');
-  stateStore.set(state, { createdAt: Date.now() });
-  return state;
+  const issuedAtMs = nowOverride !== undefined ? nowOverride : Date.now();
+  const nonce = crypto.randomBytes(16).toString('hex');
+  const key = await importHmacKey(secret);
+  const signature = await getSubtle().sign(
+    'HMAC',
+    key,
+    new TextEncoder().encode(`${issuedAtMs}.${nonce}`)
+  );
+  return `${issuedAtMs}.${nonce}.${bytesToHex(signature)}`;
 }
 
 /**
- * stateを検証し、有効であれば消費(削除)してtrueを返す。
- * 存在しない・期限切れの場合はfalseを返す(存在すれば削除はする)。
+ * stateを検証する。署名が正しく、かつ発行からSTATE_TTL_MS以内であればtrueを返す。
+ * サーバー側の状態を一切参照しない(自己完結トークンのため「消費」の概念は無い。
+ * 関数名は呼び出し側=handleOAuthCallbackとの互換のため_verifyAndConsumeStateのまま残す)。
+ * OAUTH_STATE_SECRET未設定時は検証しようがないためfalseを返す。
  */
-function _verifyAndConsumeState(state) {
-  if (!state) return false;
-  const entry = stateStore.get(state);
-  if (!entry) return false;
-  stateStore.delete(state);
-  if (Date.now() - entry.createdAt > STATE_TTL_MS) {
-    return false;
-  }
+async function _verifyAndConsumeState(state) {
+  if (!state || typeof state !== 'string') return false;
+  const secret = process.env.OAUTH_STATE_SECRET;
+  if (!secret) return false;
+
+  const parts = state.split('.');
+  if (parts.length !== 3) return false;
+  const [issuedAtStr, nonce, signatureHex] = parts;
+  if (!issuedAtStr || !nonce || !signatureHex) return false;
+
+  const issuedAtMs = Number(issuedAtStr);
+  if (!Number.isFinite(issuedAtMs)) return false;
+
+  const signatureBytes = hexToBytes(signatureHex);
+  if (!signatureBytes) return false;
+
+  const key = await importHmacKey(secret);
+  const valid = await getSubtle().verify(
+    'HMAC',
+    key,
+    signatureBytes,
+    new TextEncoder().encode(`${issuedAtStr}.${nonce}`)
+  );
+  if (!valid) return false;
+
+  if (Date.now() - issuedAtMs > STATE_TTL_MS) return false;
+
   return true;
-}
-
-/** テスト用: 現在保持しているstate件数 */
-function _stateCount() {
-  return stateStore.size;
-}
-
-/** テスト用: 期限切れとして扱うため、createdAtを過去に書き換える */
-function _expireStateForTest(state) {
-  const entry = stateStore.get(state);
-  if (entry) {
-    entry.createdAt = Date.now() - STATE_TTL_MS - 1000;
-  }
 }
 
 function escapeHtml(str) {
@@ -103,9 +166,7 @@ function renderErrorHtml(title, message) {
  * GET /oauth/login
  * Seller Centralの認可画面(consent)へリダイレクトする。
  */
-function handleOAuthLogin(req, res) {
-  cleanupExpiredStates();
-
+async function handleOAuthLogin(req, res) {
   const spapiAppId = process.env.SPAPI_APP_ID;
   if (!spapiAppId) {
     return res
@@ -119,7 +180,21 @@ function handleOAuthLogin(req, res) {
   }
 
   const sellerCentralUrl = process.env.SELLER_CENTRAL_URL || 'https://sellercentral.amazon.co.jp';
-  const state = _createState();
+
+  const state = await _createState();
+  if (state === null) {
+    // OAUTH_STATE_SECRET未設定。署名鍵が無いとstateの真正性を検証できないため、
+    // 黙って署名なしのstateで通す(=第三者が偽造したstateでコールバックを騙せてしまう)
+    // よりも、フェイルセーフに倒してログイン自体を503で拒否する。
+    return res
+      .status(503)
+      .html(
+        renderErrorHtml(
+          '設定エラー',
+          'サーバー設定が未完了です。しばらくしてから再度お試しください。'
+        )
+      );
+  }
 
   const redirectUrl = `${sellerCentralUrl}/apps/authorize/consent?application_id=${encodeURIComponent(
     spapiAppId
@@ -138,7 +213,7 @@ async function handleOAuthCallback(req, res) {
   const spapiOauthCode = query.spapi_oauth_code;
   const sellingPartnerId = query.selling_partner_id;
 
-  if (!_verifyAndConsumeState(state)) {
+  if (!(await _verifyAndConsumeState(state))) {
     return res
       .status(403)
       .html(renderErrorHtml('認証エラー', '認証セッションが無効です。もう一度お試しください。'));
@@ -249,7 +324,5 @@ module.exports = {
   handleOAuthCallback,
   _createState,
   _verifyAndConsumeState,
-  _stateCount,
-  _expireStateForTest,
-  _stateStoreForTest: stateStore,
+  STATE_TTL_MS,
 };

@@ -115,3 +115,51 @@ test('GET /api/trial-status: 残り日数は切り上げ(最終端数日は1日�
   assert.equal(res.body.active, true);
   assert.equal(res.body.remainingDays, 1);
 });
+
+// ---------------------------------------------------------------------------
+// 脆弱性修正: X-Spapi-Refresh-Tokenは中身を検証しない(存在確認のみ)ため、
+// 出品者IDさえ分かれば誰でも他人のお試し期間を開始・消化できてしまう
+// (出品者IDはAmazonの商品ページから誰でも取得できる)。トークンの真正性検証は
+// コストが掛かるため見送り、代わりに/api/quota・/api/searchと同じパターンで
+// IP単位のレート制限を掛け、大量の出品者IDを投入する乱掘り攻撃のコストを上げる。
+// ---------------------------------------------------------------------------
+
+test('GET /api/trial-status: IP制限超過時は429 rate_limitedを返し、sellerTrial.getOrStartは呼ばれない', async () => {
+  const routes = freshRoutes();
+  const ipRateLimit = require('../src/ipRateLimit');
+  ipRateLimit._reset();
+  ipRateLimit._setDurableBinding(null); // インメモリ経路を強制
+
+  const ip = '198.51.100.55';
+  for (let i = 0; i < ipRateLimit.DEFAULT_LIMIT_PER_MIN; i += 1) {
+    await ipRateLimit.checkAndCount(ip);
+  }
+
+  const sellerTrial = routes.sellerTrial;
+  const originalGetOrStart = sellerTrial.getOrStart;
+  let getOrStartCalled = false;
+  sellerTrial.getOrStart = async (...args) => {
+    getOrStartCalled = true;
+    return originalGetOrStart(...args);
+  };
+
+  const res = createMockRes();
+  const route = routes.match('GET', '/api/trial-status');
+  await route.handler(
+    {
+      headers: {
+        'cf-connecting-ip': ip,
+        'x-spapi-seller-id': 'SELLER-RATE-LIMITED',
+        'x-spapi-refresh-token': 'rt',
+      },
+    },
+    res
+  );
+
+  assert.equal(res.statusCode, 429);
+  assert.equal(res.body.error, 'rate_limited');
+  assert.equal(getOrStartCalled, false);
+
+  sellerTrial.getOrStart = originalGetOrStart;
+  ipRateLimit._setDurableBinding(undefined);
+});
