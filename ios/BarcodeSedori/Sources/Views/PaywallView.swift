@@ -158,6 +158,17 @@ struct PaywallView: View {
                                 .font(.caption2)
                                 .foregroundColor(.orange)
 
+                            #if DEBUG
+                            // 開発ビルド限定の診断情報。App Store Connect側の商品ID未反映と
+                            // 通信エラーを切り分けるための生の情報のため、本番ユーザーには不要かつ
+                            // 不親切(意味が分からず不安にさせるだけ)なのでReleaseには出さない。
+                            if let diagnostic = entitlements.productLoadDiagnostic {
+                                Text(diagnostic)
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                            #endif
+
                             if entitlements.isLoadingProduct {
                                 HStack(spacing: 6) {
                                     ProgressView()

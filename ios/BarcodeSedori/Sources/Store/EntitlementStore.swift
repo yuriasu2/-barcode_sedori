@@ -32,6 +32,11 @@ final class EntitlementStore: ObservableObject {
     @Published private(set) var purchaseInProgress = false
     /// 購入・復元の失敗時に表示する日本語メッセージ。表示後は呼び出し側でnilに戻すこと。
     @Published var lastActionErrorMessage: String?
+    /// 商品情報読込(`loadProduct()`)の診断情報。原因切り分け用で、購入・復元用の
+    /// `lastActionErrorMessage` とは用途が異なるため別プロパティにしている。
+    /// 成功時は nil。空配列が返った場合は問い合わせた商品IDを、エラー発生時は
+    /// `error.localizedDescription` を含める。
+    @Published private(set) var productLoadDiagnostic: String?
 
     private var updatesTask: Task<Void, Never>?
 
@@ -76,8 +81,30 @@ final class EntitlementStore: ObservableObject {
         do {
             let products = try await Product.products(for: [Self.proProductID])
             product = products.first
+            if let product {
+                productLoadDiagnostic = nil
+                #if DEBUG
+                print("[EntitlementStore] loadProduct: productID=\(Self.proProductID) 取得数=\(products.count) 取得商品ID=\(product.id) 表示価格=\(product.displayPrice)")
+                #endif
+            } else {
+                // Product.products(for:) は商品IDが存在しない場合でもエラーを投げず、
+                // 空配列を返す。通信エラーと区別できるよう、商品IDを含めて記録する。
+                //
+                // 診断文言(商品ID込み)の生成自体を #if DEBUG で囲む。表示側(PaywallView)を
+                // DEBUG限定にするだけでは、文字列リテラル自体はReleaseバイナリにも残ってしまうため、
+                // 本番ユーザー向けの情報として不要な生の診断情報をバイナリに含めないよう、
+                // ここで生成そのものを止める。
+                #if DEBUG
+                productLoadDiagnostic = "商品が見つかりません(問い合わせた商品ID: \(Self.proProductID))"
+                print("[EntitlementStore] loadProduct: productID=\(Self.proProductID) 取得数=0(商品が見つかりません)")
+                #endif
+            }
         } catch {
             product = nil
+            #if DEBUG
+            productLoadDiagnostic = "商品情報の取得に失敗しました(問い合わせた商品ID: \(Self.proProductID)): \(error.localizedDescription)"
+            print("[EntitlementStore] loadProduct: productID=\(Self.proProductID) エラー=\(error.localizedDescription)")
+            #endif
         }
     }
 
