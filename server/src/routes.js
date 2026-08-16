@@ -1399,7 +1399,16 @@ router.get('/api/quota', async (req, res) => {
   // 応答形式はKeepa呼び出し経路(fetchKeepaProductWithDebug)のrate_limited応答と揃える。
   const rateLimitResult = await ipRateLimit.checkAndCount(clientIpOf(req.headers));
   if (!rateLimitResult.allowed) return sendRateLimited(res, rateLimitResult.retryAfterSec);
-  res.json(await deviceQuota.computeQuota(deviceId));
+  const quota = await deviceQuota.computeQuota(deviceId);
+  // 現在の無料枠設定(KV可変)をアプリへ伝える。アプリは「無料は1日◯回まで」等の文言を
+  // この値から組み立てるため、KVで回数を変えてもアプリ更新なしで文言が追従する。
+  // quotaMath.buildQuota()には含めない(あれはユニット残量の計算結果を表す型であり、
+  // 設定値はデバイス状態ではないため。既存のquota応答の形を壊さない狙いもある)。
+  const lim = await deviceQuota.limits();
+  res.json({
+    ...quota,
+    limits: { baseDailyUnits: lim.base, unitsPerAd: lim.perAd, maxDailyUnits: lim.max },
+  });
 });
 
 // GET /api/trial-status — 出品者ID単位のPro無料お試し期間(サーバー権威)の現在状態を返す。

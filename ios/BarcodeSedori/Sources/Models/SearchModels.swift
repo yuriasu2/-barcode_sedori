@@ -125,6 +125,21 @@ struct QuotaInfo: Codable, Equatable {
     let unlimited: Bool?
     /// サーバー障害等で残量が不明のとき true。この場合クライアントはローカルの残量を維持する。
     let unknown: Bool?
+    /// 現在サーバーが適用している無料枠の設定値。GET /api/quota の応答にのみ含まれる
+    /// (他のエンドポイントに付随するquotaでは nil)。
+    let limits: QuotaLimitsInfo?
+}
+
+/// 無料枠ユニットモデルの3設定。サーバー側はKV(ADS_CONFIG namespace の quota-limits キー)で
+/// これらを可変にしているため、アプリは「無料は1日◯回まで」等の文言をこの値から組み立てる。
+/// 未取得(起動直後・オフライン等)のときは ScanQuotaStore 側の既定値へフォールバックする。
+struct QuotaLimitsInfo: Codable, Equatable {
+    /// 広告なしで使える1日の基本回数。
+    let baseDailyUnits: Int?
+    /// 広告1本あたりの追加回数。
+    let unitsPerAd: Int?
+    /// 1日の上限。
+    let maxDailyUnits: Int?
 }
 
 /// サーバーエラーレスポンス(想定: {"error": "..."} 形式にも対応できるよう緩めに定義)

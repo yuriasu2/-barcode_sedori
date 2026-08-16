@@ -26,11 +26,43 @@ const STORAGE_KEY = 'entry'; // DO1個=デバイス1台なのでキーは固定�
 
 /** env文字列からlimits({base, perAd, max})を組み立てる。未設定・不正値は既定値にフォールバックする。 */
 function readLimits(env) {
+  const base = env && parseInt(env.BASE_DAILY_UNITS, 10);
   return {
-    base: (env && parseInt(env.BASE_DAILY_UNITS, 10)) || 5,
+    // baseのみ0を有効値として扱う(「広告なしでは1回も使えない」設定を許容するため)。
+    base: Number.isFinite(base) && base >= 0 ? base : 5,
     perAd: (env && parseInt(env.UNITS_PER_AD, 10)) || 5,
     max: (env && parseInt(env.MAX_DAILY_UNITS, 10)) || 100,
   };
+}
+
+/**
+ * リクエストのクエリパラメータ(base/perAd/max)からlimitsを読む。
+ *
+ * なぜDO内でKVを読まずWorkerから受け取るのか(設計判断):
+ * 無料枠の3設定はKV(ADS_CONFIG namespace の quota-limits キー)で可変になったが、
+ * その解決はWorker側(quotaLimits.js)で行い、結果をこのDOへクエリパラメータとして
+ * 渡す。DOも env 経由でKVバインディングを持てるが、DOはデバイスIDごとに1インスタンス
+ * 存在するためKVキャッシュがインスタンス数だけ分散し、KV読み取り回数がデバイス数に
+ * 比例して増える。さらにDOのconstructorは同期のため、KV読み取りは毎fetchのawaitとなり
+ * 全リクエストにKV往復が乗る。解決ロジックを1箇所(Worker側)に集約する方が
+ * 読み取り回数・レイテンシ・改修漏れのいずれの面でも有利。
+ *
+ * 3値すべてが妥当な整数として揃っている場合のみ採用し、1つでも欠け・不正があれば
+ * constructorで読んだenv由来のlimitsへ倒す(部分適用で中途半端な設定にしないため。
+ * 理由の詳細はquotaLimits.js参照)。これにより、パラメータを渡さない古い呼び出し
+ * (およびテスト)でも従来どおり動く。
+ *
+ * @param {URLSearchParams} searchParams
+ * @param {{base:number, perAd:number, max:number}} fallback
+ */
+function limitsFromParams(searchParams, fallback) {
+  const base = parseInt(searchParams.get('base'), 10);
+  const perAd = parseInt(searchParams.get('perAd'), 10);
+  const max = parseInt(searchParams.get('max'), 10);
+  if (!Number.isFinite(base) || base < 0) return fallback;
+  if (!Number.isFinite(perAd) || perAd < 1) return fallback;
+  if (!Number.isFinite(max) || max < 1 || max < base) return fallback;
+  return { base, perAd, max };
 }
 
 /**
@@ -64,6 +96,7 @@ function normalizeEntry(stored, date) {
 export class DeviceQuotaDO {
   constructor(state, env) {
     this.state = state;
+    // クエリパラメータでlimitsが渡ってこなかった場合のフォールバック(env由来)。
     this.limits = readLimits(env);
   }
 
@@ -75,20 +108,23 @@ export class DeviceQuotaDO {
   async fetch(request) {
     const url = new URL(request.url);
     const date = url.searchParams.get('date') || '';
+    // limitsはリクエストごとに解決する(KVでいつでも変わり得るため、constructor時点の
+    // 値に固定してしまうとDOインスタンスが生き続ける限り古い設定を使い続けてしまう)。
+    const limits = limitsFromParams(url.searchParams, this.limits);
 
     if (request.method === 'POST' && url.pathname === '/consume') {
-      return this.handleConsume(url, date);
+      return this.handleConsume(url, date, limits);
     }
     if (request.method === 'POST' && url.pathname === '/grant-ad') {
-      return this.handleGrantAd(date, url.searchParams.get('tx') || null);
+      return this.handleGrantAd(date, url.searchParams.get('tx') || null, limits);
     }
     if (request.method === 'GET' && url.pathname === '/peek') {
-      return this.handlePeek(date);
+      return this.handlePeek(date, limits);
     }
     return new Response('not found', { status: 404 });
   }
 
-  async handleConsume(url, date) {
+  async handleConsume(url, date, limits) {
     let units = 1;
     const unitsRaw = url.searchParams.get('units');
     if (unitsRaw !== null && unitsRaw !== '') {
@@ -98,7 +134,7 @@ export class DeviceQuotaDO {
 
     const stored = await this.state.storage.get(STORAGE_KEY);
     const current = normalizeEntry(stored, date);
-    const allowed = quotaMath.canConsume(current.unitsUsed, current.adGrants, units, this.limits);
+    const allowed = quotaMath.canConsume(current.unitsUsed, current.adGrants, units, limits);
 
     // seenTxはconsumeでは変化しないが、常に引き継ぐ(落とすとgrant-adのリプレイ対策が
     // consume呼び出しのたびに失われてしまう)。
@@ -112,7 +148,7 @@ export class DeviceQuotaDO {
       await this.state.storage.put(STORAGE_KEY, next);
     }
 
-    const quota = quotaMath.buildQuota(next.unitsUsed, next.adGrants, this.limits);
+    const quota = quotaMath.buildQuota(next.unitsUsed, next.adGrants, limits);
     return Response.json({ allowed, quota });
   }
 
@@ -123,17 +159,18 @@ export class DeviceQuotaDO {
    * 200を返さないと再送してくるため、成功後の再送でも二重付与しないためのガード)。
    * @param {string} date
    * @param {string|null} tx transaction_id(未指定ならリプレイ判定なし=従来どおり)
+   * @param {{base:number, perAd:number, max:number}} limits 呼び出し側(Worker)が解決したlimits
    */
-  async handleGrantAd(date, tx) {
+  async handleGrantAd(date, tx, limits) {
     const stored = await this.state.storage.get(STORAGE_KEY);
     const current = normalizeEntry(stored, date);
 
     if (tx && current.seenTx.includes(tx)) {
-      const quota = quotaMath.buildQuota(current.unitsUsed, current.adGrants, this.limits);
+      const quota = quotaMath.buildQuota(current.unitsUsed, current.adGrants, limits);
       return Response.json({ granted: false, duplicate: true, quota });
     }
 
-    const granted = quotaMath.canGrantAd(current.adGrants, this.limits);
+    const granted = quotaMath.canGrantAd(current.adGrants, limits);
     const nextAdGrants = granted ? current.adGrants + 1 : current.adGrants;
     // 直近MAX_SEEN_TX件だけ保持する(先頭=古い方から捨てる)。
     const nextSeenTx = tx ? [...current.seenTx, tx].slice(-MAX_SEEN_TX) : current.seenTx;
@@ -145,14 +182,14 @@ export class DeviceQuotaDO {
       await this.state.storage.put(STORAGE_KEY, next);
     }
 
-    const quota = quotaMath.buildQuota(next.unitsUsed, next.adGrants, this.limits);
+    const quota = quotaMath.buildQuota(next.unitsUsed, next.adGrants, limits);
     return Response.json({ granted, duplicate: false, quota });
   }
 
-  async handlePeek(date) {
+  async handlePeek(date, limits) {
     const stored = await this.state.storage.get(STORAGE_KEY);
     const current = normalizeEntry(stored, date);
-    const quota = quotaMath.buildQuota(current.unitsUsed, current.adGrants, this.limits);
+    const quota = quotaMath.buildQuota(current.unitsUsed, current.adGrants, limits);
     return Response.json(quota);
   }
 }

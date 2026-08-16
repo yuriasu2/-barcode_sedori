@@ -243,15 +243,6 @@ struct SettingsView: View {
                             Text("購入を復元")
                         }
                     }
-
-                    // App StoreのアプリIDが未設定(未リリース)の間は行ごと出さない。
-                    if !AppStoreReviewConfig.appId.isEmpty {
-                        Button {
-                            openAppStoreReviewPage()
-                        } label: {
-                            Text("レビューを書く")
-                        }
-                    }
                 }
 
                 linkSection
@@ -265,6 +256,15 @@ struct SettingsView: View {
                         openNoticesPage()
                     } label: {
                         Text("お知らせ")
+                    }
+
+                    // App StoreのアプリIDが未設定(未リリース)の間は行ごと出さない。
+                    if !AppStoreReviewConfig.appId.isEmpty {
+                        Button {
+                            openAppStoreReviewPage()
+                        } label: {
+                            Text("レビューを書く")
+                        }
                     }
 
                     Button {

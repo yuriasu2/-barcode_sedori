@@ -20,6 +20,8 @@ private enum LegalConfig {
 /// 価格・トライアルは可能なら StoreKit の Product から取得し、未ロード時は既定文言でフォールバックする。
 struct PaywallView: View {
     @ObservedObject private var entitlements = EntitlementStore.shared
+    /// 「無料は1日◯回まで」の数値をサーバー(KV可変)の設定値に追従させるために監視する。
+    @ObservedObject private var quota = ScanQuotaStore.shared
     @Environment(\.dismiss) private var dismiss
     /// 利用規約・プライバシーポリシーをアプリ内ブラウザで開くための対象。
     @State private var browserTarget: BrowserTarget?
@@ -33,8 +35,11 @@ struct PaywallView: View {
     }
 
     // クールダウン(5秒/1秒)はプランではなくSP-API連携の有無で決まるため、訴求には含めない。
-    private let proFeatures: [String] = [
-        "スキャン・検索が無制限(無料は1日5回まで)",
+    // 無料枠の回数はサーバーのKV(quota-limits)で変更できるため、配列はletではなく
+    // 計算プロパティにして毎回サーバー値から組み立てる(未取得時は既定値5でフォールバック)。
+    private var proFeatures: [String] {
+        [
+        "スキャン・検索が無制限(無料は1日\(quota.baseDailyUnitsToday)回まで)",
         "OCR(ISBN/JAN文字認識)スキャンが無制限",
         "Keepa価格推移グラフが無制限",
         "オファー一覧(送料込・最安順)をフル表示",
@@ -42,7 +47,8 @@ struct PaywallView: View {
         "アプリからAmazon出品登録",
         "広告なし",
         "仕入れリスト・利益アラートが使い放題",
-    ]
+        ]
+    }
 
     var body: some View {
         NavigationView {

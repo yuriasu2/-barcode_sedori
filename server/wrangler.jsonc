@@ -19,6 +19,9 @@
     "SPAPI_ENDPOINT": "https://sellingpartnerapi-fe.amazon.com",
     // 無料枠ユニットモデル(deviceQuota.js)。
     // 基本の1日あたりユニット数 / 広告視聴1本あたりの付与ユニット数 / 1日の上限(cap)。
+    // 実際に使う値は ADS_CONFIG KV の quota-limits キー(JSON)が優先される
+    // (デプロイなしで調整するため。quotaLimits.js参照)。ここの値はKV未設定・
+    // JSON破損・値が不正なときのフォールバックとして残している。
     "BASE_DAILY_UNITS": "5",
     "UNITS_PER_AD": "5",
     "MAX_DAILY_UNITS": "100",

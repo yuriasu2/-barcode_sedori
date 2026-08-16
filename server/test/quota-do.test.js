@@ -145,6 +145,69 @@ test('DeviceQuotaDO(ESM)の挙動をstate.storageモックで検証する', asyn
     assert.equal(body.adGrantsToday, 0);
   });
 
+  // -------------------------------------------------------------------------
+  // Worker側で解決したlimits(KV由来)をクエリパラメータで受け取る経路
+  // -------------------------------------------------------------------------
+
+  await t.test('クエリパラメータのlimitsがenvより優先される', async () => {
+    const doInstance = new DeviceQuotaDO(createMockState(), ENV);
+
+    // base=2(envは5)。3回目で拒否されればクエリ側が効いている。
+    for (let i = 1; i <= 2; i += 1) {
+      const res = await doInstance.fetch(
+        new Request(`https://do/consume?date=${DATE}&units=1&base=2&perAd=3&max=8`, { method: 'POST' })
+      );
+      const body = await res.json();
+      assert.equal(body.allowed, true);
+      assert.equal(body.quota.limit, 2);
+    }
+    const res3 = await doInstance.fetch(
+      new Request(`https://do/consume?date=${DATE}&units=1&base=2&perAd=3&max=8`, { method: 'POST' })
+    );
+    assert.equal((await res3.json()).allowed, false);
+
+    // 広告1本でlimitは 2 + 3 = 5 になる。
+    const grant = await doInstance.fetch(
+      new Request(`https://do/grant-ad?date=${DATE}&base=2&perAd=3&max=8`, { method: 'POST' })
+    );
+    const grantBody = await grant.json();
+    assert.equal(grantBody.granted, true);
+    assert.equal(grantBody.quota.limit, 5);
+  });
+
+  await t.test('limitsパラメータが無ければenv由来の値で動く(後方互換)', async () => {
+    const doInstance = new DeviceQuotaDO(createMockState(), ENV);
+    const res = await doInstance.fetch(new Request(`https://do/peek?date=${DATE}`, { method: 'GET' }));
+    assert.equal((await res.json()).limit, 5);
+  });
+
+  await t.test('limitsパラメータが1つでも不正なら3値ともenvへフォールバックする', async () => {
+    const doInstance = new DeviceQuotaDO(createMockState(), ENV);
+    // base=2は妥当だがperAd=0が不正 → base=2も採用せず、env由来のlimit=5になる。
+    const res = await doInstance.fetch(
+      new Request(`https://do/peek?date=${DATE}&base=2&perAd=0&max=8`, { method: 'GET' })
+    );
+    assert.equal((await res.json()).limit, 5);
+
+    // max < base も不正扱い。
+    const res2 = await doInstance.fetch(
+      new Request(`https://do/peek?date=${DATE}&base=50&perAd=5&max=10`, { method: 'GET' })
+    );
+    assert.equal((await res2.json()).limit, 5);
+  });
+
+  await t.test('base=0(広告を見ないと使えない設定)はクエリ・envの両方で有効', async () => {
+    const doInstance = new DeviceQuotaDO(createMockState(), ENV);
+    const res = await doInstance.fetch(
+      new Request(`https://do/peek?date=${DATE}&base=0&perAd=5&max=100`, { method: 'GET' })
+    );
+    assert.equal((await res.json()).limit, 0);
+
+    const zeroEnvInstance = new DeviceQuotaDO(createMockState(), { ...ENV, BASE_DAILY_UNITS: '0' });
+    const res2 = await zeroEnvInstance.fetch(new Request(`https://do/peek?date=${DATE}`, { method: 'GET' }));
+    assert.equal((await res2.json()).limit, 0);
+  });
+
   await t.test('不明なパス/メソッドは404', async () => {
     const doInstance = new DeviceQuotaDO(createMockState(), ENV);
     const res = await doInstance.fetch(new Request('https://do/unknown', { method: 'POST' }));

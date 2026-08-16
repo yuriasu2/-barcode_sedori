@@ -3,7 +3,7 @@ import SwiftUI
 /// 無料枠ユニット(Phase B)を使い切った際に、カメラ映像の上に重ねて出す枠切れオーバーレイ。
 /// SearchTabViewが肥大化しないよう切り出したView。
 struct QuotaPaywallOverlay: View {
-    /// 「動画を見てスキャン+5回」を出すか(FreemiumFlags.rewardedAdsEnabled && quota.adAvailable && !capReached)。
+    /// 「動画を見てスキャンを続ける」を出すか(FreemiumFlags.rewardedAdsEnabled && quota.adAvailable && !capReached)。
     let showsAdOption: Bool
     /// 「Amazon連携でスキャン無制限」を出すか(!settings.isSpApiLinkUsable)。
     let showsSpApiOption: Bool
@@ -11,7 +11,7 @@ struct QuotaPaywallOverlay: View {
     var isProcessingAd: Bool = false
     /// 「①Proにアップグレード」タップ時の処理。
     let onUpgradeTap: () -> Void
-    /// 「②動画を見て+5回」タップ時の処理。
+    /// 「②動画を見てスキャンを続ける」タップ時の処理。
     let onWatchAdTap: () -> Void
     /// 「③Amazon連携でスキャン無制限」タップ時の処理。
     let onSpApiLinkTap: () -> Void
@@ -41,7 +41,9 @@ struct QuotaPaywallOverlay: View {
                     if showsAdOption {
                         optionButton(
                             // 反映待ちの間は何が起きているか分からず再タップされやすいため、文言で状態を示す。
-                            title: isProcessingAd ? "反映中…" : "動画を見てスキャン+5回",
+                            // 付与される回数はサーバー側のKV(quota-limits)で変更できるため、
+                            // 文言に数値を入れない(入れると変更のたびにアプリ更新が必要になる)。
+                            title: isProcessingAd ? "反映中…" : "動画を見てスキャンを続ける",
                             subtitle: isProcessingAd ? "枠の反映を待っています" : nil,
                             systemImage: "play.rectangle.fill",
                             isEmphasized: false,

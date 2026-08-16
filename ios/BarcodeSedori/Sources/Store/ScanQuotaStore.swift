@@ -12,7 +12,9 @@ import Foundation
 final class ScanQuotaStore: ObservableObject {
     static let shared = ScanQuotaStore()
 
-    /// 無料プランの1日あたり基礎ユニット数。
+    /// 無料プランの1日あたり基礎ユニット数の既定値。
+    /// サーバー側はKVでこの値を変更できる(quota-limits)ため、実際に文言へ出す値は
+    /// `baseDailyUnitsToday` を使うこと。ここはサーバー値が未取得のときのフォールバック。
     static let baseDailyUnits = 5
     /// 無料プランでOCR読み取りを試せる1日上限(お試し枠、ユニットとは別枠)。
     static let freeOcrDailyLimit = 5
@@ -25,6 +27,9 @@ final class ScanQuotaStore: ObservableObject {
         static let capReached = "scanQuota.capReached"
         static let ocrDate = "scanQuota.ocrDate"
         static let ocrCount = "scanQuota.ocrCount"
+        // 日付をまたいでも保持する(次回起動直後、/api/quota応答が届く前でも
+        // 前回のサーバー値で文言を出せるようにするため)。
+        static let baseDailyUnitsFromServer = "scanQuota.baseDailyUnitsFromServer"
     }
 
     private let defaults: UserDefaults
@@ -38,19 +43,29 @@ final class ScanQuotaStore: ObservableObject {
     /// 本日の上限(基礎+広告加算)に到達済みか。
     @Published private(set) var capReached: Bool
 
+    /// サーバー(/api/quota)が返した「広告なしで使える1日の基本回数」。
+    /// 「無料は1日◯回まで」のような文言はこの値から組み立てる。サーバー側はKVで
+    /// 変更できるため、アプリに数値をハードコードしない。未取得のうちは既定値(5)。
+    @Published private(set) var baseDailyUnitsToday: Int
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
 
+        // 日付に依存しない設定値のため、日付判定の外で復元する。
+        // 前回サーバーから受け取った値が無ければ既定値(5)。
+        let baseUnits = (defaults.object(forKey: Keys.baseDailyUnitsFromServer) as? Int) ?? Self.baseDailyUnits
+        self.baseDailyUnitsToday = baseUnits
+
         let today = Self.todayString()
         if defaults.string(forKey: Keys.date) == today {
-            self.unitsRemaining = (defaults.object(forKey: Keys.unitsRemaining) as? Int) ?? Self.baseDailyUnits
-            self.baseRemaining = (defaults.object(forKey: Keys.baseRemaining) as? Int) ?? Self.baseDailyUnits
+            self.unitsRemaining = (defaults.object(forKey: Keys.unitsRemaining) as? Int) ?? baseUnits
+            self.baseRemaining = (defaults.object(forKey: Keys.baseRemaining) as? Int) ?? baseUnits
             self.adAvailable = (defaults.object(forKey: Keys.adAvailable) as? Bool) ?? true
             self.capReached = defaults.bool(forKey: Keys.capReached)
         } else {
             // 日付が変わっていれば初期値(基礎枠フル)にリセットする。
-            self.unitsRemaining = Self.baseDailyUnits
-            self.baseRemaining = Self.baseDailyUnits
+            self.unitsRemaining = baseUnits
+            self.baseRemaining = baseUnits
             self.adAvailable = true
             self.capReached = false
         }
@@ -69,8 +84,9 @@ final class ScanQuotaStore: ObservableObject {
     func resetForNewDayIfNeeded() {
         let today = Self.todayString()
         guard defaults.string(forKey: Keys.date) != today else { return }
-        unitsRemaining = Self.baseDailyUnits
-        baseRemaining = Self.baseDailyUnits
+        // サーバーが返した最新の基本回数でリセットする(KVで変更され得るため定数は使わない)。
+        unitsRemaining = baseDailyUnitsToday
+        baseRemaining = baseDailyUnitsToday
         adAvailable = true
         capReached = false
         persist(date: today)
@@ -85,6 +101,13 @@ final class ScanQuotaStore: ObservableObject {
     /// - `quota` が nil、または `unknown == true` のときは何もしない(サーバー障害時にローカル残量を維持するため)。
     /// - `unlimited == true`(Pro等)のときも何もしない(このストアは無料枠専用のミラーのため)。
     func apply(_ quota: QuotaInfo?) {
+        // 設定値(limits)は残量とは別物なので、unknown/unlimitedで早期returnする前に取り込む。
+        // 残量不明でも「無料は1日◯回まで」の文言は正しく出せた方がよいため。
+        if let baseDailyUnits = quota?.limits?.baseDailyUnits, baseDailyUnits >= 0 {
+            baseDailyUnitsToday = baseDailyUnits
+            defaults.set(baseDailyUnits, forKey: Keys.baseDailyUnitsFromServer)
+        }
+
         guard let quota, quota.unknown != true, quota.unlimited != true else { return }
 
         resetForNewDayIfNeeded()

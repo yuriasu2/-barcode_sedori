@@ -42,15 +42,18 @@
 
 const { todayString } = require('./dateUtil');
 const quotaMath = require('./quotaMath');
+const quotaLimits = require('./quotaLimits');
 
-// モジュール読込時に一度だけ評価する。
-// テストでenv差し替えを反映させたい場合は require.cache からこのモジュールを削除して再require する。
-const BASE_DAILY_UNITS = parseInt(process.env.BASE_DAILY_UNITS, 10) || 5;
-const UNITS_PER_AD = parseInt(process.env.UNITS_PER_AD, 10) || 5;
-const MAX_DAILY_UNITS = parseInt(process.env.MAX_DAILY_UNITS, 10) || 100;
-
+/**
+ * 現在の limits({base, perAd, max})を解決する。
+ * かつてはモジュール読込時にprocess.envを1度だけ読む定数だったが、デプロイなしで
+ * 無料枠を調整できるようKV(ADS_CONFIG namespace の quota-limits キー)からも
+ * 読めるようにしたため非同期になった。KV未設定・不正時は環境変数→既定値へ倒れる
+ * (quotaLimits.js参照)。60秒キャッシュがあるためKV読み取りは高々1分に1回。
+ * @returns {Promise<{base: number, perAd: number, max: number}>}
+ */
 function limits() {
-  return { base: BASE_DAILY_UNITS, perAd: UNITS_PER_AD, max: MAX_DAILY_UNITS };
+  return quotaLimits.loadLimits();
 }
 
 /** deviceId -> { date, unitsUsed, adGrants }(インメモリ経路専用) */
@@ -102,11 +105,27 @@ function getDurableBinding() {
  * @param {string} path 'consume' | 'grant-ad' | 'peek'
  * @param {string} method
  * @param {object} params クエリパラメータ
+ * @param {{base:number, perAd:number, max:number}} lim Worker側で解決済みのlimits
+ *
+ * limitsをクエリパラメータで渡す理由(設計判断):
+ * DOも env からバインディングを受け取れるためDO内から直接KVを読むことは技術的には
+ * 可能だが、そうしない。(1) DOはデバイスIDごとに1インスタンスあり、60秒キャッシュも
+ * インスタンスごとに独立するため、KV読み取り回数がデバイス数に比例して増える。
+ * Worker側で解決すればisolateあたり60秒に1回で済む。(2) DOのconstructorは同期のため、
+ * KV読み取りはfetchのたびにawaitする作りになり、全リクエストにKVの往復が乗る。
+ * (3) 同じ設定の解決ロジックがWorker側とDO側の2箇所に分かれると、片方だけ
+ * 改修漏れが起きる(quotaMath.jsを切り出したのと同じ理由)。
+ * よって「Worker側で1箇所解決 → DOへ値として渡す」方式を採る。
  */
-async function callDurableObject(binding, deviceId, path, method, params) {
+async function callDurableObject(binding, deviceId, path, method, params, lim) {
   const id = binding.idFromName(deviceId);
   const stub = binding.get(id);
-  const qs = new URLSearchParams(params).toString();
+  const qs = new URLSearchParams({
+    ...params,
+    base: String(lim.base),
+    perAd: String(lim.perAd),
+    max: String(lim.max),
+  }).toString();
   const res = await stub.fetch(`https://do/${path}?${qs}`, { method });
   const body = await res.json();
   if (!res.ok) {
@@ -128,7 +147,7 @@ function getStateInMemory(deviceId) {
   return { unitsUsed: entry.unitsUsed, adGrants: entry.adGrants };
 }
 
-function tryConsumeInMemory(deviceId, units) {
+function tryConsumeInMemory(deviceId, units, lim) {
   const today = todayString();
   pruneIfNeeded(today);
 
@@ -138,13 +157,13 @@ function tryConsumeInMemory(deviceId, units) {
   // grant-ad側が積んだseenTxを消費時に落とさないよう引き継ぐ。
   const seenTx = Array.isArray(current.seenTx) ? current.seenTx : [];
 
-  if (!quotaMath.canConsume(unitsUsed, adGrants, units, limits())) {
-    return { allowed: false, quota: quotaMath.buildQuota(unitsUsed, adGrants, limits()) };
+  if (!quotaMath.canConsume(unitsUsed, adGrants, units, lim)) {
+    return { allowed: false, quota: quotaMath.buildQuota(unitsUsed, adGrants, lim) };
   }
 
   unitsUsed += units;
   entries.set(deviceId, { date: today, unitsUsed, adGrants, seenTx });
-  return { allowed: true, quota: quotaMath.buildQuota(unitsUsed, adGrants, limits()) };
+  return { allowed: true, quota: quotaMath.buildQuota(unitsUsed, adGrants, lim) };
 }
 
 /**
@@ -152,7 +171,7 @@ function tryConsumeInMemory(deviceId, units) {
  * transactionIdが既にseenTx(直近MAX_SEEN_TX件)にあれば付与せず duplicate:true を返す
  * (quotaDurableObject.jsのhandleGrantAdと同じ方針)。
  */
-function grantAdInMemory(deviceId, transactionId) {
+function grantAdInMemory(deviceId, transactionId, lim) {
   const today = todayString();
   pruneIfNeeded(today);
 
@@ -165,23 +184,23 @@ function grantAdInMemory(deviceId, transactionId) {
     return {
       granted: false,
       duplicate: true,
-      quota: quotaMath.buildQuota(unitsUsed, adGrants, limits()),
+      quota: quotaMath.buildQuota(unitsUsed, adGrants, lim),
     };
   }
 
-  if (!quotaMath.canGrantAd(adGrants, limits())) {
+  if (!quotaMath.canGrantAd(adGrants, lim)) {
     // cap到達で付与できない場合も、txがあれば「見た」こと自体は記録しておく
     // (どのみち再送されても同じ理由でgranted:falseになるだけだが、DO側の
     // handleGrantAdと挙動を揃えるため一貫してseenTxへ積む)。
     const nextSeenTx = transactionId ? [...seenTx, transactionId].slice(-MAX_SEEN_TX) : seenTx;
     entries.set(deviceId, { date: today, unitsUsed, adGrants, seenTx: nextSeenTx });
-    return { granted: false, duplicate: false, quota: quotaMath.buildQuota(unitsUsed, adGrants, limits()) };
+    return { granted: false, duplicate: false, quota: quotaMath.buildQuota(unitsUsed, adGrants, lim) };
   }
 
   const nextAdGrants = adGrants + 1;
   const nextSeenTx = transactionId ? [...seenTx, transactionId].slice(-MAX_SEEN_TX) : seenTx;
   entries.set(deviceId, { date: today, unitsUsed, adGrants: nextAdGrants, seenTx: nextSeenTx });
-  return { granted: true, duplicate: false, quota: quotaMath.buildQuota(unitsUsed, nextAdGrants, limits()) };
+  return { granted: true, duplicate: false, quota: quotaMath.buildQuota(unitsUsed, nextAdGrants, lim) };
 }
 
 // ---------------------------------------------------------------------------
@@ -201,7 +220,8 @@ async function getState(deviceId) {
   if (!binding) return getStateInMemory(deviceId);
 
   try {
-    const quota = await callDurableObject(binding, deviceId, 'peek', 'GET', { date: todayString() });
+    const lim = await limits();
+    const quota = await callDurableObject(binding, deviceId, 'peek', 'GET', { date: todayString() }, lim);
     return { unitsUsed: quota.unitsUsed, adGrants: quota.adGrantsToday };
   } catch (err) {
     console.error('[deviceQuota] DO peek failed, returning unknown:', err.message);
@@ -224,7 +244,7 @@ async function computeQuota(deviceId) {
   if (!deviceId) return { unknown: true };
   const state = await getState(deviceId);
   if (!state) return { unknown: true };
-  return quotaMath.buildQuota(state.unitsUsed, state.adGrants, limits());
+  return quotaMath.buildQuota(state.unitsUsed, state.adGrants, await limits());
 }
 
 /**
@@ -239,14 +259,19 @@ async function tryConsume(deviceId, units = 1) {
   // routes.js側が先に400で弾くため通常ここには来ない。
   if (!deviceId) return { allowed: false, quota: { unknown: true } };
 
+  const lim = await limits();
   const binding = getDurableBinding();
-  if (!binding) return tryConsumeInMemory(deviceId, units);
+  if (!binding) return tryConsumeInMemory(deviceId, units, lim);
 
   try {
-    return await callDurableObject(binding, deviceId, 'consume', 'POST', {
-      date: todayString(),
-      units: String(units),
-    });
+    return await callDurableObject(
+      binding,
+      deviceId,
+      'consume',
+      'POST',
+      { date: todayString(), units: String(units) },
+      lim
+    );
   } catch (err) {
     // 方針: DOが落ちたら許可(可用性優先)。理由はファイル先頭のコメント参照。
     // quotaは残量不明。ここで「残量フル」を返すとクライアントのカウンタを
@@ -276,13 +301,14 @@ async function grantAd(deviceId, transactionId) {
   // computeQuota/tryConsumeと揃えて「無制限」を返さないようにする。
   if (!deviceId) return { granted: false, quota: { unknown: true } };
 
+  const lim = await limits();
   const binding = getDurableBinding();
-  if (!binding) return grantAdInMemory(deviceId, transactionId);
+  if (!binding) return grantAdInMemory(deviceId, transactionId, lim);
 
   try {
     const params = { date: todayString() };
     if (transactionId) params.tx = transactionId;
-    return await callDurableObject(binding, deviceId, 'grant-ad', 'POST', params);
+    return await callDurableObject(binding, deviceId, 'grant-ad', 'POST', params, lim);
   } catch (err) {
     // tryConsumeと同じ方針(可用性優先)。広告視聴の対価が失われないようgranted=trueで倒す。
     // ただし付与後の残量は分からないためquotaは残量不明とする。DO障害時は重複判定もできない
@@ -305,7 +331,8 @@ module.exports = {
   _reset,
   _entries: entries,
   _setDurableBinding,
-  BASE_DAILY_UNITS,
-  UNITS_PER_AD,
-  MAX_DAILY_UNITS,
+  // 現在有効な limits({base, perAd, max})を返す非同期関数。
+  // かつては BASE_DAILY_UNITS / UNITS_PER_AD / MAX_DAILY_UNITS の3定数を公開していたが、
+  // KVで可変になったため「読んだ時点の値」を返す関数へ置き換えた。
+  limits,
 };

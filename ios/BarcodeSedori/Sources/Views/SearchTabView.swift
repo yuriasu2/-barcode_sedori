@@ -367,7 +367,7 @@ struct SearchTabView: View {
                 }
             }
             // 残りが少なくなった時点で広告を先読みしておく。枠切れオーバーレイが出てから
-            // 読み込むと「動画を見てスキャン+5回」をタップしてから数秒待たされるため。
+            // 読み込むと「動画を見てスキャンを続ける」をタップしてから数秒待たされるため。
             .onChange(of: quota.unitsRemaining) { remaining in
                 if !isSearchUnlimited && remaining <= 1 && showsRewardedAdOption {
                     rewardedAds.preload()
@@ -471,7 +471,7 @@ struct SearchTabView: View {
     private var isSearchUnlimited: Bool { entitlements.isPro || settings.isSpApiLinkUsable }
     /// 無料枠を使い切っており、これ以上スキャンできないか。
     private var isQuotaExhausted: Bool { !isSearchUnlimited && !quota.canScanToday }
-    /// リワード広告(動画を見て+5回)の導線を出してよいか。
+    /// リワード広告(動画を見てスキャンを続ける)の導線を出してよいか。
     /// AdsConfig.enabled(全広告のマスタースイッチ)も尊重するため RewardedAdManager.isEnabled を経由する。
     private var showsRewardedAdOption: Bool {
         rewardedAds.isEnabled && quota.adAvailable && !quota.capReached
@@ -601,7 +601,7 @@ struct SearchTabView: View {
         viewModel.handleScan(code, source: source)
     }
 
-    /// リワード広告フロー(枠切れオーバーレイの「動画を見てスキャン+5回」/グラフ枠の「動画を見てグラフを見る」の共通処理)。
+    /// リワード広告フロー(枠切れオーバーレイの「動画を見てスキャンを続ける」/グラフ枠の「動画を見てグラフを見る」の共通処理)。
     /// 広告を表示し、報酬獲得できたらサーバー側の枠加算(+5)が届くまで待つ。
     ///
     /// 加算はGoogle→サーバーのSSVコールバックで非同期に行われるため、視聴直後は未反映のことがある。
@@ -647,7 +647,7 @@ struct SearchTabView: View {
     ///
     /// グラフ専用の案内(枠切れ文言・「動画を見てグラフを見る」)は、Amazon未連携の無料ユーザーには
     /// 出さない。この場合はスキャン自体が止まりカメラ上に枠切れオーバーレイ
-    /// (Pro/動画を見てスキャン+5回/Amazon連携)が既に出ており、ここにほぼ同じ内容の導線を
+    /// (Pro/動画を見てスキャンを続ける/Amazon連携)が既に出ており、ここにほぼ同じ内容の導線を
     /// 重ねると同じ案内が2箇所に並んで煩雑になるため。
     /// 連携済み・お試し中はスキャン自体は無制限でグラフ枠だけが尽きる状態になり得るため、
     /// カメラ側のオーバーレイと重複しない。その場合は引き続きここで案内する。
@@ -658,8 +658,9 @@ struct SearchTabView: View {
 
             if showsGraphQuotaGuidance {
                 // 「動画を見てグラフを見る」(リワード広告でグラフ枠を延長する導線)は廃止した。
-                // グラフ枠が尽きたらPro案内のみを出す。1日5回の数値は無料枠の基本付与量
-                // (サーバーのBASE_DAILY_UNITS)と一致させていること。変更したらこの文言も直す。
+                // グラフ枠が尽きたらPro案内のみを出す。回数はサーバーが /api/quota で返す
+                // 設定値(KVのquota-limits)から組み立てるため、KVを書き換えれば文言も追従する
+                // (未取得時はScanQuotaStoreの既定値5でフォールバック)。
                 Button {
                     ReviewPromptController.shared.recordNegativeEvent()
                     Analytics.shared.capture(.paywallShown(trigger: .graphQuotaExhausted))
@@ -667,7 +668,7 @@ struct SearchTabView: View {
                 } label: {
                     HStack(spacing: 6) {
                         LockIconView(size: 16)
-                        Text("グラフの表示は1日5回まで。Proなら無制限")
+                        Text("グラフの表示は1日\(quota.baseDailyUnitsToday)回まで。Proなら無制限")
                             .font(.subheadline)
                             .fontWeight(.semibold)
                         Spacer()
