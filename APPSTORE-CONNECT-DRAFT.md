@@ -293,6 +293,10 @@ Resolution Center から返信すれば再審査に進む。**新しいビルド
 
 **要件**: 実機・最新OS・アプリ起動から開始・主要フローを通す。
 
+**撮影に使う端末は iPhone 17 Pro Max（iOS 26.6）**。Appleが「最新OSで」と
+指定しているため、iPhone 16e（iOS 18.7.8）ではなくこちらで撮ること。
+16eは「テストした端末」として項目2に併記するだけでよい。
+
 撮影順のシナリオ:
 
 | # | 撮影内容 | 注意 |
@@ -318,7 +322,8 @@ Resolution Center から返信すれば再審査に進む。**新しいビルド
 
 ## 返信文（英語 / Resolution Center と「メモ」欄の両方に貼る）
 
-> `[ ]` の箇所は提出前に埋めること。
+> 2026-08-20時点で全項目記入済み。このまま貼り付けて提出できる。
+> 端末・OS・配信範囲・サンプルコードを変更したら、項目2・4・6を更新すること。
 
 ```
 Thank you for reviewing SellerLens. Please find the requested information below.
@@ -347,8 +352,11 @@ included in the recording. Please see item 4 for details.
 
 2. DEVICES AND OPERATING SYSTEMS TESTED
 
-- [iPhone model] — iOS [version]
-- [iPhone model] — iOS [version]
+- iPhone 17 Pro Max — iOS 26.6
+- iPhone 16e — iOS 18.7.8
+
+The attached screen recording was captured on the iPhone 17 Pro Max
+running iOS 26.6.
 
 
 3. APP FUNCTIONS AND TARGET AUDIENCE
@@ -377,9 +385,16 @@ No account registration or login is required to use the core features.
 Steps:
   1. Launch the app and allow camera access.
   2. Point the camera at any product barcode (JAN / EAN-13).
-     If you do not have a physical product at hand, tap the search field at
-     the top and type a 13-digit JAN code manually.
-     Sample codes you can use: [JANコードを2〜3件]
+
+     If you do not have a physical product at hand, you do not need one.
+     Tap the search field at the top of the screen and type a code manually.
+     The field accepts either a 13-digit JAN / EAN-13 code or a 10-digit
+     ISBN-10. Please use any of these sample codes, which we have verified
+     return results:
+
+       4948872416030   (13-digit JAN)
+       9784342013157   (13-digit ISBN-13)
+       4415050883      (10-digit ISBN-10)
   3. The result screen appears immediately, showing the product information,
      new and used offer prices, the sales rank, and price-history graphs.
   4. Scroll down on the same screen to reach the profit calculation form.
@@ -452,8 +467,12 @@ processor other than Apple.
 6. REGIONAL DIFFERENCES
 
 The app is built exclusively for the Amazon.co.jp (Japan) marketplace, and
-the user interface is available in Japanese only. [配信範囲をここに記載]
-There are no regional differences in features or content.
+the user interface is available in Japanese only. It is distributed in
+Japan only, and the subscription is likewise offered in Japan only.
+
+Because the app is available in a single region, there are no regional
+differences in its features or content. The app functions consistently for
+every user who can download it.
 
 
 7. REGULATED INDUSTRY / PROTECTED THIRD-PARTY MATERIAL
