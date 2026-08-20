@@ -219,6 +219,8 @@ struct SettingsView: View {
     @State private var showPaywall = false
     /// アプリ内ブラウザ(SafariView)で開く対象。お問い合わせフォームをアプリ内で開くために使う。
     @State private var browserTarget: BrowserTarget?
+    /// 「端末IDをコピー」タップ後の確認アラート表示state。
+    @State private var deviceIdCopiedAlert = false
     #if DEBUG
     /// 開発用Pro強制トグルの表示state(実体はEntitlementStore側のUserDefaults)。
     @State private var debugForcePro = EntitlementStore.shared.debugForcePro
@@ -291,6 +293,29 @@ struct SettingsView: View {
                         openSupportContactPage()
                     } label: {
                         Text("ご意見・お問い合わせ")
+                    }
+
+                    // 端末ID(Keychain永続のランダムUUID。DeviceIdentifier参照)はPIIではないため
+                    // Releaseビルドでも常に表示してよい。問い合わせ対応や、開発者が
+                    // POST /api/admin/quota-reset をcurlで直接叩く際の宛先確認に使う
+                    // (Releaseビルドには「開発者向け」セクションのリセットボタン自体が存在しないため、
+                    // 手動でのリセットにはこのIDが唯一の手がかりになる)。
+                    Button {
+                        UIPasteboard.general.string = DeviceIdentifier.current
+                        deviceIdCopiedAlert = true
+                    } label: {
+                        HStack {
+                            Text("端末IDをコピー")
+                            Spacer()
+                            Text(DeviceIdentifier.current)
+                                .font(.footnote)
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                    }
+                    .alert("コピーしました", isPresented: $deviceIdCopiedAlert) {
+                        Button("OK", role: .cancel) {}
                     }
                 }
 
