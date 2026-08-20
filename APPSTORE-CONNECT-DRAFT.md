@@ -597,6 +597,62 @@ SellerLens Pro, auto-renewable subscription, 1,980 JPY per month, product ID jp.
 Pro unlocks unlimited scans, OCR scanning and price-history graphs (free tier: 5 per day), the full offer list, listing-restriction warnings and Amazon listing creation (both also requiring Amazon linking), no advertisements, and an unlimited purchase list and profit alerts. In Sandbox it can be purchased without being charged.
 ```
 
+## App Review情報「メモ」欄用（3998文字 / 上限4000）
+
+Appleが「今後の提出のためにメモ欄に入れておくように」と明記しているため、
+Resolution Centerへの返信とは**別に**この文面をメモ欄へ入れておく。
+**メモ欄も4000文字上限**なので、上のResolution Center用（2分割で計約5000文字）は
+そのままでは入らない。こちらは1本で収まるよう、審査担当者が実際に必要とする順
+（テスト手順 → デモアカウントを出せない理由 → 課金導線）に組み替えて圧縮してある。
+
+返信と違い**毎回の提出で使い回す**文面なので、端末・価格・商品ID・無料枠回数を
+変更したらここも更新すること。
+
+```
+HOW TO TEST THIS APP
+No account or login is required. There is no registration, login or deletion flow, and no user-generated content.
+
+Launch the app, allow camera access, and point the camera at any product barcode (JAN / EAN-13). With no product at hand, tap the search field and type a code; it accepts a 13-digit JAN / EAN-13 or a 10-digit ISBN-10. Verified samples: 4948872416030, 9784342013157, 4415050883. The result screen then shows product info, new/used offer prices, sales rank and price-history graphs; scroll down for the profit calculation.
+
+WHY WE CANNOT PROVIDE A DEMO ACCOUNT
+Three features require the user to link their own Amazon Seller Central account via Amazon's official OAuth (Login with Amazon): the per-seller offer list, listing-restriction warnings, and creating Amazon listings.
+
+Amazon's Data Protection Policy forbids sharing Selling Partner credentials with third parties, and these features act on the user's own account and can create real listings, so a shared test account is not viable. A screen recording demonstrating all three with our own seller account is provided instead.
+
+Unlinked, these features are not broken: they show a lock icon and a message meaning "Amazon account linking required". The app does not crash.
+
+The listing-restriction badge appears only when the scanned product is genuinely restricted for the linked account; nothing is shown otherwise. This is expected.
+
+IN-APP PURCHASE
+SellerLens Pro, auto-renewable subscription, 1,980 JPY per month, product ID jp.sellira.sellerlens.pro.monthly.
+
+To reach it: open the Settings tab (rightmost) and tap "Proを始める"; or exhaust the free daily quota (5 scans per day); or tap any locked feature such as the blurred offer list, OCR scan or price graph. The paywall shows the title, length (monthly), price, and links to the Terms of Use (Apple's standard EULA) and our Privacy Policy. In Sandbox it can be purchased without charge.
+
+Pro unlocks unlimited scans, OCR scanning and price-history graphs, the full offer list, listing-restriction warnings and Amazon listing creation (both also requiring Amazon linking), no ads, and an unlimited purchase list and profit alerts.
+
+APP TRACKING TRANSPARENCY
+The ATT request is deliberately not shown on first launch: the user completes four scans first, then sees a short explanation followed by Apple's system dialog.
+
+PURPOSE AND AUDIENCE
+A product-sourcing research tool for Amazon Japan sellers, who have only seconds in a store to judge whether an item is worth reselling. Scanning the barcode shows the Amazon price, sales rank and price history on one screen and calculates the expected profit after fees and tax. Audience: individuals and small sellers on Amazon.co.jp. Japanese-only UI.
+
+EXTERNAL SERVICES
+- Keepa API (api.keepa.com): product data and price / sales-rank history, under a paid commercial subscription.
+- Amazon Selling Partner API (sellingpartnerapi-fe.amazon.com): fee estimates, listing restrictions and listing creation, for the signed-in user's own account only.
+- Login with Amazon (api.amazon.com, sellercentral.amazon.co.jp): OAuth for the above.
+- images-na.ssl-images-amazon.com: product thumbnails.
+- Google AdMob: banner and rewarded ads, free tier only.
+- PostHog: anonymous analytics.
+- Cloudflare Workers (api.sellira.jp): our backend.
+- Apple StoreKit: in-app purchase.
+No AI services; no payment processor other than Apple.
+
+THIRD-PARTY MATERIAL AND REGIONS
+Not a regulated industry. Amazon product data and images come through Keepa under a paid API subscription per its terms. Selling Partner API access is granted through our registered developer profile in Amazon Seller Central, and each user authorizes their own account via Amazon's official OAuth; we never access other sellers' or buyers' personal data. SellerLens is independent, not affiliated with or endorsed by Amazon.
+
+Built solely for the Amazon.co.jp (Japan) marketplace and distributed in Japan only, so it behaves identically for all users.
+```
+
 ## 次回ビルドで直すこと（今回の返信では不要）
 
 **`NSLocalNetworkUsageDescription` を削除する。**
