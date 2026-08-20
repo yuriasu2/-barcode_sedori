@@ -1,6 +1,7 @@
-# セッション引き継ぎ(2026-08-09 時点)
+# セッション引き継ぎ(2026-08-20 更新)
 
-アプリ名: **セラーレンズ**に確定した(2026-08-14)。旧称アマレンズ(さらにその前は「バーコードせどり」)。Amazonセラー向けの仕入れリサーチiPhoneアプリ。**まだ一般公開前**(App Store/Amazon掲載とも未申請)。
+アプリ名: **セラーレンズ**(旧アマレンズ、さらに前は「バーコードせどり」)。
+Amazonセラー向けの仕入れリサーチiPhoneアプリ。**App Storeへ初回申請中**。
 
 ## 関連リポジトリ
 
@@ -9,16 +10,61 @@
 | iOSアプリ＋サーバー | このディレクトリ / `yuriasu2/-barcode_sedori` | サーバーは**手動** `cd server && npx wrangler deploy` |
 | LP(sellira.jp) | `~/Claude/Projects/sellira-site` / `yuriasu2/sellira-site` | push→Cloudflare Pages が自動 |
 
-## 現在の状態
+## 現在の状態(2026-08-20)
 
-- **未pushコミットが1件**: `934c7c9`(グラフ枠の動画視聴延長を廃止)。次のセッション開始時にpushするか確認すること。
-- **サーバーの手動デプロイが必要**: `6612ef4`〜`4787098`(お試し期間のサーバー権威化、`SellerTrialDO`新設)、および `ff0cf5e`(障害告知API `GET /api/notice` の新設)がまだ本番へデプロイされていない。デプロイしないとAmazon連携の7日間お試しが誰にも付与されず、障害告知も配信できない(いずれもフェイルセーフ設計のため安全ではあるが、機能が使えない)。
+### App Store審査
+
+**審査待ち(WAITING_FOR_REVIEW)。ビルド6。やるべきことは完了済み。**
+
+状態はWeb UIを開かなくてもAPIで確認できる:
+
+```bash
+node tools/appstore-connect/status.mjs
+```
+
+経緯: 8/16に初回提出 → 8/17に **Guideline 2.1 Information Needed** で却下
+(機能不備ではなく審査メモの情報不足)。8/20に以下を対応して再提出済み。
+
+- 却下理由の8項目に答える英文を作成 → Resolution Centerへ**2通に分けて**投稿(1通4000文字上限のため)
+- 画面収録(iPhone 16e / iOS 26.6.1)を添付
+- App Review情報の**メモ欄に3999文字版**を登録
+- ビルドを6に差し替え(下記のグラフ不具合修正を含めるため)
+
+文面はすべて `APPSTORE-CONNECT-DRAFT.md` と `appstore-review-reply/` にある。
+**次に却下された場合、返信はWeb UI操作が必須**(Resolution CenterはAPIに無い)。
+
+### 却下対応中に見つけて直した不具合
+
+- **無料枠5回目でグラフだけ消える**(`2d429bd`)。表示判定に「次のスキャンができるか」
+  (`quota.canScanToday`)を使っていたため、開始時の楽観的減算(`consumeLocally()`)により
+  最後の1回で必ず消えていた。「今回の検索が枠切れで拒否されたか」で判定するよう修正。
+- リワード広告のログが`#if DEBUG`で囲まれておらず、本番に広告ユニットIDが残っていた(`fd68091`)。
+
+### 次回ビルドで直すこと(申請中のため今は触らない)
+
+`project.yml` の `NSLocalNetworkUsageDescription` を削除する。Releaseでは接続先が
+`https://api.sellira.jp` に固定されローカルネットワークを一切使わないのに権限説明が残っている。
+しかも文面が「PC上のサーバーが必要なアプリ」と読め、審査担当者に誤解を与える。
+
+### 未デプロイ・未反映
+
+- **サーバーの手動デプロイが必要**: 無料枠クォータの管理者リセットAPI(`21a3d90`)。
+  `ADMIN_TOKEN` secret の登録も未実施。
   ```bash
-  cd server && npx wrangler deploy
+  cd server && npx wrangler secret put ADMIN_TOKEN && npx wrangler deploy
   ```
-- サーバーテストは353件パス(直近確認時点)。
+- **AdMobはテストIDのまま**。公開直前に本番IDへ切り替えること(手順は本ファイル後半)。
+- サーバーテストは432件パス(直近確認時点)。
 
-## 今回のセッションで実装したもの(概要)
+## 覚えておくと早いこと
+
+- **App Store Connect API が使える**(`tools/appstore-connect/`)。認証設定済みで**環境変数不要**。
+  審査状況・却下理由の取得、メモ欄や説明文の更新、ビルド差し替えが可能。
+  秘密鍵は `~/.appstoreconnect/private_keys/`、設定は `~/.config/appstore-connect/config.json`。
+- **無料枠を使い切った実機のリセット**: DEBUGビルドの 設定 → 開発者向け →「無料枠クォータをリセット」。
+  端末IDはKeychain永続のため、**アプリを削除・再インストールしてもリセットされない**(意図的な設計)。
+
+## 2026-08-09 セッションで実装したもの(概要)
 
 膨大な変更が入ったため、テーマ別に要点だけまとめる。詳細は各コミットメッセージを参照。
 
