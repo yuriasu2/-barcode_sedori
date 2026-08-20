@@ -4,9 +4,15 @@
 // 却下されている場合は、Web UIを開かなくても却下理由(ガイドライン番号)まで分かる。
 //
 // 使い方は README.md 参照。
-import { asc } from './asc.mjs';
+import { asc, defaultAppId } from './asc.mjs';
 
-const APP_ID = process.env.ASC_APP_ID || '6801570852'; // セラーレンズ
+// 対象アプリ。configのdefaultAppId(またはASC_APP_ID)で切り替えられるため、
+// このスクリプト自体はセラーレンズ専用ではない。
+const APP_ID = process.argv[2] || defaultAppId;
+if (!APP_ID) {
+  console.error('アプリIDが未指定です。引数で渡すか、configにdefaultAppIdを設定してください。');
+  process.exit(1);
+}
 
 const app = await asc('GET', `/v1/apps/${APP_ID}?fields[apps]=name,bundleId`);
 console.log(`# ${app.data.attributes.name} (${app.data.attributes.bundleId})\n`);
