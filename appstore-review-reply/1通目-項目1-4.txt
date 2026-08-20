@@ -1,0 +1,93 @@
+Thank you for reviewing SellerLens. Please find the requested information below.
+
+
+1. SCREEN RECORDING
+
+A screen recording captured on a physical iPhone 16e running iOS 26.6.1 is
+attached. It begins with launching the app from the Home screen and covers:
+the camera permission prompt, barcode scanning, the product / price /
+sales-rank / price-history screen, the profit calculation and purchase list,
+the App Tracking Transparency prompt, the subscription paywall and purchase
+flow, and the optional Amazon account linking flow with the features it
+unlocks.
+
+Note on the ATT prompt: by design we do not show the ATT request on first
+launch. The user performs several scans first, so that they understand what
+the app does, and only then sees a short explanation followed by Apple's
+system ATT dialog. In the recording this appears after the fourth scan.
+
+This app has no account registration, login or deletion flow and no
+user-generated content, so those are absent from the recording (see item 4).
+
+
+2. DEVICES AND OPERATING SYSTEMS TESTED
+
+- iPhone 16e — iOS 26.6.1
+- iPhone 17 Pro Max — iOS 26.6
+
+
+3. APP FUNCTIONS AND TARGET AUDIENCE
+
+SellerLens is a product-sourcing research tool for Amazon Japan sellers.
+
+Problem: a seller standing in a physical store has only a few seconds to
+decide whether an item is worth buying to resell, and checking the Amazon
+price, the sales rank, the price history and the fees Amazon will deduct
+normally requires several websites and a calculator.
+
+Value: scanning the barcode shows all of that on a single scrollable screen,
+and the app calculates the expected profit after Amazon's referral fee,
+category closing fee and consumption tax.
+
+Audience: individuals and small businesses in Japan who sell on Amazon.co.jp.
+The user interface is Japanese only.
+
+
+4. SETUP AND ACCESS TO MAIN FEATURES
+
+No account registration or login is required to use the core features.
+
+Steps:
+  1. Launch the app and allow camera access.
+  2. Point the camera at any product barcode (JAN / EAN-13).
+
+     With no physical product at hand, tap the search field at the top and
+     type a code instead. It accepts a 13-digit JAN / EAN-13 or a 10-digit
+     ISBN-10. Verified sample codes: 4948872416030 (JAN),
+     9784342013157 (ISBN-13), 4415050883 (ISBN-10).
+  3. The result screen appears immediately, showing the product information,
+     new and used offer prices, the sales rank, and price-history graphs.
+  4. Scroll down on the same screen to reach the profit calculation form.
+
+There is no user account system in this app. Therefore there is no
+registration, no login, no account deletion flow, and no user-generated
+content, content reporting, or blocking mechanism.
+
+OPTIONAL AMAZON ACCOUNT LINKING
+
+Three features additionally require the user to link their own Amazon Seller
+Central account through Amazon's official OAuth flow (Login with Amazon):
+
+  - the per-seller offer price list
+  - Amazon listing eligibility / restriction warnings
+  - creating listings on Amazon from within the app
+
+We are not able to provide demo credentials. Amazon's Data Protection Policy
+does not permit sharing Selling Partner credentials with third parties, and
+these features act on the user's own seller account and can create real
+listings, so a shared test account cannot be used safely.
+
+Instead, the attached screen recording demonstrates all three of these
+features end to end, using our own seller account.
+
+Without linking, these features are not broken. They display a lock icon
+together with a message meaning "Amazon account linking is required". The
+app does not crash or become unresponsive.
+
+A note on the listing-restriction warning: this badge is shown only when the
+scanned product is actually restricted for the linked seller account. For
+unrestricted products, nothing is displayed. This is expected behavior
+rather than a malfunction.
+
+
+(Items 5-8 follow in the next message.)

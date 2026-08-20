@@ -1,0 +1,108 @@
+SellerLens - continued from the previous message.
+Items 5-8 of the requested information.
+
+
+5. EXTERNAL SERVICES USED
+
+  - Keepa API (api.keepa.com)
+    Amazon product data, price history and sales-rank history.
+    Accessed under a paid commercial API subscription.
+
+  - Amazon Selling Partner API (sellingpartnerapi-fe.amazon.com)
+    Fee estimates, listing restrictions, and listing creation.
+    Called only on behalf of the signed-in user, for their own account.
+
+  - Login with Amazon (api.amazon.com, sellercentral.amazon.co.jp)
+    OAuth authorization for the Selling Partner API above.
+
+  - Amazon product image CDN (images-na.ssl-images-amazon.com)
+    Product thumbnail images.
+
+  - Google AdMob
+    Banner and rewarded advertising. Shown to free-tier users only.
+
+  - PostHog
+    Anonymous product analytics.
+
+  - Cloudflare Workers (api.sellira.jp)
+    Our own backend. It proxies the APIs above and manages the free-tier
+    daily quota.
+
+  - Apple StoreKit
+    In-app purchase.
+
+The app does not use any AI services, and it does not use any payment
+processor other than Apple.
+
+
+6. REGIONAL DIFFERENCES
+
+The app is built exclusively for the Amazon.co.jp (Japan) marketplace, and
+the user interface is available in Japanese only. It is distributed in
+Japan only, and the subscription is likewise offered in Japan only.
+
+Because the app is available in a single region, there are no regional
+differences in its features or content. The app functions consistently for
+every user who can download it.
+
+
+7. REGULATED INDUSTRY / PROTECTED THIRD-PARTY MATERIAL
+
+SellerLens does not operate in a regulated industry.
+
+Regarding third-party material:
+
+  - Amazon product data and product images are obtained through Keepa, a
+    commercial data provider, under a paid API subscription and in
+    accordance with its terms of service.
+
+  - Access to the Amazon Selling Partner API is granted through our
+    registered developer profile in Amazon Seller Central. Each user
+    authorizes access to their own account through Amazon's official OAuth
+    flow. We never access other sellers' data, and we never access any
+    buyer's personal information.
+
+  - SellerLens is an independent tool. It is not affiliated with, endorsed
+    by, or sponsored by Amazon. The word "Amazon" is used only to describe
+    interoperability.
+
+We are happy to provide our Amazon developer registration details or our
+Keepa subscription confirmation if you require documentation.
+
+
+8. IN-APP PURCHASE SUMMARY
+
+There is one in-app purchase:
+
+  SellerLens Pro (セラーレンズ Pro)
+  Auto-renewable subscription, 1,980 JPY per month
+  Product ID: jp.sellira.sellerlens.pro.monthly
+
+How to reach the purchase screen:
+
+  (a) Open the Settings tab (the rightmost tab) and tap the button labelled
+      "Proを始める" (Start Pro), or
+  (b) Use up the free daily scan quota (5 scans per day), or tap any locked
+      feature such as the blurred offer list, OCR scanning, or the price
+      history graph. The paywall opens automatically.
+
+The paywall screen displays the subscription title, its length (monthly),
+its price, and links to the Terms of Use (Apple's standard EULA) and to our
+Privacy Policy.
+
+What the subscription unlocks:
+
+  - Unlimited scanning and searching (the free tier allows 5 per day)
+  - Unlimited OCR (text recognition) scanning
+  - Unlimited price-history graphs
+  - Full display of the offer list
+  - Amazon listing-restriction warnings (also requires Amazon linking)
+  - Creating Amazon listings from the app (also requires Amazon linking)
+  - Removal of advertisements
+  - Unlimited purchase list and profit alerts
+
+In the Sandbox environment this subscription can be purchased without being
+charged.
+
+
+Thank you for your time. Please let us know if anything further is needed.
