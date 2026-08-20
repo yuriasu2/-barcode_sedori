@@ -171,6 +171,26 @@ final class SettingsViewModel: ObservableObject {
         }
     }
 
+    // MARK: 無料枠クォータのリセット(開発者向け)
+
+    #if DEBUG
+    /// リセット結果を画面に一時表示するためのテキスト。
+    @Published var quotaResetResultText: String?
+
+    /// このデバイスの当日分の無料枠消費・広告付与をサーバー側で0に戻す。
+    /// 再インストールしてもKeychain永続のDeviceIdentifierは変わらない(意図的な設計)ため、
+    /// 検証中に枠を使い切ったときのリセット手段として用意している。
+    /// 成功時はScanQuotaStoreへも即時反映し、他画面の残量表示をリロードなしで更新する。
+    func resetQuota() async {
+        do {
+            let quota = try await apiClient.resetQuota()
+            ScanQuotaStore.shared.apply(quota)
+            quotaResetResultText = "リセットしました(残り\(quota.unitsRemaining ?? 0)回)"
+        } catch {
+            quotaResetResultText = "失敗しました: \(error.localizedDescription)"
+        }
+    }
+    #endif
 }
 
 /// App Storeのレビューページへの直接リンク設定。
@@ -353,6 +373,22 @@ struct SettingsView: View {
                     }
 
                     Text("デモ専用の隔離されたインスタンスに値を注入します。本番の共有Keepaキーを使う他の利用者には一切影響しません。注入した値やブレーキの挙動を確認するには、上の「デバッグ表示」も合わせてONにしてください。補充レートを指定すると、時間経過で残量が実際に回復していく様子を観察できます(未指定時は従来通り固定されたままです)。")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+
+                    Button(role: .destructive) {
+                        Task { await viewModel.resetQuota() }
+                    } label: {
+                        Text("無料枠クォータをリセット")
+                    }
+
+                    if let quotaResetResultText = viewModel.quotaResetResultText {
+                        Text(quotaResetResultText)
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                    }
+
+                    Text("このデバイスの本日分のスキャン消費・広告視聴付与をサーバー側で0に戻します。DeviceIdentifierはKeychain永続のため、アプリを削除・再インストールしても無料枠はリセットされません(意図的な設計)。検証中に枠を使い切ったときはこのボタンを使ってください。")
                         .font(.footnote)
                         .foregroundColor(.secondary)
                 }

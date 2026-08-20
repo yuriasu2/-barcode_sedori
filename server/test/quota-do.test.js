@@ -51,6 +51,9 @@ function createMockState(initialEntry) {
       async put(key, value) {
         store.set(key, value);
       },
+      async delete(key) {
+        store.delete(key);
+      },
     },
   };
 }
@@ -206,6 +209,45 @@ test('DeviceQuotaDO(ESM)の挙動をstate.storageモックで検証する', asyn
     const zeroEnvInstance = new DeviceQuotaDO(createMockState(), { ...ENV, BASE_DAILY_UNITS: '0' });
     const res2 = await zeroEnvInstance.fetch(new Request(`https://do/peek?date=${DATE}`, { method: 'GET' }));
     assert.equal((await res2.json()).limit, 0);
+  });
+
+  await t.test('reset: consume/grant-adで積んだ状態が0/0に戻る', async () => {
+    const doInstance = new DeviceQuotaDO(createMockState(), ENV);
+
+    await doInstance.fetch(new Request(`https://do/consume?date=${DATE}&units=3`, { method: 'POST' }));
+    await doInstance.fetch(new Request(`https://do/grant-ad?date=${DATE}`, { method: 'POST' }));
+
+    const before = await doInstance.fetch(new Request(`https://do/peek?date=${DATE}`, { method: 'GET' }));
+    const beforeBody = await before.json();
+    assert.equal(beforeBody.unitsUsed, 3);
+    assert.equal(beforeBody.adGrantsToday, 1);
+
+    const reset = await doInstance.fetch(new Request(`https://do/reset?date=${DATE}`, { method: 'POST' }));
+    const resetBody = await reset.json();
+    assert.equal(resetBody.ok, true);
+    assert.equal(resetBody.quota.unitsUsed, 0);
+    assert.equal(resetBody.quota.adGrantsToday, 0);
+
+    const after = await doInstance.fetch(new Request(`https://do/peek?date=${DATE}`, { method: 'GET' }));
+    const afterBody = await after.json();
+    assert.equal(afterBody.unitsUsed, 0);
+    assert.equal(afterBody.adGrantsToday, 0);
+
+    // resetを跨いだ後もconsumeは基本枠から通常どおり動く(壊れた状態のまま残っていないことの確認)。
+    const consumeAfterReset = await doInstance.fetch(
+      new Request(`https://do/consume?date=${DATE}&units=1`, { method: 'POST' })
+    );
+    const consumeAfterResetBody = await consumeAfterReset.json();
+    assert.equal(consumeAfterResetBody.allowed, true);
+    assert.equal(consumeAfterResetBody.quota.unitsUsed, 1);
+  });
+
+  await t.test('reset: 何も無い状態から呼んでもエラーにならない', async () => {
+    const doInstance = new DeviceQuotaDO(createMockState(), ENV);
+    const res = await doInstance.fetch(new Request(`https://do/reset?date=${DATE}`, { method: 'POST' }));
+    const body = await res.json();
+    assert.equal(body.ok, true);
+    assert.equal(body.quota.unitsUsed, 0);
   });
 
   await t.test('不明なパス/メソッドは404', async () => {

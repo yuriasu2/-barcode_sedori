@@ -199,6 +199,13 @@ final class APIClient {
         guard SettingsStore.shared.keepaThrottleDemoEnabled else { return }
         request.setValue("1", forHTTPHeaderField: "X-Keepa-Demo")
     }
+
+    /// 開発者向け: POST /api/admin/quota-reset用の固定トークン。サーバー側の ADMIN_TOKEN
+    /// secret(`wrangler secret put ADMIN_TOKEN`)と同じ値を設定すること。他secretと使い回さない。
+    /// DEBUGビルド専用でReleaseバイナリには含まれない(fallbackUnitIdと同じ扱い)。
+    private enum AdminConfig {
+        static let token = "ad9c4bb620290553d42bc0400c658b2fec69aeee67b96bc3"
+    }
     #endif
 
     private func perform<T: Decodable>(_ request: URLRequest, as type: T.Type) async throws -> T {
@@ -384,6 +391,20 @@ final class APIClient {
         request.httpMethod = "POST"
         return try await perform(request, as: KeepaThrottleDemoSeedResult.self)
     }
+
+    #if DEBUG
+    /// POST /api/admin/quota-reset — 開発者向け: このデバイスの当日分の無料枠消費・広告付与を
+    /// サーバー側で0に戻す。再インストールしてもKeychain永続のDeviceIdentifierは変わらない
+    /// (意図的な設計。DeviceIdentifier.swift参照)ため、検証中に枠を使い切ったときの
+    /// リセット手段として用意している。DEBUGビルド専用(Releaseには存在しない)。
+    func resetQuota() async throws -> QuotaInfo {
+        var request = try makeRequest(path: "/api/admin/quota-reset")
+        request.httpMethod = "POST"
+        request.setValue(AdminConfig.token, forHTTPHeaderField: "X-Admin-Token")
+        let result = try await perform(request, as: AdminQuotaResetResult.self)
+        return result.quota
+    }
+    #endif
 
     /// 接続テスト用。GET /api/health があれば利用し、失敗した場合は /api/search を軽く叩いて疎通確認する。
     func testConnection() async throws {

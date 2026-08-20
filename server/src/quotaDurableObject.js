@@ -121,6 +121,9 @@ export class DeviceQuotaDO {
     if (request.method === 'GET' && url.pathname === '/peek') {
       return this.handlePeek(date, limits);
     }
+    if (request.method === 'POST' && url.pathname === '/reset') {
+      return this.handleReset(date, limits);
+    }
     return new Response('not found', { status: 404 });
   }
 
@@ -191,5 +194,16 @@ export class DeviceQuotaDO {
     const current = normalizeEntry(stored, date);
     const quota = quotaMath.buildQuota(current.unitsUsed, current.adGrants, limits);
     return Response.json(quota);
+  }
+
+  /**
+   * 開発者向け: このデバイスの当日分の消費・広告付与をすべて0に戻す。
+   * 認証(ADMIN_TOKEN)はWorker側(routes.js)のみで行い、DOはここへ到達した時点で
+   * 信頼する(deviceQuota.jsの他メソッドと同じ、Worker側で1箇所に検証を集約する方針)。
+   */
+  async handleReset(date, limits) {
+    await this.state.storage.delete(STORAGE_KEY);
+    const quota = quotaMath.buildQuota(0, 0, limits);
+    return Response.json({ ok: true, quota });
   }
 }

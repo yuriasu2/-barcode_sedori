@@ -434,3 +434,79 @@ test('GET /api/quota: Proは{unlimited:true, reason:"pro"}、非Proはquotaオ�
     routes.deviceQuota._reset();
   });
 });
+
+test('POST /api/admin/quota-reset', async (t) => {
+  t.after(() => {
+    delete process.env.ADMIN_TOKEN;
+  });
+
+  await t.test('ADMIN_TOKEN未設定なら503(フェイルクローズ)', async () => {
+    delete process.env.ADMIN_TOKEN;
+    const routes = freshRoutes();
+    const route = routes.match('POST', '/api/admin/quota-reset');
+
+    const res = createMockRes();
+    await route.handler({ query: {}, headers: { 'x-device-id': 'DEV-ADMIN-A', 'x-admin-token': 'anything' } }, res);
+    assert.equal(res.statusCode, 503);
+    assert.equal(res.body.error, 'admin_disabled');
+  });
+
+  await t.test('X-Admin-Tokenが無い/不正なら403', async () => {
+    process.env.ADMIN_TOKEN = 'correct-token';
+    const routes = freshRoutes();
+    const route = routes.match('POST', '/api/admin/quota-reset');
+
+    const resMissing = createMockRes();
+    await route.handler({ query: {}, headers: { 'x-device-id': 'DEV-ADMIN-A' } }, resMissing);
+    assert.equal(resMissing.statusCode, 403);
+
+    const resWrong = createMockRes();
+    await route.handler(
+      { query: {}, headers: { 'x-device-id': 'DEV-ADMIN-A', 'x-admin-token': 'wrong-token' } },
+      resWrong
+    );
+    assert.equal(resWrong.statusCode, 403);
+  });
+
+  await t.test('X-Device-Idが無ければ400', async () => {
+    process.env.ADMIN_TOKEN = 'correct-token';
+    const routes = freshRoutes();
+    const route = routes.match('POST', '/api/admin/quota-reset');
+
+    const res = createMockRes();
+    await route.handler({ query: {}, headers: { 'x-admin-token': 'correct-token' } }, res);
+    assert.equal(res.statusCode, 400);
+    assert.equal(res.body.error, 'device_id_required');
+  });
+
+  await t.test('正しいトークンで、消費済みのクォータが0に戻る', async () => {
+    process.env.ADMIN_TOKEN = 'correct-token';
+    const routes = freshRoutes();
+    routes.deviceQuota._reset();
+    const deviceId = 'DEV-ADMIN-RESET';
+
+    // 3回消費しておく。
+    for (let i = 0; i < 3; i += 1) {
+      await routes.deviceQuota.tryConsume(deviceId, 1);
+    }
+    const before = await routes.deviceQuota.computeQuota(deviceId);
+    assert.equal(before.unitsUsed, 3);
+
+    const route = routes.match('POST', '/api/admin/quota-reset');
+    const res = createMockRes();
+    await route.handler(
+      { query: {}, headers: { 'x-device-id': deviceId, 'x-admin-token': 'correct-token' } },
+      res
+    );
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.ok, true);
+    assert.equal(res.body.quota.unitsUsed, 0);
+
+    const after = await routes.deviceQuota.computeQuota(deviceId);
+    assert.equal(after.unitsUsed, 0);
+
+    t.after(() => {
+      routes.deviceQuota._reset();
+    });
+  });
+});

@@ -318,6 +318,31 @@ async function grantAd(deviceId, transactionId) {
   }
 }
 
+/**
+ * 開発者向け: 指定デバイスの当日分の消費・広告付与をすべて0に戻す。
+ * 認証はroutes.js側(ADMIN_TOKEN)で行う。このモジュールは検証済みの呼び出しのみを想定し、
+ * 誰でも呼べるAPIとしては公開しない(deviceIdが無ければ何もしない)。
+ * @param {string|null|undefined} deviceId
+ * @returns {Promise<{ok: boolean}>}
+ */
+async function resetQuota(deviceId) {
+  if (!deviceId) return { ok: false };
+  const binding = getDurableBinding();
+  if (!binding) {
+    entries.delete(deviceId);
+    return { ok: true };
+  }
+
+  try {
+    const lim = await limits();
+    await callDurableObject(binding, deviceId, 'reset', 'POST', { date: todayString() }, lim);
+    return { ok: true };
+  } catch (err) {
+    console.error('[deviceQuota] DO reset failed:', err.message);
+    return { ok: false };
+  }
+}
+
 /** テスト用: インメモリ経路の全エントリをクリアする。 */
 function _reset() {
   entries.clear();
@@ -328,6 +353,7 @@ module.exports = {
   computeQuota,
   tryConsume,
   grantAd,
+  resetQuota,
   _reset,
   _entries: entries,
   _setDurableBinding,

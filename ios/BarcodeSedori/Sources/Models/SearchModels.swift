@@ -111,6 +111,12 @@ struct KeepaThrottleDemoSeedResult: Codable, Equatable {
     let snapshot: KeepaDebugInfo.Snapshot?
 }
 
+/// POST /api/admin/quota-reset の応答(開発者向け: 無料枠クォータのリセット)。
+struct AdminQuotaResetResult: Codable, Equatable {
+    let ok: Bool
+    let quota: QuotaInfo
+}
+
 /// 無料枠ユニットモデル(Phase B)の残量情報。/api/search・/api/graph-data・/api/quota が返す。
 /// サーバーが状況により形の異なるJSONを返し得るため、全フィールドをOptionalにしておく。
 struct QuotaInfo: Codable, Equatable {

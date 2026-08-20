@@ -106,6 +106,31 @@ function clientIpOf(headers) {
   return ip ? String(ip) : null;
 }
 
+/**
+ * 定数時間文字列比較。タイミング攻撃(応答時間の差からトークンを1文字ずつ推測される)を防ぐ。
+ * crypto.timingSafeEqualは長さが異なるとエラーになるため、先にSHA-256で固定長へ揃えてから
+ * 比較する(この方式なら長さの違い自体もタイミングに現れない)。oauth.jsのHMAC検証と
+ * 同じ「タイミングセーフに倒す」方針。
+ */
+function timingSafeEqualString(a, b) {
+  const ah = crypto.createHash('sha256').update(String(a)).digest();
+  const bh = crypto.createHash('sha256').update(String(b)).digest();
+  return crypto.timingSafeEqual(ah, bh);
+}
+
+/**
+ * 開発者向け管理操作(X-Admin-Token)の認証。ADMIN_TOKEN未設定なら常にfalse
+ * (フェイルクローズ。OAUTH_STATE_SECRET未設定時に/oauth/loginを503にするのと同じ方針で、
+ * 秘密鍵が無い状態で「誰でも通す」側に倒さない)。
+ */
+function isAdminAuthorized(headers) {
+  const configured = process.env.ADMIN_TOKEN;
+  if (!configured) return false;
+  const provided = headers && (headers['x-admin-token'] || headers['X-Admin-Token']);
+  if (!provided) return false;
+  return timingSafeEqualString(String(provided), configured);
+}
+
 /** IPレート制限に掛かったときの応答(429)。 */
 function sendRateLimited(res, retryAfterSec) {
   return res.status(429).json({
@@ -1409,6 +1434,33 @@ router.get('/api/quota', async (req, res) => {
     ...quota,
     limits: { baseDailyUnits: lim.base, unitsPerAd: lim.perAd, maxDailyUnits: lim.max },
   });
+});
+
+/**
+ * POST /api/admin/quota-reset — 開発者向け: X-Device-Idで指定したデバイスの
+ * 当日分の無料枠消費・広告付与をすべて0に戻す。
+ *
+ * X-Admin-Token(ADMIN_TOKEN secretと一致)が無いと403、ADMIN_TOKEN自体が
+ * サーバーに未設定なら503で拒否する(フェイルクローズ。OAUTH_STATE_SECRETと同じ方針)。
+ * デバイス単位の実データを書き換えるエンドポイントのため、'demo'インスタンス限定の
+ * keepa-throttle-demo/*とは異なり認証を必須にしている。
+ */
+router.post('/api/admin/quota-reset', async (req, res) => {
+  if (!process.env.ADMIN_TOKEN) {
+    return res.status(503).json({ error: 'admin_disabled', message: 'ADMIN_TOKEN未設定のため無効です。' });
+  }
+  if (!isAdminAuthorized(req.headers)) {
+    return res.status(403).json({ error: 'forbidden', message: 'X-Admin-Tokenが不正です。' });
+  }
+  const deviceId = deviceIdOf(req.headers);
+  if (!deviceId) return sendDeviceIdRequired(res);
+
+  const result = await deviceQuota.resetQuota(deviceId);
+  if (!result.ok) {
+    return res.status(502).json({ error: 'reset_failed', message: 'リセットに失敗しました。' });
+  }
+  const quota = await deviceQuota.computeQuota(deviceId);
+  res.json({ ok: true, quota });
 });
 
 // GET /api/trial-status — 出品者ID単位のPro無料お試し期間(サーバー権威)の現在状態を返す。
