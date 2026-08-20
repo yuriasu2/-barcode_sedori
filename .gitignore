@@ -2,6 +2,11 @@
 .env
 server/.env
 
+# App Store Connect APIの秘密鍵。Appleは再ダウンロードを許さないため紛失すると
+# キーの再発行が必要になる。リポジトリには絶対に置かない(tools/appstore-connect/README.md参照)。
+*.p8
+AuthKey_*.p8
+
 # Node
 node_modules/
 
