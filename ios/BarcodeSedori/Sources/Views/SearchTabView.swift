@@ -52,6 +52,15 @@ final class SearchTabViewModel: ObservableObject {
     /// Keepa混雑(keepa_busy)時の文言。セット時は専用の混雑カード(再試行+誘導)を出す。
     /// searchErrorMessage(汎用エラー)とは排他(どちらか一方のみセットされる)。
     @Published var keepaBusyMessage: String?
+    /// 直近の検索が無料枠ユニット上限超過(429・quota_exceeded)で拒否されたか。
+    ///
+    /// グラフ表示の可否判定に「次のスキャンができるか」(ScanQuotaStore.canScanToday=
+    /// unitsRemaining>0)を使うと、スキャン開始時点で楽観的に1減らすconsumeLocally()の影響で、
+    /// ちょうど無料枠を使い切る最後の1回(例: 1日5回のうち5回目)は「検索自体は許可され結果も
+    /// 返ってきているのに、その時点でunitsRemainingが0のためグラフだけ非表示になる」という
+    /// ズレが起きる。「今回の検索結果が枠切れで拒否されたかどうか」はunitsRemainingという
+    /// 未来向きの値ではなく、この検索自体の成否で判定する必要があるため専用フラグを持つ。
+    @Published var lastSearchQuotaExceeded = false
 
     /// SP-API経路のとき/api/search応答に同梱されるオファー一覧。Keepa経路ではnil。
     @Published var offersResult: OffersResult?
@@ -102,6 +111,7 @@ final class SearchTabViewModel: ObservableObject {
         isSearching = true
         searchErrorMessage = nil
         keepaBusyMessage = nil
+        lastSearchQuotaExceeded = false
         latestScannedCode = code
         latestResult = nil
         offersResult = nil
@@ -181,11 +191,13 @@ final class SearchTabViewModel: ObservableObject {
                 Analytics.shared.capture(.searchFailed(reason: .keepaBusy))
             } else if case APIClientError.quotaExceeded(let quota, _) = error {
                 ScanQuotaStore.shared.apply(quota)
+                lastSearchQuotaExceeded = true
                 Analytics.shared.capture(.searchFailed(reason: .quotaExceeded))
             } else if case APIClientError.httpError(let status, _) = error, status == 429 {
                 // quota_exceeded形式でない429(旧サーバー互換)のフォールバック。
                 // こちらはquotaを受け取れずオーバーレイが自動では出ないため、文言で案内する。
                 searchErrorMessage = "本日の無料スキャン上限に達しました。Proにアップグレードすると無制限に使えます。"
+                lastSearchQuotaExceeded = true
                 Analytics.shared.capture(.searchFailed(reason: .network))
             } else {
                 // error.localizedDescriptionには識別子が含まれ得るため、Analyticsへは分類名のみ送る。
@@ -323,12 +335,16 @@ struct SearchTabView: View {
 
                         topContent
 
-                        // 非Proはユニット残があればグラフを表示する(サーバーが429を返せば次回検索で
-                        // quotaが是正され、この分岐がfreeAdAreaへ切り替わる)。
+                        // 非Proは「今回の検索が枠切れで拒否されたか」でグラフの表示可否を決める。
+                        // quota.canScanToday(=次のスキャンができるか)を使うと、consumeLocally()の
+                        // 楽観的先行減算により、無料枠を使い切る最後の1回(例: 5回目)は
+                        // 検索自体は成功しているのにunitsRemainingが0になっているため
+                        // グラフだけ非表示になってしまう(実際に発生した不具合、詳細は
+                        // lastSearchQuotaExceededのコメント参照)。
                         // スキャン枠はサーバー側でX-App-Plan(isPro専用)により判定するため、ここも
                         // isProのまま揃える(お試し中でもisSearchUnlimited経由でisSpApiLinkUsableが
                         // trueになり無制限になる。詳細はisSearchUnlimitedのコメント参照)。
-                        if entitlements.isPro || quota.canScanToday {
+                        if entitlements.isPro || !viewModel.lastSearchQuotaExceeded {
                             keepaGraph
                         } else {
                             freeAdArea
@@ -979,7 +995,8 @@ struct SearchTabView: View {
 
     // MARK: - Keepaグラフ
 
-    /// 価格推移グラフ(Pro専用。無料は body 側で freeAdArea を表示する)。
+    /// 価格推移グラフ。無料枠が残っていれば無料でも表示する(枠切れ時は body 側で
+    /// freeAdArea に切り替わる。判定はlastSearchQuotaExceeded参照)。
     @ViewBuilder
     private var keepaGraph: some View {
         if let asin = viewModel.latestResult?.asin {
