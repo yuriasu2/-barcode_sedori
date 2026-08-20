@@ -293,9 +293,9 @@ Resolution Center から返信すれば再審査に進む。**新しいビルド
 
 **要件**: 実機・最新OS・アプリ起動から開始・主要フローを通す。
 
-**撮影に使う端末は iPhone 17 Pro Max（iOS 26.6）**。Appleが「最新OSで」と
-指定しているため、iPhone 16e（iOS 18.7.8）ではなくこちらで撮ること。
-16eは「テストした端末」として項目2に併記するだけでよい。
+**撮影に使う端末は iPhone 16e（iOS 26.6.1）**（2026-08-20更新）。
+Appleが「最新OSで」と指定しているため、2台のうちOSが新しい方で撮る。
+17 Pro Max（iOS 26.6）は「テストした端末」として項目2に併記するだけでよい。
 
 撮影順のシナリオ:
 
@@ -352,11 +352,11 @@ included in the recording. Please see item 4 for details.
 
 2. DEVICES AND OPERATING SYSTEMS TESTED
 
+- iPhone 16e — iOS 26.6.1
 - iPhone 17 Pro Max — iOS 26.6
-- iPhone 16e — iOS 18.7.8
 
-The attached screen recording was captured on the iPhone 17 Pro Max
-running iOS 26.6.
+The attached screen recording was captured on the iPhone 16e running
+iOS 26.6.1.
 
 
 3. APP FUNCTIONS AND TARGET AUDIENCE
