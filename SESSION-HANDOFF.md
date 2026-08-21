@@ -33,12 +33,28 @@ node tools/appstore-connect/status.mjs
 自前の条件で配っている**」こと。実際、サブスク`jp.sellira.sellerlens.pro.monthly`には
 導入オファー(無料トライアル)が**1件も設定されていない**(ASC APIで確認済み)。
 
-**決定した方針(A)**: Amazon連携特典の7日間お試しを**廃止**し、代わりにApp Store Connectで
-サブスクに**7日間の無料トライアル(導入オファー)**を設定する。作業対象はサーバーの
-`sellerTrial.js`/`SellerTrialDO`の無効化と、UI5箇所(PaywallView・SettingsView・
-AmazonLinkSettingsView・QuotaPaywallOverlay・EntitlementStore)。
-なお「Amazon連携が必要な機能(出品制限・出品登録)はPro＋連携が条件」という構造自体は
-問題ないので残す。消すのは「連携で有料機能が無料になる」部分だけ。
+**方針(A)を2026-08-21に実装済み**: Amazon連携特典の7日間お試しを**廃止**し、
+App Store Connectでサブスクに**7日間の無料トライアル(導入オファー)**を設定した。
+
+- サーバー: `requireProByoCredentials()`のお試し分岐、`/api/trial-status`、`sellerTrial.js`、
+  `sellerTrialDurableObject.js`を削除。`wrangler.jsonc`は`SELLER_TRIAL`バインディングと
+  `SPAPI_TRIAL_DAYS`を削除し、migration v5で`SellerTrialDO`を`deleted_classes`に指定。
+  **未デプロイ**(DO削除を含むため、デプロイ時は内容を確認してから実行すること)。
+- アプリ: `isProOrTrial`を廃止し全22箇所を`isPro`へ。無料体験中も通常の購読者として
+  `isPro`がtrueになるためゲートは1本で足りる。PaywallViewは導入オファーが使えるとき
+  「最初の7日間無料 / その後 ¥1,980 / 月」＋「無料で始める」に変わる。期間はApp Store
+  Connect側の設定を読み取り、アプリに焼き込んでいない。
+- App Store Connect: `jp.sellira.sellerlens.pro.monthly` に導入オファー
+  (ONE_WEEK / FREE_TRIAL / numberOfPeriods=1、開始2026-08-21・終了なし)を
+  **価格設定済みの175地域すべてへ登録済み**(ASC APIで作成。`introductoryOffers`で確認できる)。
+- `BarcodeSedori.storekit`にも同じ導入オファー(P1W・無料)を追加し、ローカルで確認できる。
+
+**残した仕様と、その理由**: 「Amazon連携が必要な機能(出品制限・出品登録・価格一覧)は
+Pro＋連携が条件」という構造はそのまま。また**連携済みなら無料プランでもスキャン無制限**
+も残した(ユーザー判断)。1日5回の制限はKeepa APIの費用が理由で、連携すると価格取得が
+利用者自身のAmazon枠で行われ費用が発生しないため制限する理由が無い、という技術的な事情。
+**形としては5.6の指摘(外部アカウント連携で有料機能が開く)と似ているため、再提出時の
+審査メモでこの理由を明記すること。**
 
 #### 却下2: Guideline 4.8 Login Services 【返信で反論する。コード修正不要】
 
