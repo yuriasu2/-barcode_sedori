@@ -166,14 +166,3 @@ struct KeepaTestResult: Codable, Equatable {
     let tokensLeft: Int?
     let message: String?
 }
-
-/// GET /api/trial-status レスポンス。
-/// 出品者ID(seller ID)単位のPro無料お試し期間(サーバー権威。sellerTrial.js参照)の現在状態。
-/// クライアントの時計・再インストールでは動かせない、サーバー自身の記録に基づく応答。
-struct TrialStatusResult: Codable, Equatable {
-    let active: Bool
-    let startedAt: Double?
-    let expiresAt: Double?
-    /// 切り上げ済みの残り日数(サーバー側で計算済み)。activeがfalseのときは0。
-    let remainingDays: Int
-}

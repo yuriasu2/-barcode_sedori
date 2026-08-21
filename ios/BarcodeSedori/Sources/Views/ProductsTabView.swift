@@ -202,7 +202,7 @@ struct ProductsTabView: View {
             // 仕入れへの一括追加(Pro限定)。無料はボタンを隠さず、鍵バッジを重ねて
             // タップ時にペイウォールを開く(選択済み件数はある前提で機能の存在を知らせる)。
             Button {
-                if entitlements.isProOrTrial {
+                if entitlements.isPro {
                     addSelectedToPurchaseList()
                 } else {
                     ReviewPromptController.shared.recordNegativeEvent()
@@ -212,14 +212,14 @@ struct ProductsTabView: View {
             } label: {
                 Image(systemName: "cart.badge.plus")
                     .overlay(alignment: .topTrailing) {
-                        if !entitlements.isProOrTrial {
+                        if !entitlements.isPro {
                             LockIconView(size: 12)
                                 .offset(x: 8, y: -6)
                         }
                     }
             }
             .foregroundColor(selectedIds.isEmpty ? .gray : .blue)
-            .disabled(entitlements.isProOrTrial && selectedIds.isEmpty)
+            .disabled(entitlements.isPro && selectedIds.isEmpty)
         }
         .padding(.horizontal)
         .padding(.vertical, 8)

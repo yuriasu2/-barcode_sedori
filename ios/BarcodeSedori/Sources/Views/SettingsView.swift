@@ -235,8 +235,6 @@ struct SettingsView: View {
                     HStack {
                         Text("現在のプラン")
                         Spacer()
-                        // ここは実際の課金状態(isPro)のみを反映する。お試し中でも「無料」のまま表示し、
-                        // お試しの案内はこの下のtrialStatusRowで別出しする。
                         if entitlements.isPro {
                             Label("Pro", systemImage: "checkmark.seal.fill")
                                 .foregroundColor(.green)
@@ -246,9 +244,6 @@ struct SettingsView: View {
                         }
                     }
 
-                    trialStatusRow
-
-                    // アップグレード導線も実際の課金状態で出し分ける(お試し中でも未課金なら出す)。
                     if !entitlements.isPro {
                         Button {
                             ReviewPromptController.shared.recordNegativeEvent()
@@ -422,32 +417,6 @@ struct SettingsView: View {
         .navigationViewStyle(.stack)
     }
 
-    // MARK: - プラン(お試し表示)
-
-    /// Amazon連携特典の7日間お試し中に表示する行。課金済み(isPro)なら出さない
-    /// (課金しているのにわざわざ「お試し中」と案内する必要は無いため)。
-    @ViewBuilder
-    private var trialStatusRow: some View {
-        if !entitlements.isPro, settings.isSpApiTrialActive, let remainingDays = spapiTrialRemainingDays {
-            HStack {
-                Image(systemName: "gift.fill")
-                    .foregroundColor(.orange)
-                Text("Amazon連携特典: Pro機能お試し中(残り\(remainingDays)日)")
-                    .font(.footnote)
-                    .foregroundColor(.secondary)
-            }
-        }
-    }
-
-    /// お試し残り日数。端数日も「残り1日」と読めるよう切り上げる。
-    /// サーバーから取得済みの期限キャッシュが無い、または既に期限切れならnil(この場合は行自体を出さない)。
-    private var spapiTrialRemainingDays: Int? {
-        guard let expiresAt = settings.spapiTrialExpiresAt else { return nil }
-        let remainingSeconds = expiresAt.timeIntervalSinceNow
-        guard remainingSeconds > 0 else { return nil }
-        return Int(ceil(remainingSeconds / 86400))
-    }
-
     // MARK: - 利益アラート
 
     /// 利益アラート設定セクション。無料は鍵行のみでタップでペイウォール、Proは専用画面への導線1行のみ。
@@ -463,7 +432,7 @@ struct SettingsView: View {
                 LinkButtonSettingsView()
             }
 
-            if entitlements.isProOrTrial {
+            if entitlements.isPro {
                 NavigationLink("アラート設定") {
                     ProfitAlertSettingsView()
                 }
@@ -501,8 +470,7 @@ struct SettingsView: View {
                 AmazonLinkSettingsView(viewModel: viewModel)
             }
 
-            // Keepa BYOキーはグラフ無制限に直結し、7日間お試しの対象外(仕様上isProのみ許可)のため
-            // isProOrTrialにはしない。
+            // Keepa BYOキー(グラフ無制限に直結する)はPro限定。
             if entitlements.isPro {
                 NavigationLink("Keepa連携") {
                     KeepaLinkSettingsView(viewModel: viewModel)
@@ -533,7 +501,7 @@ struct SettingsView: View {
     @ViewBuilder
     private var listingSection: some View {
         Section("出品") {
-            if entitlements.isProOrTrial {
+            if entitlements.isPro {
                 NavigationLink("出品説明文テンプレート") {
                     ListingTemplateSettingsView()
                 }
@@ -622,14 +590,7 @@ struct SettingsView: View {
     private func supportContactURL() -> URL? {
         guard var components = URLComponents(string: SupportConfig.contactURL) else { return nil }
 
-        let plan: String
-        if entitlements.isPro {
-            plan = "pro"
-        } else if settings.isSpApiTrialActive {
-            plan = "trial"
-        } else {
-            plan = "free"
-        }
+        let plan = entitlements.isPro ? "pro" : "free"
 
         components.queryItems = [
             URLQueryItem(name: "app_version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""),

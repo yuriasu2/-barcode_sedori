@@ -75,9 +75,9 @@ struct PurchaseTabView: View {
         }
     }
 
-    /// 一括出品の導線を出してよいか(単品出品フォームと同じゲート)。Amazon連携のお試し中も使える。
+    /// 一括出品の導線を出してよいか(単品出品フォームと同じゲート)。
     private var canBulkList: Bool {
-        entitlements.isProOrTrial && settings.isListingReady
+        entitlements.isPro && settings.isListingReady
     }
 
     var body: some View {
@@ -313,7 +313,7 @@ struct PurchaseTabView: View {
             .disabled(selectedIds.isEmpty || bulkListingViewModel.isRunning)
 
             // 出品ボタンは常に表示する。ゴミ箱・コンディションはローカル操作のため出品可否に
-            // 関わらず使えるが、出品だけはAmazon連携+Pro(またはお試し中)が要る(canBulkList)。
+            // 関わらず使えるが、出品だけはAmazon連携+Proが要る(canBulkList)。
             // ロック中も.disabledにはせず、タップでロック理由のアラートを出す(理由が伝わらなくなるため)。
             Button {
                 if canBulkList {
@@ -397,13 +397,13 @@ struct PurchaseTabView: View {
 
     private var listContent: some View {
         List(selection: $selectedIds) {
-            if entitlements.isProOrTrial && !settings.isSpApiLinkUsable {
+            if entitlements.isPro && !settings.isSpApiLinkUsable {
                 Section {
                     Text("出品するには設定タブでAmazon連携(SP-API)が必要です。")
                         .font(.footnote)
                         .foregroundColor(.secondary)
                 }
-            } else if entitlements.isProOrTrial && settings.isSpApiLinkUsable && !settings.isListingReady {
+            } else if entitlements.isPro && settings.isSpApiLinkUsable && !settings.isListingReady {
                 // 連携済みだがsellerId未取得(旧認可のまま)のケース。
                 // Sellers APIからは取得不可能なため、再認可でOAuthコールバックのselling_partner_idを
                 // 取得し直してもらう必要がある。

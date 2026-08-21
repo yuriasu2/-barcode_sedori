@@ -409,7 +409,7 @@ final class PurchaseFormViewModel: ObservableObject {
     /// コンディション変更で連打されても、実行完了時点の連番が最新でなければ結果を捨てる
     /// (古いチェックが後から返って新しい結果を上書きしないようにするガード)。
     private func startRestrictionCheck() {
-        guard entitlements.isProOrTrial && settings.isListingReady else {
+        guard entitlements.isPro && settings.isListingReady else {
             restrictionState = .unavailable
             return
         }
@@ -490,7 +490,7 @@ final class PurchaseFormViewModel: ObservableObject {
         // 販売手数料の計算基礎は「出品価格+配送料」であって発送費用ではない。
         let checkShipping = shippingIncome ?? 0
 
-        guard entitlements.isProOrTrial && settings.isListingReady else {
+        guard entitlements.isPro && settings.isListingReady else {
             feesState = .loaded(Self.estimateFeesDisplay(price: checkPrice, shipping: checkShipping, fba: checkFba))
             return
         }

@@ -98,19 +98,21 @@ struct AmazonLinkSettingsView: View {
                 }
 
                 benefitBlock(
-                    icon: "gift.fill",
-                    iconColor: .pink,
-                    title: "7日間、Proの機能をお試し",
-                    detail: "連携した日から7日間、下記の機能を無料でお使いいただけます。"
+                    icon: "shippingbox.fill",
+                    iconColor: .indigo,
+                    title: "Amazon連携が必要な機能を使える",
+                    // ここに挙げるのは「Proに加えて連携も要る」機能。連携するだけで
+                    // 使えるようになるわけではないので、その条件を明示する。
+                    detail: "下記はお客様のAmazon出品用アカウントを直接操作する機能のため、Proプランに加えてこの連携が必要です。"
                 ) {
                     VStack(alignment: .leading, spacing: 6) {
-                        ForEach(Self.trialBenefits, id: \.self) { benefit in
+                        ForEach(Self.linkOnlyFeatures, id: \.self) { feature in
                             // alignment: .topでアイコンと複数行のテキストの1行目を揃える。
                             HStack(alignment: .top, spacing: 8) {
                                 Image(systemName: "checkmark")
                                     .font(.footnote)
                                     .foregroundColor(.green)
-                                Text(benefit)
+                                Text(feature)
                                     .font(.subheadline)
                                     // HStackは中身を必要最小限の幅に詰めようとするため、
                                     // 何も指定しないとTextが折り返さず右端で切れてしまう。
@@ -155,16 +157,17 @@ struct AmazonLinkSettingsView: View {
         return settings.isSpApiLinkUsable ? .blue : .secondary
     }
 
-    /// お試し期間中に使えるようになるPro機能。文言はこの1箇所だけを直せばよいようにまとめる。
-    private static let trialBenefits = [
-        "出品可否の表示",
-        "アプリからの出品",
-        "OCR(値札の文字読み取り)",
-        "利益アラート",
+    /// Proに加えてAmazon連携も必要な機能。連携そのものの特典ではない点に注意
+    /// (かつてここは「連携すると7日間無料で使える機能」の一覧だったが、
+    /// App Store審査のGuideline 5.6を受けて連携特典としての無料開放は廃止した)。
+    private static let linkOnlyFeatures = [
+        "出品可否(出品制限)の表示",
+        "アプリからの出品登録",
+        "出品者ごとの価格一覧",
     ]
 
     /// 連携特典の1ブロック。アイコン+見出し+説明の並びを2つの特典で共通化する。
-    /// 追加の内容(お試し機能の一覧など)は`extra`に渡す。
+    /// 追加の内容(機能の一覧など)は`extra`に渡す。
     private func benefitBlock<Extra: View>(
         icon: String,
         iconColor: Color,

@@ -32,7 +32,12 @@
           "recurringSubscriptionPeriod": "P1M",
           "referenceName": "Pro Monthly",
           "subscriptionGroupID": "21C90001",
-          "type": "RecurringSubscription"
+          "type": "RecurringSubscription",
+          "introductoryOffer": {
+            "internalID": "21C90201",
+            "paymentMode": "free",
+            "subscriptionPeriod": "P1W"
+          }
         }
       ]
     }

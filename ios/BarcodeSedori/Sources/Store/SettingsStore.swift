@@ -27,14 +27,12 @@ final class SettingsStore: ObservableObject {
         /// 出品者IDだけが空になるという不整合(出品制限・出品が黙って使えなくなるバグ)の原因になった。
         /// このため、機密度に関わらず永続性をリフレッシュトークンと揃えるためKeychainへ移した。
         static let legacySpapiSellerId = "settings.spapiSellerId"
-        /// 旧: クライアント側で計算していたお試し開始日時(timeIntervalSince1970)。
-        /// サーバー権威化(sellerTrial.js)により読まなくなった。書いていたデータはそのまま放置してよい
-        /// (このキー自体は再利用しない。新キーはspapiTrialExpiresAtCache)。
+        /// 旧: Amazon連携による7日間Proお試しに使っていたキー2種。
+        /// お試し自体をApp Store審査(Guideline 5.6)対応で廃止したため、どちらも読み書きしない。
+        /// 過去の端末に残っている値はそのまま放置してよい(このキー名は再利用しない)。
+        /// 無料体験はStoreKitの導入オファーへ移行し、状態はStoreKitが持つ。
         static let legacySpapiTrialStartedAt = "settings.spapiTrialStartedAt"
-        /// サーバー(GET /api/trial-status)から取得したお試し期限のキャッシュ(timeIntervalSince1970)。
-        /// サーバーが唯一の権威。このキャッシュは表示・簡易判定用でしかなく、出品系APIの可否は
-        /// 常にサーバー側のrequireProByoCredentials()が最終判定する。
-        static let spapiTrialExpiresAtCache = "settings.spapiTrialExpiresAtCache"
+        static let legacySpapiTrialExpiresAtCache = "settings.spapiTrialExpiresAtCache"
 
         /// 旧: UserDefaultsに平文保存していた利用者自身のKeepa APIキー(BYO)。
         /// 現在はKeychainへ移行済み(初回起動時に自動移行して削除)。
@@ -142,13 +140,6 @@ final class SettingsStore: ObservableObject {
             KeychainStore.set(spapiRefreshToken, for: Self.keychainRefreshTokenAccount)
         }
     }
-
-    /// Amazon連携(SP-API)による7日間のProお試しの、サーバーから取得済みの有効期限キャッシュ。
-    /// サーバー(sellerTrial.js。出品者ID単位・サーバー自身の時計が権威)の応答をそのまま
-    /// キャッシュしているだけで、クライアントはいつ・何日間お試しにするかを一切決めない
-    /// (旧実装はここをクライアント側で計算しており、再インストール・端末時計操作で
-    /// お試しを取り直せる穴になっていた)。
-    @Published private(set) var spapiTrialExpiresAt: Date?
 
     /// SP-API出品者ID(selling_partner_id)。OAuth認可コールバックでAmazonから受け取る公開ID。
     /// Sellers APIからは取得不可能(応答にsellerId相当のフィールドが無い)なため、認可時に一度だけ
@@ -543,12 +534,6 @@ final class SettingsStore: ObservableObject {
         self.spapiLinkEnabled = defaults.bool(forKey: Keys.spapiLinkEnabled)
         // 出品者IDはKeychainから読む(移行処理はリフレッシュトークンと合わせて後段でまとめて行う)。
         self.spapiSellerId = ""
-        if let cachedExpiresAt = defaults.object(forKey: Keys.spapiTrialExpiresAtCache) as? Double {
-            self.spapiTrialExpiresAt = Date(timeIntervalSince1970: cachedExpiresAt)
-        } else {
-            self.spapiTrialExpiresAt = nil
-        }
-
         // リンクボタン。未設定/デコード失敗時は既定4つ(仕入れ/Amazon/メルカリ/楽天市場)で読み込む。
         if let data = defaults.data(forKey: Keys.linkButtons),
            let decoded = try? JSONDecoder().decode([LinkButtonKind].self, from: data) {
@@ -694,51 +679,6 @@ final class SettingsStore: ObservableObject {
     var isSpApiLinkUsable: Bool {
         spapiLinkEnabled
             && !spapiRefreshToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    /// お試し期間中か。サーバーから取得済みのキャッシュ(spapiTrialExpiresAt)が存在し、
-    /// かつ未来の日時であるときだけtrue。キャッシュが無い(未取得・サーバーエラー時に
-    /// 何も反映しなかった)場合はfalse(fail-closed。applySpApiTrialStatus参照)。
-    var isSpApiTrialActive: Bool {
-        guard let spapiTrialExpiresAt else { return false }
-        return spapiTrialExpiresAt > Date()
-    }
-
-    /// サーバー(GET /api/trial-status)へ問い合わせ、成功時のみキャッシュを更新する。
-    /// 呼び出し元: RootTabViewの起動時.task、およびOAuthコールバック完了直後(App.swift)。
-    ///
-    /// 失敗時(ネットワークエラー・403等)の方針: あえて何もしない(キャッシュを維持する)。
-    /// お試しは無料の特典であり、失敗時に不用意に「非アクティブ」へ倒すと正規ユーザーが
-    /// 一時的な通信不調だけでお試し表示を失ってしまう。逆に「アクティブ」側へ倒すのは、
-    /// 出品系APIはどのみちサーバー側が最終ゲートを持つため実害は無いが、UIだけ開いて見えて
-    /// 実際のAPIが弾かれる体験の方が悪いと判断し、どちらにも倒さず「触らない」を選んでいる。
-    /// キャッシュが元から無ければ、isSpApiTrialActiveはfalse(非アクティブ)のままになる。
-    @MainActor
-    func refreshSpApiTrialStatusIfNeeded() async {
-        guard isSpApiLinkUsable else { return }
-        do {
-            let result = try await APIClient.shared.trialStatus()
-            applySpApiTrialStatus(result)
-        } catch {
-            // 意図的に握りつぶす(上記コメント参照)。
-        }
-    }
-
-    /// GET /api/trial-status の応答をキャッシュへ反映する。
-    /// 呼び出し側(RootTabView起動時・OAuthコールバック直後)がAPIClient.trialStatus()を叩いて渡す。
-    /// ネットワーク失敗時はこのメソッド自体を呼ばない設計にしており(呼び出し側のdo/catchで無視)、
-    /// その場合は既存のキャッシュがそのまま残る(何もキャッシュが無ければ非アクティブ扱いのまま)。
-    func applySpApiTrialStatus(_ result: TrialStatusResult) {
-        let newExpiresAt: Date? = {
-            guard result.active, let expiresAtMs = result.expiresAt else { return nil }
-            return Date(timeIntervalSince1970: expiresAtMs / 1000)
-        }()
-        spapiTrialExpiresAt = newExpiresAt
-        if let newExpiresAt {
-            defaults.set(newExpiresAt.timeIntervalSince1970, forKey: Keys.spapiTrialExpiresAtCache)
-        } else {
-            defaults.removeObject(forKey: Keys.spapiTrialExpiresAtCache)
-        }
     }
 
     /// 利用者自身のKeepa APIキーが設定済みか(非空)。Pro限定機能のためisPro判定は

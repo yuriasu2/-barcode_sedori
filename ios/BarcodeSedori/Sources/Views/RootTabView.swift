@@ -63,10 +63,6 @@ struct RootTabView: View {
             // (同日内に再描画等で複数回呼ばれても2重加算しない)なので毎回呼んでよい。
             ReviewPromptController.shared.recordLaunch()
 
-            // 起動時にサーバー権威のお試し期限を最新化する(SettingsStore側のキャッシュ更新)。
-            // 未連携ならメソッド内でガードされ何もしない。
-            await SettingsStore.shared.refreshSpApiTrialStatusIfNeeded()
-
             // 障害告知は即座に取得を開始する(表示の遅延はNoticeStore.refresh()側で行う)。
             // 取得を遅らせるとレビュー抑制(recordNegativeEvent)がSearchTabViewの2.5秒後の
             // 判定に間に合わなくなるため、取得自体は待たない。

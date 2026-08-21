@@ -79,10 +79,25 @@ struct PaywallView: View {
                     .background(Color(.secondarySystemBackground))
                     .cornerRadius(12)
 
-                    Text(priceText)
-                        .font(.title3)
-                        .fontWeight(.semibold)
-                        .frame(maxWidth: .infinity)
+                    VStack(spacing: 4) {
+                        // 無料体験(StoreKitの導入オファー)が使えるなら価格より先に出す。
+                        // 期間・有無はApp Store Connect側の設定が正で、アプリには焼き込まない。
+                        if let introOfferText = entitlements.introOfferText {
+                            Text(introOfferText)
+                                .font(.title3)
+                                .fontWeight(.bold)
+                                .foregroundColor(.accentColor)
+                            Text("その後 \(priceText)。いつでも解約できます。")
+                                .font(.footnote)
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                        } else {
+                            Text(priceText)
+                                .font(.title3)
+                                .fontWeight(.semibold)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
 
                     Button {
                         Task {
@@ -95,7 +110,7 @@ struct PaywallView: View {
                             if entitlements.purchaseInProgress {
                                 ProgressView().tint(.white)
                             } else {
-                                Text("Proを始める")
+                                Text(entitlements.introOfferText == nil ? "Proを始める" : "無料で始める")
                                     .fontWeight(.bold)
                             }
                             Spacer()
@@ -106,29 +121,6 @@ struct PaywallView: View {
                         .cornerRadius(12)
                     }
                     .disabled(entitlements.purchaseInProgress || entitlements.product == nil)
-
-                    // 購入前に試したい人の受け皿。Amazon連携すれば7日間Pro機能を試せるため、
-                    // 課金ボタンの直下から設定タブのAmazon連携画面まで一気に運ぶ。
-                    Button {
-                        // この画面自体がシートなので、閉じ切ってから次のシートを出す。
-                        // 解除アニメーション中に別のシートを提示するとiOSが黙って無視する。
-                        dismiss()
-                        Task { @MainActor in
-                            try? await Task.sleep(nanoseconds: 350_000_000)
-                            AppNavigation.shared.opensAmazonLink = true
-                        }
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "gift.fill")
-                            Text("Amazon連携で7日間無料体験")
-                                .fontWeight(.semibold)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.accentColor.opacity(0.12))
-                        .foregroundColor(.accentColor)
-                        .cornerRadius(12)
-                    }
 
                     Button {
                         Task {

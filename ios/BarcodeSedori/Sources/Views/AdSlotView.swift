@@ -15,7 +15,6 @@ struct AdSlotView: View {
 
     var body: some View {
         Group {
-            // 広告非表示は7日間お試しの対象外(ユーザー判断)。isProOrTrialにはしない。
             if AdsConfig.enabled, let slot = store.slots[slotId], slot.isVisible(isPro: entitlements.isPro) {
                 content(for: slot)
             } else {

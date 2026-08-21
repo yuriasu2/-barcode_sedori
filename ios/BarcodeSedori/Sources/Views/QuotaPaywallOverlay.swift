@@ -55,8 +55,10 @@ struct QuotaPaywallOverlay: View {
                     if showsSpApiOption {
                         optionButton(
                             title: "Amazon連携でスキャン無制限",
-                            // 連携の見返りはスキャン無制限だけではないので、お試し特典も併記する。
-                            subtitle: "連携後7日間Proプランを無料体験できます。",
+                            // 連携すると検索がお客様自身のAmazon枠で行われ、共有の価格取得枠を
+                            // 使わなくなる。回数制限も待ち時間もその制約から来ているので、
+                            // 特典ではなく仕組みとして説明する(審査Guideline 5.6対応)。
+                            subtitle: "検索がご自身のAmazon枠になり、待ち時間も1秒になります。",
                             systemImage: "link",
                             isEmphasized: false,
                             action: onSpApiLinkTap

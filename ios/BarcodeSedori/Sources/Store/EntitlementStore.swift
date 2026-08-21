@@ -22,12 +22,18 @@ final class EntitlementStore: ObservableObject {
     /// Proが有効か。ゲートはこれを参照する。
     @Published private(set) var isPro: Bool = UserDefaults.standard.bool(forKey: EntitlementStore.isProCachedKey)
 
-    /// Pro機能を使えるか(課金済み、またはAmazon連携による7日間のお試し中)。
-    /// 機能ゲートは原則こちらを見る。ただしKeepaグラフ無制限と広告非表示はお試し対象外なので、
-    /// それらは引き続き`isPro`を直接参照すること。
-    var isProOrTrial: Bool { isPro || SettingsStore.shared.isSpApiTrialActive }
-    /// Proサブスク商品(価格・トライアル表示に使う)。未ロード/未設定時は nil。
+    /// Proサブスク商品(価格・無料体験の表示に使う)。未ロード/未設定時は nil。
     @Published private(set) var product: Product?
+
+    /// この購入者がサブスクの導入オファー(7日間無料)を受けられるか。
+    /// StoreKitがApple ID単位・サブスクグループ単位で判定する(=同じグループで一度でも
+    /// 導入オファーを使っていればfalse)。読み込み前・非対象時はfalseに倒す。
+    ///
+    /// かつて存在した「Amazon連携で7日間Proお試し」(SettingsStore.isSpApiTrialActive)は
+    /// App Store審査のGuideline 5.6を受けて廃止し、無料体験はStoreKit標準の導入オファーへ
+    /// 一本化した。そのため無料体験中も通常の課金者と同じく`isPro`がtrueになり、
+    /// ゲートは`isPro`だけを見ればよい(旧`isProOrTrial`は不要になったので削除した)。
+    @Published private(set) var isEligibleForIntroOffer = false
     @Published private(set) var isLoadingProduct = false
     @Published private(set) var purchaseInProgress = false
     /// 購入・復元の失敗時に表示する日本語メッセージ。表示後は呼び出し側でnilに戻すこと。
@@ -37,6 +43,30 @@ final class EntitlementStore: ObservableObject {
     /// 成功時は nil。空配列が返った場合は問い合わせた商品IDを、エラー発生時は
     /// `error.localizedDescription` を含める。
     @Published private(set) var productLoadDiagnostic: String?
+
+    /// 「最初の7日間無料」のような無料体験の表示文言。
+    /// 商品未取得・導入オファー未設定・この購入者が対象外のいずれかならnil(=何も出さない)。
+    /// 期間はApp Store Connect側の設定を正として読み取る(アプリ側に日数を焼き込まない。
+    /// ここを固定値にすると、後でオファーを14日に変えたときに表示だけ嘘になる)。
+    var introOfferText: String? {
+        guard isEligibleForIntroOffer,
+              let offer = product?.subscription?.introductoryOffer,
+              offer.paymentMode == .freeTrial else { return nil }
+        return "最初の\(Self.periodText(offer.period))無料"
+    }
+
+    /// サブスク期間を日本語にする(1週間は「7日間」と読み替える。App Store Connectで
+    /// 7日間の無料体験を設定すると .week/1 として返るため、そのままだと「1週間無料」になり
+    /// 審査メモや説明文の「7日間」と表記が揺れる)。
+    private static func periodText(_ period: Product.SubscriptionPeriod) -> String {
+        switch period.unit {
+        case .day: return "\(period.value)日間"
+        case .week: return "\(period.value * 7)日間"
+        case .month: return "\(period.value)か月間"
+        case .year: return "\(period.value)年間"
+        @unknown default: return "\(period.value)期間"
+        }
+    }
 
     private var updatesTask: Task<Void, Never>?
 
@@ -83,10 +113,13 @@ final class EntitlementStore: ObservableObject {
             product = products.first
             if let product {
                 productLoadDiagnostic = nil
+                // 適格性の判定はStoreKitへの問い合わせを伴うため、商品取得と同じ場所でまとめて行う。
+                isEligibleForIntroOffer = await product.subscription?.isEligibleForIntroOffer ?? false
                 #if DEBUG
                 print("[EntitlementStore] loadProduct: productID=\(Self.proProductID) 取得数=\(products.count) 取得商品ID=\(product.id) 表示価格=\(product.displayPrice)")
                 #endif
             } else {
+                isEligibleForIntroOffer = false
                 // Product.products(for:) は商品IDが存在しない場合でもエラーを投げず、
                 // 空配列を返す。通信エラーと区別できるよう、商品IDを含めて記録する。
                 //
@@ -101,6 +134,7 @@ final class EntitlementStore: ObservableObject {
             }
         } catch {
             product = nil
+            isEligibleForIntroOffer = false
             #if DEBUG
             productLoadDiagnostic = "商品情報の取得に失敗しました(問い合わせた商品ID: \(Self.proProductID)): \(error.localizedDescription)"
             print("[EntitlementStore] loadProduct: productID=\(Self.proProductID) エラー=\(error.localizedDescription)")

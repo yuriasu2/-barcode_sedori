@@ -139,9 +139,9 @@ final class APIClient {
     /// Pro状態は EntitlementStore(メインアクター)が UserDefaults にミラーした値を同期で読む。
     /// キーは EntitlementStore.isProCachedKey と一致させること。
     ///
-    /// 意図的にisPro(isProOrTrialではない)を使う: サーバーはこのヘッダーでKeepaグラフ無制限や
-    /// スキャン枠無制限を判定するため、お試し中に"pro"を送るとKeepaグラフが無制限になってしまう
-    /// (7日間お試しの対象外と明示的に決めている機能)。
+    /// 無料体験(StoreKitの導入オファー)中も購読者なのでisProがtrueになり、ここは"pro"を送る。
+    /// かつてのAmazon連携によるお試しは対象機能が限られていたためisProと区別が要ったが、
+    /// 審査(Guideline 5.6)対応で廃止したのでその使い分けは無くなった。
     private func addPlanHeader(to request: inout URLRequest) {
         let isPro = UserDefaults.standard.bool(forKey: "settings.isProCached")
         request.setValue(isPro ? "pro" : "free", forHTTPHeaderField: "X-App-Plan")
@@ -172,8 +172,6 @@ final class APIClient {
     /// UserDefaultsを同期で読む(EntitlementStore.shared.isProはメインアクター隔離のため、
     /// 非メインアクターのAPIClientから直接は参照できない)。
     ///
-    /// ここも意図的にisProのみ。BYOキーはグラフ無制限に直結し7日間お試しの対象外のため、
-    /// お試し中でもisProOrTrialへは広げない(SettingsView.keepaLinkSectionと同じ理由)。
     private func addKeepaKeyHeaderIfNeeded(to request: inout URLRequest) {
         let isPro = UserDefaults.standard.bool(forKey: EntitlementStore.isProCachedKey)
         guard isPro else { return }
@@ -358,16 +356,6 @@ final class APIClient {
     func keepaTest() async throws -> KeepaTestResult {
         let request = try makeRequest(path: "/api/keepa-test")
         return try await perform(request, as: KeepaTestResult.self)
-    }
-
-    /// GET /api/trial-status
-    /// 出品者ID単位のPro無料お試し期間(サーバー権威)の現在状態を取得する。
-    /// X-Spapi-Seller-Id/X-Spapi-Refresh-Tokenが必須(addSpApiHeadersIfNeededが未連携時は
-    /// 付与しないため、その場合サーバーは403を返す=呼び出し側はエラーとして扱う)。
-    /// 呼び出し側(SettingsStore.refreshSpApiTrialStatus)がキャッシュへ反映する。
-    func trialStatus() async throws -> TrialStatusResult {
-        let request = try makeRequest(path: "/api/trial-status")
-        return try await perform(request, as: TrialStatusResult.self)
     }
 
     /// POST /api/keepa-throttle-demo/seed?tokens=&ratePerMin=&refillPerMin=
