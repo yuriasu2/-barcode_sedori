@@ -1,0 +1,32 @@
+HOW TO TEST
+No account or login is required: no registration, sign-in or deletion flow, and no user-generated content.
+
+Launch the app, allow camera access, and point it at a barcode (JAN / EAN-13). With no product at hand, tap the search field and type a code (13-digit JAN / EAN-13, or 10-digit ISBN-10); verified samples: 4948872416030, 9784342013157, 4415050883. The result shows product info, offer prices, sales rank and price graphs; scroll for the profit calculation.
+
+WHY WE CANNOT PROVIDE A DEMO ACCOUNT
+Three features need the user's own Amazon Seller Central account, linked via Amazon's OAuth: the per-seller offer list, listing-restriction warnings, and listing creation. Amazon's Data Protection Policy forbids sharing Selling Partner credentials, and these features can create real listings, so a shared test account is not viable. A screen recording of all three with our own seller account is provided instead.
+
+Unlinked, they are not broken: a lock icon and "Amazon account linking required" are shown, and the app does not crash. The listing-restriction badge appears only when the scanned product is truly restricted for that account.
+
+IN-APP PURCHASE
+SellerLens Pro, auto-renewable, 1,980 JPY per month, product ID jp.sellira.sellerlens.pro.monthly, with a 7-day free introductory offer configured in App Store Connect, offered to every eligible customer and needing no Amazon account.
+
+Reach the paywall from the Settings tab (rightmost), by exhausting the free quota (5 scans/day), or by tapping a locked feature (blurred offer list, OCR scan, price graph). It shows the title, length (monthly), free-trial period and price, and links to the Terms of Use (Apple's standard EULA) and our Privacy Policy. Sandbox purchases are free.
+
+Pro unlocks unlimited scans, OCR and price graphs, the full offer list, listing-restriction warnings and listing creation (these two also need linking), no ads, and unlimited purchase lists and profit alerts.
+
+FREE TIER AND AMAZON LINKING (re: Guideline 5.6)
+The 7-day Pro trial previously granted for linking an Amazon account is removed in this build, along with the server component behind it. The free trial is now Apple's introductory offer above.
+
+Linking still lifts the free tier's 5-lookups-per-day cap. That cap limits our own paid Keepa API usage, which bills us per lookup; a linked customer's lookups run on their own Selling Partner API quota at no cost to us, so there is no reason to cap them. Every other paid feature still requires Pro.
+
+APP TRACKING TRANSPARENCY
+The ATT request is not shown on first launch: the user completes four scans, then sees a short explanation followed by Apple's system dialog.
+
+PURPOSE AND AUDIENCE
+A sourcing-research tool for Amazon Japan sellers, who have only seconds in a store to judge whether an item is worth reselling. Scanning a barcode shows the Amazon price, sales rank and price history on one screen, plus expected profit after fees and tax. Audience: individuals and small sellers. Japanese-only UI, Amazon.co.jp only, Japan-only distribution.
+
+EXTERNAL SERVICES AND THIRD-PARTY MATERIAL
+Keepa API (api.keepa.com): product and price / sales-rank history, under a paid commercial subscription, used per its terms. Amazon Selling Partner API (sellingpartnerapi-fe.amazon.com): fee estimates, listing restrictions and listing creation, for the signed-in user's own account only. Login with Amazon (api.amazon.com, sellercentral.amazon.co.jp): OAuth for the above. images-na.ssl-images-amazon.com: thumbnails. Google AdMob (free tier only), PostHog (anonymous analytics), Cloudflare Workers (api.sellira.jp), Apple StoreKit. No AI services and no payment processor other than Apple.
+
+Selling Partner API access comes from our registered developer profile in Amazon Seller Central; each user authorizes their own account, and we never access other sellers' or buyers' personal data. Not a regulated industry; SellerLens is independent of Amazon.
