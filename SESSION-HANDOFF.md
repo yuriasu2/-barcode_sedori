@@ -86,12 +86,11 @@ AmazonLinkSettingsView・QuotaPaywallOverlay・EntitlementStore)。
 
 ### 未デプロイ・未反映
 
-- **サーバーは2026-08-21にデプロイ済み**(Version `b461567d`)。溜まっていた無料枠クォータの
-  管理者リセットAPI(`21a3d90`)もこれで反映された。ただし **`ADMIN_TOKEN` secret は未登録**の
-  ままなので、このAPIは常に503で拒否される。使うなら登録＋再デプロイが必要:
-  ```bash
-  cd server && npx wrangler secret put ADMIN_TOKEN && npx wrangler deploy
-  ```
+- **サーバーは2026-08-21にデプロイ済み**(Version `3c13787f`)。溜まっていた無料枠クォータの
+  管理者リセットAPI(`21a3d90`)も反映され、**`ADMIN_TOKEN` secret も登録済み**
+  (アプリ側 `APIClient.AdminConfig.token` と同じ値。DEBUGビルド専用)。
+  設定 → 開発者向け → 「無料枠クォータをリセット」が実際に使える状態。
+  無効化されていないことは、誤ったトークンで叩いて **503ではなく403** が返ることで確認できる。
 - **AdMobはテストIDのまま**。公開直前に本番IDへ切り替えること(手順は本ファイル後半)。
 - サーバーテストは438件パス(2026-08-21時点)。
 
