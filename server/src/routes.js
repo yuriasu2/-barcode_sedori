@@ -14,7 +14,6 @@ const deviceQuota = require('./deviceQuota');
 const keepaThrottle = require('./keepaThrottle');
 const keepaCoalesce = require('./keepaCoalesce');
 const ipRateLimit = require('./ipRateLimit');
-const sellerTrial = require('./sellerTrial');
 const admobSsv = require('./admobSsv');
 const listings = require('./spapi/listings');
 const spapiClient = require('./spapi/client');
@@ -195,13 +194,11 @@ function attachQuota(res, quota) {
  * (selling_partner_id)でアプリが受け取り保持した値をこのヘッダーで送ってもらう方式にしている。
  * 通過時はsellerId込みのcredentialsを返し、弾いた場合はresへ403/503を書き込んでnullを返す。
  *
- * sellerIdはプラン判定より先に解決する。Pro本会員に加え、出品者ID単位のお試し期間
- * (sellerTrial.js。サーバー自身の時計・Durable Objectが権威)が有効な場合もここだけは通すため、
- * プランを見る前にお試し状態を引けるようにする必要があるため。かつてはアプリが自己申告する
- * X-App-Trialヘッダーを信用していたが、自己申告かつ詐称可能だったため廃止した
- * (詳細はsellerTrial.js冒頭コメント参照)。お試しはSP-API出品系(このゲートが守る3エンドポイント)
- * のみが対象で、Keepaグラフやスキャン枠クォータは対象外のため、他のisProRequest呼び出し箇所は
- * 変更しない。
+ * かつては「Amazon連携で7日間Proお試し」(sellerTrial.js。出品者ID単位のwrite-once)が有効な
+ * 場合もここだけは通していたが、App Store審査のGuideline 5.6(有料機能を外部アカウントの
+ * 連携と引き換えに無料開放している、との指摘)を受けて2026-08-21に廃止した。無料体験は
+ * StoreKitの導入オファー(7日間無料)へ移し、その期間中は通常のサブスク加入者として
+ * X-App-Plan: pro が送られてくるため、このゲートはPro判定だけを見ればよくなった。
  */
 async function requireProByoCredentials(req, res) {
   const sellerId =
@@ -209,21 +206,7 @@ async function requireProByoCredentials(req, res) {
   const headerToken =
     req.headers && (req.headers['x-spapi-refresh-token'] || req.headers['X-Spapi-Refresh-Token']);
 
-  // getOrStartはレコードが無ければその場で7日間を発行してしまうwrite-once操作なので、
-  // 「本当にお試し判定が要るとき」以外は呼ばない。条件を絞る理由は2つ:
-  //
-  // 1. Pro会員では引かない。課金中に発行してしまうと、解約後に使えるはずのお試しを
-  //    気付かないうちに消費させてしまう。
-  // 2. リフレッシュトークンの提示を条件にする。出品者IDは秘密の値ではないため、ID単体で
-  //    発行できると、第三者が他人の出品者IDを送るだけでその人のお試しを勝手に開始・満了
-  //    させられてしまう(本人が使い始める前に期限切れにされる)。
-  let trialActive = false;
-  if (!isProRequest(req.headers) && sellerId && headerToken) {
-    const status = await sellerTrial.getOrStart(String(sellerId));
-    trialActive = !!(status && status.active);
-  }
-
-  if (!isProRequest(req.headers) && !trialActive) {
+  if (!isProRequest(req.headers)) {
     res.status(403).json({ error: 'plan_required', message: PLAN_REQUIRED_MESSAGE });
     return null;
   }
@@ -1488,48 +1471,6 @@ router.post('/api/admin/quota-reset', async (req, res) => {
   res.json({ ok: true, quota });
 });
 
-// GET /api/trial-status — 出品者ID単位のPro無料お試し期間(サーバー権威)の現在状態を返す。
-// X-Spapi-Seller-IdとX-Spapi-Refresh-Tokenを両方要求する(トークンも必須にすることで、
-// 適当なseller IDを大量に送ってお試しを乱掘りする攻撃のハードルを上げる。トークン自体の
-// 有効性はここでは検証しない=お試し発行のためだけにSP-APIへ問い合わせるコストは掛けない)。
-router.get('/api/trial-status', async (req, res) => {
-  // X-Spapi-Refresh-Tokenは中身を検証しない(存在確認のみ)ため、出品者IDさえ分かれば
-  // 誰でも他人のお試し期間を開始・消化できてしまう(出品者IDはAmazonの商品ページから
-  // 誰でも取得可能で秘密ではない)。トークンの真正性検証(SP-APIへの問い合わせ)は
-  // コストが掛かるため見送り、代わりに/api/quota・/api/searchと同じパターンでIP単位の
-  // レート制限を掛け、大量の出品者IDを投入する乱掘り攻撃のコストを上げる。
-  const rateLimitResult = await ipRateLimit.checkAndCount(clientIpOf(req.headers));
-  if (!rateLimitResult.allowed) return sendRateLimited(res, rateLimitResult.retryAfterSec);
-
-  const sellerId =
-    req.headers && (req.headers['x-spapi-seller-id'] || req.headers['X-Spapi-Seller-Id']);
-  const refreshToken =
-    req.headers && (req.headers['x-spapi-refresh-token'] || req.headers['X-Spapi-Refresh-Token']);
-  if (!sellerId) {
-    return res.status(403).json({ error: 'seller_id_required', message: SELLER_ID_REQUIRED_MESSAGE });
-  }
-  if (!refreshToken) {
-    return res.status(403).json({ error: 'spapi_link_required', message: SPAPI_LINK_REQUIRED_MESSAGE });
-  }
-
-  const status = await sellerTrial.getOrStart(String(sellerId));
-  if (!status) {
-    // DO障害等でお試し状態が分からない場合は「無効」を返す(sellerTrial.js冒頭コメントの
-    // fail-closed方針と揃える)。
-    return res.json({ active: false, startedAt: null, expiresAt: null, remainingDays: 0 });
-  }
-  // remainingDaysは切り上げ(最後の端数日を1日として見せるため。ちょうど0の場合はinactive)。
-  const remainingDays = status.active
-    ? Math.max(1, Math.ceil((status.expiresAt - Date.now()) / sellerTrial.DAY_MS))
-    : 0;
-  res.json({
-    active: status.active,
-    startedAt: status.startedAt,
-    expiresAt: status.expiresAt,
-    remainingDays,
-  });
-});
-
 /**
  * FeeDetailListの1件(FeeType)を、アプリ向けのtype/labelに分類する。
  * ReferralFee→販売手数料 / VariableClosingFee・FixedClosingFee→カテゴリ成約料 /
@@ -2137,7 +2078,5 @@ router.loadNotice = loadNotice;
 router.validateNotice = validateNotice;
 // テスト用途にAdMob SSV検証モジュールを公開する(_setKeysForTestでの鍵注入用)。
 router.admobSsv = admobSsv;
-// テスト用途に出品者ID単位お試し期間モジュールを公開する。
-router.sellerTrial = sellerTrial;
 
 module.exports = router;

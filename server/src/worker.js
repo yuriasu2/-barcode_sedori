@@ -15,8 +15,6 @@ export { DeviceQuotaDO } from './quotaDurableObject.js';
 export { KeepaThrottleDO } from './keepaThrottleDurableObject.js';
 // クライアントIP単位のレート制限のDO。IPごとに1インスタンス。
 export { IpRateLimitDO } from './ipRateLimitDurableObject.js';
-// 出品者ID単位のPro無料お試し期間のDO。出品者IDごとに1インスタンス。
-export { SellerTrialDO } from './sellerTrialDurableObject.js';
 
 let routesPromise = null;
 
@@ -53,10 +51,6 @@ export default {
     // IPレート制限のバインディング。ipRateLimit.js側がglobalThis経由で参照する
     // (__quotaDO/__keepaThrottleDOと同じ簡易な受け渡し方式)。
     globalThis.__ipRateLimitDO = env.IP_RATE_LIMIT || null;
-
-    // 出品者ID単位のお試し期間のバインディング。sellerTrial.js側がglobalThis経由で参照する
-    // (__quotaDO等と同じ簡易な受け渡し方式)。
-    globalThis.__sellerTrialDO = env.SELLER_TRIAL || null;
 
     const url = new URL(request.url);
 

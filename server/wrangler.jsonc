@@ -41,11 +41,7 @@
     // グラフ生データ(/api/graph-data)のキャッシュTTL(ミリ秒)。既定6時間。
     // グラフは「現在価格」ではなく価格履歴の表示なので、検索結果(30分)ほど鮮度が要らない。
     // 短くすると共有Keepaトークンの消費が増える。伸ばすと当日の値動きの反映が遅れる。
-    "GRAPH_CACHE_TTL_MS": "21600000",
-    // 出品者ID単位のPro無料お試し期間(sellerTrial.js)の日数。
-    // サーバーが唯一の権威(seller ID + サーバー自身の時計)で判定するため、
-    // クライアント側の時計操作・再インストールでは延長も再取得もできない。
-    "SPAPI_TRIAL_DAYS": "7"
+    "GRAPH_CACHE_TTL_MS": "21600000"
   },
   // 広告配信設定(/api/ads)を置くKV namespace。id は namespace 作成後に埋める
   // (`wrangler kv namespace create ADS_CONFIG`)。id未設定(プレースホルダ)のままでも
@@ -58,8 +54,7 @@
     "bindings": [
       { "name": "DEVICE_QUOTA", "class_name": "DeviceQuotaDO" },
       { "name": "KEEPA_THROTTLE", "class_name": "KeepaThrottleDO" },
-      { "name": "IP_RATE_LIMIT", "class_name": "IpRateLimitDO" },
-      { "name": "SELLER_TRIAL", "class_name": "SellerTrialDO" }
+      { "name": "IP_RATE_LIMIT", "class_name": "IpRateLimitDO" }
     ]
   },
   // new_sqlite_classes を使う(new_classes ではない)。無料プランではSQLiteバックエンドの
@@ -68,7 +63,10 @@
     { "tag": "v1", "new_sqlite_classes": ["DeviceQuotaDO"] },
     { "tag": "v2", "new_sqlite_classes": ["KeepaThrottleDO"] },
     { "tag": "v3", "new_sqlite_classes": ["IpRateLimitDO"] },
-    { "tag": "v4", "new_sqlite_classes": ["SellerTrialDO"] }
+    { "tag": "v4", "new_sqlite_classes": ["SellerTrialDO"] },
+    // Amazon連携による7日間Proお試しの廃止(App Store審査 Guideline 5.6 対応、2026-08-21)。
+    // 無料体験はStoreKitの導入オファーへ移したため、出品者ID単位の記録は不要になった。
+    { "tag": "v5", "deleted_classes": ["SellerTrialDO"] }
   ]
   // Secrets(LWA_CLIENT_ID/LWA_CLIENT_SECRET/KEEPA_API_KEY/SPAPI_APP_ID/OAUTH_STATE_SECRET/
   // ADMIN_TOKEN)は `wrangler secret put` で登録する(このファイルに書かない)。
