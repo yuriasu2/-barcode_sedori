@@ -523,7 +523,8 @@ struct SearchTabView: View {
             isActive: isScannerActive,
             // クールダウンの判定根拠は searchCooldown / consumesSharedKeepaToken のドキュメントを参照。
             emitCooldown: searchCooldown,
-            cooldownNotice: cooldownNotice
+            cooldownNotice: cooldownNotice,
+            cooldownHint: searchCooldownHint
         )
         .frame(maxWidth: .infinity)
         .frame(height: UIScreen.main.bounds.height * 0.35)
@@ -577,6 +578,16 @@ struct SearchTabView: View {
     /// SP-API連携済み(Keepa経路を通らない)と、自前Keepaキー利用者(自分の枠を消費する)は
     /// 共有トークンを消費しないため、重複読み取り防止程度(1秒)でよい。
     private var searchCooldown: TimeInterval { consumesSharedKeepaToken ? 7.0 : 1.0 }
+
+    /// 「あと◯秒」に添える一文。長い方(7秒)のときだけ出す。
+    /// 7秒は共有Keepaキーのトークン(全利用者で1つのバケット)を1検索1個消費するための
+    /// 間隔であって、プランによる出し惜しみではない。Amazon連携すると検索経路が
+    /// 利用者自身のAmazon枠に変わり、共有キーを使わなくなるので1秒で済む。
+    /// この理由と解消手段を出さないと、特にPro(課金済み・お試し中)の利用者には
+    /// 「お金を払っているのに遅い」としか映らないため必ず添える。
+    private var searchCooldownHint: String? {
+        consumesSharedKeepaToken ? "Amazon連携で待ち時間が1秒になります" : nil
+    }
 
     /// この端末の検索が共有Keepaキーのトークンを消費するか。
     /// 自前キーの条件はAPIClient.addKeepaKeyHeaderIfNeededと一致させること

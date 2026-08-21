@@ -88,8 +88,11 @@ struct AmazonLinkSettingsView: View {
                 benefitBlock(
                     icon: "bolt.fill",
                     iconColor: .orange,
-                    title: "高速バーコードスキャンが無制限",
-                    detail: "連携するだけで、1日のスキャン制限がなくなり、高速でスキャン結果が表示され、価格の一覧も見れます。"
+                    title: "スキャンの待ち時間が7秒→1秒",
+                    // 「連携するとProが無料」ではなく「連携すると検索経路が変わる」という
+                    // 技術的な理由を書く。待ち時間はプランではなく、共有のKeepa枠を使うか
+                    // 自分のAmazon枠を使うかで決まる(SearchTabView.searchCooldown参照)。
+                    detail: "連携すると、検索がお客様自身のAmazonの枠で行われるようになります。共有の価格取得枠を使わなくなるため、スキャンの間隔が7秒から1秒に短縮され、1日のスキャン回数の制限もなくなります。価格の一覧も表示できます。"
                 ) {
                     EmptyView()
                 }

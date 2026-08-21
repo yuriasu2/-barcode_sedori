@@ -28,6 +28,10 @@ struct ScannerView: UIViewRepresentable {
     /// 手入力検索がクールダウンで弾かれたときに、カメラ上の「あと◯秒」オーバーレイを
     /// 出すための通知。スキャンと同じ見た目で伝えるため専用のポップアップは出さない。
     var cooldownNotice: CooldownNotice?
+    /// 「あと◯秒」の下に添える理由・改善方法の一文(nilなら秒数だけ)。
+    /// 長い待ち時間(共有Keepaキーを使う端末の7秒)のときだけ渡す想定。
+    /// 待たされる理由と解消手段を同時に示さないと、ただ遅いアプリに見えるため。
+    var cooldownHint: String?
 
     /// 「あと◯秒」を出す指示。idが変わったときだけ表示する(同じ内容の再表示を防ぐ)。
     struct CooldownNotice: Equatable {
@@ -40,6 +44,7 @@ struct ScannerView: UIViewRepresentable {
         view.onScan = onScan
         view.isOCRMode = isOCRMode
         view.emitCooldown = emitCooldown
+        view.cooldownHint = cooldownHint
         view.isActiveState = isActive
         if isActive { view.startSession() }
         return view
@@ -49,6 +54,7 @@ struct ScannerView: UIViewRepresentable {
         uiView.onScan = onScan
         uiView.isOCRMode = isOCRMode
         uiView.emitCooldown = emitCooldown
+        uiView.cooldownHint = cooldownHint
         uiView.setActive(isActive)
         uiView.applyCooldownNotice(cooldownNotice)
     }
@@ -101,7 +107,12 @@ final class ScannerContainerView: UIView {
     /// 最後に検索した時刻自体は手入力検索と共有するためSearchCooldownStoreが持つ。
     var emitCooldown: TimeInterval = 1.0
 
+    /// 「あと◯秒」に添える一文(SwiftUI側から注入)。nilなら秒数だけを出す。
+    var cooldownHint: String?
+
     /// クールダウン中に別コードを読み取ろうとしたとき「あと◯秒」を出す小さなオーバーレイ。
+    /// ヒント付きだと2行になるためピル(背景)はコンテナ側に持たせ、ラベルは中身だけを描く。
+    private let cooldownOverlay = UIView()
     private let cooldownLabel = UILabel()
     /// オーバーレイ自動非表示のワークアイテム(再スケジュール時にキャンセルする)。
     private var hideCooldownOverlayWork: DispatchWorkItem?
@@ -149,34 +160,69 @@ final class ScannerContainerView: UIView {
     }
 
     /// 「あと◯秒」オーバーレイ(中央のピル)を用意する。既定は非表示。
+    /// ヒントの有無で1行にも2行にもなるため、高さは固定せず中身に合わせて伸ばす。
     private func setupCooldownOverlay() {
+        cooldownOverlay.backgroundColor = UIColor.black.withAlphaComponent(0.6)
+        cooldownOverlay.layer.cornerRadius = 14
+        cooldownOverlay.layer.masksToBounds = true
+        cooldownOverlay.isHidden = true
+        cooldownOverlay.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(cooldownOverlay)
+
         cooldownLabel.textColor = .white
-        cooldownLabel.font = .systemFont(ofSize: 14, weight: .semibold)
         cooldownLabel.textAlignment = .center
-        cooldownLabel.backgroundColor = UIColor.black.withAlphaComponent(0.6)
-        cooldownLabel.layer.cornerRadius = 14
-        cooldownLabel.layer.masksToBounds = true
-        cooldownLabel.isHidden = true
+        cooldownLabel.numberOfLines = 0
         cooldownLabel.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(cooldownLabel)
+        cooldownOverlay.addSubview(cooldownLabel)
+
         NSLayoutConstraint.activate([
-            cooldownLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
-            cooldownLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-            cooldownLabel.heightAnchor.constraint(equalToConstant: 28),
-            cooldownLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 96),
+            cooldownOverlay.centerXAnchor.constraint(equalTo: centerXAnchor),
+            cooldownOverlay.centerYAnchor.constraint(equalTo: centerYAnchor),
+            cooldownOverlay.widthAnchor.constraint(greaterThanOrEqualToConstant: 96),
+            // ヒントの一文が画面幅いっぱいに広がらないよう上限を設ける。
+            cooldownOverlay.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, multiplier: 0.8),
+            cooldownLabel.topAnchor.constraint(equalTo: cooldownOverlay.topAnchor, constant: 6),
+            cooldownLabel.bottomAnchor.constraint(equalTo: cooldownOverlay.bottomAnchor, constant: -6),
+            cooldownLabel.leadingAnchor.constraint(equalTo: cooldownOverlay.leadingAnchor, constant: 12),
+            cooldownLabel.trailingAnchor.constraint(equalTo: cooldownOverlay.trailingAnchor, constant: -12),
         ])
     }
 
     /// クールダウン残り秒数のオーバーレイを表示し、残り時間後に自動で消す(メインスレッドで呼ぶ)。
     private func showCooldownOverlay(remaining: Int) {
-        cooldownLabel.text = "あと\(remaining)秒"
-        cooldownLabel.isHidden = false
+        cooldownLabel.attributedText = Self.cooldownText(remaining: remaining, hint: cooldownHint)
+        cooldownOverlay.isHidden = false
         hideCooldownOverlayWork?.cancel()
         let work = DispatchWorkItem { [weak self] in
-            self?.cooldownLabel.isHidden = true
+            self?.cooldownOverlay.isHidden = true
         }
         hideCooldownOverlayWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + Double(remaining) + 0.1, execute: work)
+    }
+
+    /// 「あと◯秒」(強調)＋ヒント(小さめ)の2行テキストを組み立てる。ヒントが無ければ1行。
+    private static func cooldownText(remaining: Int, hint: String?) -> NSAttributedString {
+        let text = NSMutableAttributedString(
+            string: "あと\(remaining)秒",
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 14, weight: .semibold),
+                .foregroundColor: UIColor.white,
+            ]
+        )
+        guard let hint, !hint.isEmpty else { return text }
+
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        paragraph.lineSpacing = 2
+        text.append(NSAttributedString(
+            string: "\n" + hint,
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 12, weight: .regular),
+                .foregroundColor: UIColor.white.withAlphaComponent(0.85),
+                .paragraphStyle: paragraph,
+            ]
+        ))
+        return text
     }
 
     /// 手入力検索から渡された「あと◯秒」通知を反映する(SwiftUIのupdateUIViewから呼ばれる)。
@@ -435,7 +481,7 @@ final class ScannerContainerView: UIView {
         }
         lastCode = code
         // 読み取り成立時はオーバーレイを消す。
-        cooldownLabel.isHidden = true
+        cooldownOverlay.isHidden = true
         hideCooldownOverlayWork?.cancel()
 
         // 設定「バイブレーション(スキャン時)」でON/OFFできる。利益アラートの振動とは別設定。
