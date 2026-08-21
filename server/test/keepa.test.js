@@ -975,7 +975,8 @@ test('/api/graph-data: tryConsumeが事前チェックとの競合で失敗し�
     // 取得済みの結果は既にgraphDataCacheへ書き込まれているはず(取得済みのKeepaトークンを
     // 無駄にしない。修正前はtryConsume失敗時にキャッシュへ一切書き込まれず、取得結果が
     // 丸ごと捨てられていた)。
-    const cached = routes.graphDataCache.get('graphdata:B000RACEGRAPH');
+    // graphDataCacheはSharedCache(L1同期 + L2 Cache API)になったためgetは非同期。
+    const cached = await routes.graphDataCache.get('graphdata:B000RACEGRAPH');
     assert.ok(cached, 'tryConsume失敗時もgraphDataCacheへ結果が救済されているべき');
     assert.ok(cached.series, 'キャッシュされた内容にseriesが含まれているべき');
   });

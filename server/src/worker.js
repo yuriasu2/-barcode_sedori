@@ -60,6 +60,11 @@ export default {
 
     const url = new URL(request.url);
 
+    // 共有キャッシュ(sharedCache.js)がCache APIのキャッシュキーURLを組み立てるためのオリジン。
+    // 自ゾーンのURLでなければ put が保存されない実装差があるため、実際のリクエストの
+    // オリジンをそのまま使う(__adsKv等と同じ簡易な受け渡し方式)。
+    globalThis.__cacheOrigin = url.origin;
+
     // /health は routes.js に依存させず即応させる(index.jsと同じ挙動)
     if (request.method === 'GET' && url.pathname === '/health') {
       return new Response(JSON.stringify({ status: 'ok' }), {

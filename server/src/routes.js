@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const { MiniRouter } = require('./miniRouter');
 const { convertCode, CODE_TYPES } = require('./instore/convert');
 const { LruCache } = require('./cache');
+const { SharedCache } = require('./sharedCache');
 const pricing = require('./spapi/pricing');
 const spapiAuth = require('./spapi/auth');
 const oauth = require('./oauth');
@@ -18,9 +19,33 @@ const admobSsv = require('./admobSsv');
 const listings = require('./spapi/listings');
 const spapiClient = require('./spapi/client');
 
-const searchCache = new LruCache();
-const graphCache = new LruCache({ ttlMs: 60 * 60 * 1000, maxSize: 200 }); // グラフ画像: 1時間キャッシュ
-const graphDataCache = new LruCache({ ttlMs: 60 * 60 * 1000, maxSize: 200 }); // グラフ生データ: 画像と同じ1時間キャッシュ
+/**
+ * グラフ生データ(/api/graph-data)のTTL。既定6時間。
+ * Keepaの価格履歴は日次に近い粒度で、1時間キャッシュは共有トークンを無駄に消費するだけだった
+ * (グラフは「現在価格」ではなく履歴の表示であり、直近数時間の欠落は判断を誤らせない)。
+ * 検索結果(価格そのもの)のTTL(KEEPA_CACHE_TTL_MS=30分)とは意図的に別にしている。
+ * 環境変数で調整可能(デプロイのみで変えられるようにする。KVまでは要らないと判断)。
+ */
+const GRAPH_CACHE_TTL_MS = parseInt(process.env.GRAPH_CACHE_TTL_MS, 10) > 0
+  ? parseInt(process.env.GRAPH_CACHE_TTL_MS, 10)
+  : 6 * 60 * 60 * 1000;
+
+/**
+ * 検索結果キャッシュ。Keepa経路(`keepa:`接頭辞)だけをコロケーション共有のL2へ載せる。
+ * SP-API経路はキーに利用者の認証情報ハッシュを含む個人ごとの結果で、しかも共有Keepa
+ * トークンを消費しない(各自のAmazon枠)ため、共有キャッシュへ出す利点が無い。
+ */
+const searchCache = new SharedCache({
+  name: 'search',
+  ttlMs: 5 * 60 * 1000,
+  maxSize: 500,
+  shouldShare: (key) => key.startsWith('keepa:'),
+});
+// グラフ画像(/api/graph): 1時間キャッシュ。現行アプリは/api/graph-dataで生データを取得して
+// 端末側で描画するためこのエンドポイントは呼ばれない。共有L2へ載せる価値が無いのでL1のまま残す。
+const graphCache = new LruCache({ ttlMs: 60 * 60 * 1000, maxSize: 200 });
+// グラフ生データ: 共有L2あり(Keepa共有トークンを最も節約できる経路)。
+const graphDataCache = new SharedCache({ name: 'graphdata', ttlMs: GRAPH_CACHE_TTL_MS, maxSize: 200 });
 const adsConfigCache = new LruCache({ ttlMs: 60 * 1000, maxSize: 1 }); // 広告配信設定: 60秒キャッシュ(KV読み取り抑制)
 const noticeCache = new LruCache({ ttlMs: 60 * 1000, maxSize: 1 }); // 障害告知: 60秒キャッシュ(KV読み取り抑制。KV書き換え後、最大60秒は古い告知が配信され得る=ads設定と同じ挙動)
 
@@ -808,7 +833,7 @@ async function handleSearchViaSpApi(req, res, code, credentials, cacheKey) {
       source: 'spapi',
     };
 
-    searchCache.set(cacheKey, responseBody);
+    await searchCache.set(cacheKey, responseBody);
     res.json(responseBody);
   } catch (err) {
     console.error(`[search] code=${code} failed:`, err.message);
@@ -827,7 +852,7 @@ async function handleSearchViaSpApi(req, res, code, credentials, cacheKey) {
  * @param {string} cacheKey
  * @param {object|null} keepaDebug
  */
-function respondKeepaSearchResult(res, converted, isbn13, product, cacheKey, keepaDebug) {
+async function respondKeepaSearchResult(res, converted, isbn13, product, cacheKey, keepaDebug) {
   if (converted.codeType === CODE_TYPES.UNRESOLVED) {
     return res.json(attachKeepaDebug({
       codeType: CODE_TYPES.UNRESOLVED,
@@ -882,7 +907,7 @@ function respondKeepaSearchResult(res, converted, isbn13, product, cacheKey, kee
   }
 
   if (mapped.asin) {
-    graphDataCache.set(graphDataCacheKey(mapped.asin), { series: keepa.extractGraphSeries(product) });
+    await graphDataCache.set(graphDataCacheKey(mapped.asin), { series: keepa.extractGraphSeries(product) });
   }
 
   const profitInputs = {
@@ -908,7 +933,7 @@ function respondKeepaSearchResult(res, converted, isbn13, product, cacheKey, kee
     source: 'keepa',
   };
 
-  searchCache.set(cacheKey, responseBody, KEEPA_CACHE_TTL_MS);
+  await searchCache.set(cacheKey, responseBody, KEEPA_CACHE_TTL_MS);
   res.json(attachKeepaDebug(responseBody, keepaDebug));
 }
 
@@ -930,7 +955,7 @@ router.get('/api/search', async (req, res) => {
     // プラン非依存だと無料での検索結果が、30分以内のPro再検索に誤って返ってしまうため。
     const plan = isPro ? 'pro' : 'free';
     const cacheKey = `spapi:${credentialsHashPrefix(credentials)}:${plan}:${code}`;
-    const cached = searchCache.get(cacheKey);
+    const cached = await searchCache.get(cacheKey);
     if (cached) return res.json(cached);
     return handleSearchViaSpApi(req, res, code, credentials, cacheKey);
   }
@@ -943,7 +968,7 @@ router.get('/api/search', async (req, res) => {
     // 「誰のキーで引いたか」を区別する必要が無い(むしろ分けるとBYOユーザー同士・共有ユーザー間で
     // 同じ商品を無駄に再取得することになりコスト面で不利)。
     const cacheKey = `keepa:${code}`;
-    const cached = searchCache.get(cacheKey);
+    const cached = await searchCache.get(cacheKey);
 
     if (!isPro) {
       // 冒頭では消費せず、Keepa経路(サーバーのAPIキー消費)が確定してから判定する。
@@ -1269,7 +1294,7 @@ router.get('/api/graph-data', async (req, res) => {
   if (!isPro && !deviceId) return sendDeviceIdRequired(res);
 
   const cacheKey = graphDataCacheKey(asin);
-  const cached = graphDataCache.get(cacheKey);
+  const cached = await graphDataCache.get(cacheKey);
   if (cached) {
     // キャッシュヒットはPro判定より前に返す(誰であっても消費なし)。非Proにはquotaを同梱する。
     // BYOキーの有無に関わらずキャッシュキー(graphDataCacheKey)は共通のまま
@@ -1332,7 +1357,7 @@ router.get('/api/graph-data', async (req, res) => {
     console.error(`[graph-data] asin=${asin} response construction failed:`, err.message);
     return res.status(502).json({ error: 'graph_data_failed', message: err.message });
   }
-  graphDataCache.set(cacheKey, responseBody);
+  await graphDataCache.set(cacheKey, responseBody);
 
   if (!isPro) {
     // M-3: 無料枠ユニットはKeepaトークンを消費した後に消費する。ここでtryConsumeが失敗しても
