@@ -486,7 +486,21 @@ struct SearchTabView: View {
     /// settings.isSpApiLinkUsableの方で既に無制限になるため、お試し中のユーザーも実質困らない。
     private var isSearchUnlimited: Bool { entitlements.isPro || settings.isSpApiLinkUsable }
     /// 無料枠を使い切っており、これ以上スキャンできないか。
-    private var isQuotaExhausted: Bool { !isSearchUnlimited && !quota.canScanToday }
+    ///
+    /// 検索中(isSearching)は判定しない。startSearchが開始時にconsumeLocally()で楽観的に
+    /// 1減らすため、最後の1回(例: 5回目)を始めた瞬間にunitsRemainingが0になる。ところが
+    /// サーバーがキャッシュから返した場合は枠を消費しないので、応答が届くと残量が元に戻る。
+    /// その結果「本日の無料スキャンを使い切りました」が一瞬だけ出て消える。既にスキャン済みの
+    /// 商品を読み直したときに実際に発生した(サーバーのキャッシュに当たるため)。
+    ///
+    /// 検索中に伏せても取りこぼしは無い。枠が本当に尽きている状態での次のスキャンは
+    /// startSearchの冒頭で弾かれ、isSearchingがtrueにならないため。
+    ///
+    /// この値はオーバーレイの表示だけでなくカメラの停止(isScannerActive)と
+    /// OCRモードの強制解除(.onChange)にも使われており、一瞬の誤検知はそれらも巻き添えにする。
+    private var isQuotaExhausted: Bool {
+        !isSearchUnlimited && !quota.canScanToday && !viewModel.isSearching
+    }
 
     /// グラフ枠(keepaGraph)を出してよいか。falseならPro案内(freeAdArea)へ差し替える。
     ///
