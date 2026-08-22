@@ -308,6 +308,11 @@ struct PriceHistoryChartView: View {
 
         do {
             let data = try await APIClient.shared.graphData(asin: asin)
+            // 順序に意味がある。apply(data.quota)より先にキャッシュへ載せること。
+            // 最後の1枠でグラフを取得した場合、applyでunitsRemainingが0になり
+            // SearchTabViewのcanRequestGraphがfalseになる。先にキャッシュへ入れておけば
+            // canRequestGraphは「端末に取得済みならtrue」の分岐で拾うため、いま取得した
+            // グラフがその場でPro案内に差し替わるのを防げる(2d429bdと同種のズレ)。
             Self.cache(data, for: asin)
             // 履歴から見返せるよう永続化する。アプリ終了で消えるメモリキャッシュとは別。
             GraphArchive.store(data, for: asin)
