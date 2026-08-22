@@ -330,15 +330,34 @@ private struct HistoryRow: View {
         (item.offersResult?.used ?? []).min { ($0.landed ?? Int.max) < ($1.landed ?? Int.max) }
     }
 
+    /// 新品の出品者数。オファー一覧(SP-API経路)にあればそれを優先し、無ければ
+    /// 検索時に保存した出品者数(Keepa経路)へフォールバックする。
+    /// 解決順は検索画面(SearchTabViewModel.newSellerCount)・商品詳細と揃えている。
+    /// どちらも無ければnilで、その場合は人数を出さない(0人と誤表示しない)。
+    private var newSellerCount: Int? {
+        item.offersResult?.newCount ?? item.offersResult?.new?.count ?? item.sellerCounts?.new
+    }
+
+    /// 中古の出品者数。解決順はnewSellerCountと同じ。
+    private var usedSellerCount: Int? {
+        item.offersResult?.usedCount ?? item.offersResult?.used?.count ?? item.sellerCounts?.used
+    }
+
+    /// 価格表示へ出品者数を添える(商品詳細のパネル見出しと同じ書式)。取得できていなければ何も足さない。
+    private static func withSellerCount(_ text: String, _ count: Int?) -> String {
+        guard let count else { return text }
+        return "\(text)(出品者数\(count)人)"
+    }
+
     /// 新品の表示文字列。Amazon本体が最安なら「新品(Ama):¥1430」と区別する。
     /// オファー未保存(Keepa経路など)は第1段階の簡易価格でフォールバックする。
     private var newPriceText: String? {
         if let offer = cheapestNewOffer, let landed = offer.landed {
             let label = offer.isAmazon == true ? "新品(Ama)" : "新品"
-            return "\(label):¥\(landed)"
+            return Self.withSellerCount("\(label):¥\(landed)", newSellerCount)
         }
         if let price = item.prices?.new {
-            return "新品:¥\(price)"
+            return Self.withSellerCount("新品:¥\(price)", newSellerCount)
         }
         return nil
     }
@@ -347,10 +366,11 @@ private struct HistoryRow: View {
     private var usedPriceText: String? {
         if let offer = cheapestUsedOffer, let landed = offer.landed {
             let condition = offer.conditionDisplayName
-            return condition.isEmpty ? "中古品:¥\(landed)" : "中古品:\(condition) ¥\(landed)"
+            let base = condition.isEmpty ? "中古品:¥\(landed)" : "中古品:\(condition) ¥\(landed)"
+            return Self.withSellerCount(base, usedSellerCount)
         }
         if let price = item.prices?.used {
-            return "中古品:¥\(price)"
+            return Self.withSellerCount("中古品:¥\(price)", usedSellerCount)
         }
         return nil
     }
