@@ -184,6 +184,23 @@ final class SettingsViewModel: ObservableObject {
     /// ダミー履歴の生成結果を画面に一時表示するためのテキスト。
     @Published var historySeedResultText: String?
 
+    /// ダミーグラフの生成結果を画面に一時表示するためのテキスト。
+    @Published var graphSeedResultText: String?
+    /// 生成中フラグ。230MB前後の書き込みになるため二重実行を防ぐ。
+    @Published var isSeedingGraphs = false
+
+    /// グラフの保存ディレクトリをダミーファイルで埋める。掃除(pruneIfNeeded)の
+    /// 所要時間を実機で測るための開発用。生成後にバーコードを1件スキャンすると掃除が走る。
+    func seedDummyGraphs() async {
+        isSeedingGraphs = true
+        defer { isSeedingGraphs = false }
+        let elapsed = await GraphArchive.seedDummyFiles()
+        graphSeedResultText = String(
+            format: "%d件生成しました(%.1f秒)。この状態で1件スキャンすると掃除が走ります。",
+            GraphArchive.maxFiles + 200, elapsed
+        )
+    }
+
     /// 履歴をダミーデータで埋める。件数が増えたときの挙動(起動時デコード・スクロール・
     /// 1スキャンあたりの保存コスト)を実機で測るための開発用。
     /// 保存にかかった時間はScanHistoryStore.save()がコンソールへ出す。
@@ -416,6 +433,29 @@ struct SettingsView: View {
                     }
 
                     Text("履歴が増えたときの起動時間・スクロール・保存コストを測るためのダミーデータです。1スキャンごとの保存時間はコンソールに [ScanHistoryStore] save: として出力されます(件数・KB・ms)。シミュレータはMacのSSDで動き速すぎて実態が出ないため、保存コストの判断は必ず実機で行ってください。消すときは 設定→検索→「検索履歴を削除」を使います。")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+
+                    Button {
+                        Task { await viewModel.seedDummyGraphs() }
+                    } label: {
+                        HStack {
+                            Text("グラフのダミーを5,200件生成")
+                            if viewModel.isSeedingGraphs {
+                                Spacer()
+                                ProgressView()
+                            }
+                        }
+                    }
+                    .disabled(viewModel.isSeedingGraphs)
+
+                    if let graphSeedResultText = viewModel.graphSeedResultText {
+                        Text(graphSeedResultText)
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                    }
+
+                    Text("グラフの掃除(古いファイルの削除)にかかる時間を測るためのものです。上限5,000件+猶予200件ぶんを作るので、この直後に1件スキャンすると掃除が走ります。約230MBを書き込むため生成には時間がかかり、その間ストレージも消費します。終わったら 設定→検索→「検索履歴を削除」で消してください。")
                         .font(.footnote)
                         .foregroundColor(.secondary)
                 }

@@ -118,6 +118,12 @@ enum GraphArchive {
     /// pruneSlackぶん溜まるまで実行しないので、スキャンのたびに走ることはない。
     private static func pruneIfNeeded() {
         guard index.count > maxFiles + pruneSlack, let dir = ensureDirectory() else { return }
+        #if DEBUG
+        // 掃除の実測用。ここはファイル数に比例する処理なので、上限を変えたときは
+        // 実機でこのログを見て所要時間を確認すること(FREEMIUM-PLAN.md 4.2g)。
+        let startedAt = Date()
+        let before = index.count
+        #endif
         let urls = (try? FileManager.default.contentsOfDirectory(
             at: dir,
             includingPropertiesForKeys: [.contentModificationDateKey],
@@ -134,7 +140,74 @@ enum GraphArchive {
             try? FileManager.default.removeItem(at: entry.url)
             index.remove(entry.url.deletingPathExtension().lastPathComponent)
         }
+        #if DEBUG
+        print(String(format: "[GraphArchive] prune: %d件 → %d件 / %.1f ms",
+                     before, index.count, Date().timeIntervalSince(startedAt) * 1000))
+        #endif
     }
+
+    #if DEBUG
+    /// 掃除(pruneIfNeeded)が実機でどれくらい掛かるかを測るための、ダミーファイル生成。
+    ///
+    /// 既定の件数を maxFiles + pruneSlack にしてあるのは、この状態にしておくと
+    /// **次に実際のスキャンでグラフを1件保存した時点で掃除が走る**ため。掃除の所要時間を
+    /// 測りたいときは、生成したあとバーコードを1件スキャンしてログを見る。
+    ///
+    /// 中身は全ファイルで同じにしている。掃除のコストはファイル数と更新日時の取得で決まり、
+    /// 中身に依存しないため。1件ぶんだけ組み立てて同じバイト列を書き回すことで、
+    /// 5,000件ぶんのエンコードを避けている(それをやると生成自体に何十秒も掛かる)。
+    ///
+    /// 実行はメインスレッドの外で行う。約45KB × 5,200件 = 230MB前後の書き込みになるため、
+    /// メインスレッドで走らせるとアプリが固まり、iOSのウォッチドッグに落とされる。
+    /// @return 生成にかかった秒数。
+    @discardableResult
+    static func seedDummyFiles(count: Int = maxFiles + pruneSlack) async -> TimeInterval {
+        let startedAt = Date()
+        guard let dir = ensureDirectory() else { return 0 }
+        let payload = dummyGraphJSON()
+
+        await Task.detached(priority: .utility) {
+            for i in 0..<count {
+                // 実在のASINと衝突しない固定接頭辞。fileURL(for:)と同じく英数字のみにする。
+                let name = String(format: "DUMMY%05d", i)
+                try? payload.write(to: dir.appendingPathComponent("\(name).json"), options: .atomic)
+            }
+        }.value
+
+        // indexは他スレッドから触らず、生成後にディレクトリから読み直させる
+        // (バックグラウンドで書きながらメインスレッドのindexを更新すると競合するため)。
+        index.removeAll()
+        indexLoaded = false
+        loadIndexIfNeeded()
+        return Date().timeIntervalSince(startedAt)
+    }
+
+    /// 実測(1件あたり30〜60KB / 1,600〜3,600点)に近い大きさのグラフJSONを1件ぶん作る。
+    private static func dummyGraphJSON() -> Data {
+        // 実データの内訳(4560017832)に倍率を掛けて、平均的な大きさ(約45KB)に寄せる。
+        let counts = [
+            "amazon": 10, "new": 50, "used": 900, "rank": 1130,
+            "newCount": 60, "usedCount": 490, "collectibleCount": 50,
+        ]
+        var json = "{\"series\":{"
+        json.reserveCapacity(64 * 1024)
+        var first = true
+        for (key, pointCount) in counts {
+            if !first { json += "," }
+            first = false
+            json += "\"\(key)\":["
+            var time = Date().timeIntervalSince1970 - Double(pointCount) * 3600
+            for i in 0..<pointCount {
+                if i > 0 { json += "," }
+                json += "[\(Int(time)),\(Int.random(in: 100...99_999))]"
+                time += 3600
+            }
+            json += "]"
+        }
+        json += "}}"
+        return Data(json.utf8)
+    }
+    #endif
 
     /// 保存済みのグラフを全て削除する。検索履歴の全削除に合わせて呼ぶ
     /// (履歴が消えた後もグラフのファイルだけが残るのを防ぐ)。
