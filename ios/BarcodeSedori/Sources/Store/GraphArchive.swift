@@ -19,9 +19,18 @@ import Foundation
 /// 一方でiCloudバックアップからは除外する。取り直せるデータであり、利用者のバックアップ容量を
 /// 圧迫させる理由が無いため。
 enum GraphArchive {
-    /// 保持する最大ファイル数。1件あたり実測30〜60KB程度のため、500件で概ね20〜30MB。
-    /// 超過分は更新日時の古い順に削除する。
-    static let maxFiles = 500
+    /// 保持する最大ファイル数。1件あたり実測30〜60KB程度のため、5,000件で概ね150〜300MB。
+    /// 検索履歴の上限(ScanHistoryStore.maxItems)と揃えてあり、履歴に残っている商品は
+    /// グラフも残っている状態になる。超過分は更新日時の古い順に削除する。
+    static let maxFiles = 5000
+
+    /// 上限を超えてもすぐには掃除せず、この件数ぶん溜まってからまとめて削除する。
+    ///
+    /// 掃除はディレクトリ全体を列挙して各ファイルの更新日時を取得する(ファイル数ぶんの
+    /// statが走る)ため、上限に達したあと保存のたびに実行すると、件数に比例した処理が
+    /// スキャンのたびに走ることになる。まとめて削除すれば、この重い処理はこの件数に
+    /// 1回で済む(1回あたりの所要時間は増えるが、頻度が1/nになる)。
+    private static let pruneSlack = 200
 
     /// 保存済みASINの索引。ディスクI/Oは非同期にしかできないが、呼び出し側(ProductDetailViewの
     /// body)は同期で「グラフを持っているか」を判定する必要があるため、ファイル名の集合だけを
@@ -106,23 +115,24 @@ enum GraphArchive {
     }
 
     /// 上限を超えていたら更新日時の古い順に削除する。
+    /// pruneSlackぶん溜まるまで実行しないので、スキャンのたびに走ることはない。
     private static func pruneIfNeeded() {
-        guard index.count > maxFiles, let dir = ensureDirectory() else { return }
+        guard index.count > maxFiles + pruneSlack, let dir = ensureDirectory() else { return }
         let urls = (try? FileManager.default.contentsOfDirectory(
             at: dir,
             includingPropertiesForKeys: [.contentModificationDateKey],
             options: [.skipsHiddenFiles]
         )) ?? []
-        let sorted = urls.sorted { lhs, rhs in
-            let l = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-            let r = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-            return l < r
+        // 更新日時の取り出しは先に1回だけ行う。ソートの比較子の中で取ると比較回数ぶん
+        // (n log n 回)評価されてしまうため(5,000件で約13万回)。
+        let dated = urls.map { url -> (url: URL, date: Date) in
+            let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            return (url, date)
         }
-        var removable = sorted.count - maxFiles
-        for url in sorted where removable > 0 {
-            try? FileManager.default.removeItem(at: url)
-            index.remove(url.deletingPathExtension().lastPathComponent)
-            removable -= 1
+        let sorted = dated.sorted { $0.date < $1.date }
+        for entry in sorted.prefix(max(0, sorted.count - maxFiles)) {
+            try? FileManager.default.removeItem(at: entry.url)
+            index.remove(entry.url.deletingPathExtension().lastPathComponent)
         }
     }
 
