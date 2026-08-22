@@ -288,7 +288,12 @@ async function handleOAuthCallback(req, res) {
   }
 
   // refreshTokenはローカル変数にのみ保持し、レスポンスHTML生成後は参照を持たない
-  // (ファイル・DB・ログいずれにも書き込まない。将来的にSupabase等へ永続化する設計とする)。
+  // (ファイル・DB・ログいずれにも書き込まない)。
+  //
+  // かつてはこのページに手動コピー用のtextareaでトークンを平文表示していたが、
+  // 貼り付け先だったアプリの手動入力欄が既に廃止されており、案内先が存在しないまま
+  // ブラウザの履歴・キャッシュにトークンを残すだけになっていたため削除した(2026-08-21)。
+  // トークンはディープリンクでのみアプリへ渡す。
   const refreshToken = tokenJson.refresh_token;
 
   const deepLinkUrl = `barcodesedori://spapi-auth?refresh_token=${encodeURIComponent(
@@ -306,10 +311,6 @@ async function handleOAuthCallback(req, res) {
   <h1>SP-API認証が完了しました</h1>
   <p>アプリに自動で戻ります。戻らない場合は下のリンクをタップしてください。</p>
   <p><a href="${escapeHtml(deepLinkUrl)}">アプリに戻る</a></p>
-  <p>自動で戻らない場合は、以下の値をコピーしてアプリの設定画面(詳細設定)に貼り付けてください。</p>
-  <textarea readonly rows="4" style="width:100%;" onclick="this.select()">${escapeHtml(
-    refreshToken
-  )}</textarea>
   <script>
     location.href = ${JSON.stringify(deepLinkUrl)};
   </script>
