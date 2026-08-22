@@ -52,7 +52,7 @@ targets:
         # 既定のターゲット名(BarcodeSedori)ではなくアプリ名に揃える。
         CFBundleName: セラーレンズ
         CFBundleShortVersionString: "1.0"
-        CFBundleVersion: "8"
+        CFBundleVersion: "9"
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
@@ -129,7 +129,7 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
         PRODUCT_BUNDLE_IDENTIFIER: jp.sellira.sellerlens
         MARKETING_VERSION: "1.0"
-        CURRENT_PROJECT_VERSION: "8"
+        CURRENT_PROJECT_VERSION: "9"
         # Resources/Assets.xcassets の AppIcon を使う
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
 
