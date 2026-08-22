@@ -169,6 +169,8 @@ enum GraphArchive {
         await Task.detached(priority: .utility) {
             for i in 0..<count {
                 // 実在のASINと衝突しない固定接頭辞。fileURL(for:)と同じく英数字のみにする。
+                // ScanHistoryStore.seedDummyItems()が生成する履歴のASINと同じ規則にしてあり、
+                // 両方を生成すれば履歴の詳細画面でこのグラフが表示される。
                 let name = String(format: "DUMMY%05d", i)
                 try? payload.write(to: dir.appendingPathComponent("\(name).json"), options: .atomic)
             }

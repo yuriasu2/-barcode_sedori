@@ -82,6 +82,7 @@ final class ScanHistoryStore: ObservableObject {
     ///
     /// 生成する値は実データと同じ「形」にすることを優先している(桁数・文字数・URLの長さ)。
     /// ファイルサイズはこれらの長さでほぼ決まるため、中身がランダムでも測定結果は変わらない。
+    /// ただしASINだけはGraphArchive側のダミーファイル名と揃えてある(下記参照)。
     /// offersResultはnil(Keepa経路相当)。SP-API連携時はここに出品者一覧が入るぶん更に大きくなる。
     /// @return 生成から保存完了までにかかった秒数。
     @discardableResult
@@ -95,7 +96,11 @@ final class ScanHistoryStore: ObservableObject {
             let isbn = Bool.random()
             // JAN/ISBNと同じ13桁。実データと桁数を揃える。
             let code = (isbn ? "978" : "4") + String((0..<(isbn ? 10 : 12)).map { _ in "0123456789".randomElement()! })
-            let asin = String((0..<10).map { _ in "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ".randomElement()! })
+            // ASINだけはランダムにしない。GraphArchive.seedDummyFiles()が同じ規則
+            // (DUMMY+5桁)でファイルを作るため、両方を生成すれば履歴の詳細画面で
+            // ダミーのグラフが実際に表示され、永続化の動作を目視で確認できる。
+            // 実在のASINと同じ10文字なので、ファイルサイズの測定には影響しない。
+            let asin = String(format: "DUMMY%05d", index)
             // 実際の商品タイトルに近い長さ(20〜40文字程度)で切り出す。
             let titleLength = Int.random(in: 20...40)
             let title = String(titleSource.prefix(titleLength))
