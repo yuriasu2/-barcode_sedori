@@ -52,12 +52,11 @@ targets:
         # 既定のターゲット名(BarcodeSedori)ではなくアプリ名に揃える。
         CFBundleName: セラーレンズ
         CFBundleShortVersionString: "1.0"
-        CFBundleVersion: "6"
+        CFBundleVersion: "7"
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         NSCameraUsageDescription: "バーコードをスキャンして商品を検索するためにカメラを使用します。"
-        NSLocalNetworkUsageDescription: "同一Wi-Fi内のPCで動作する価格検索サーバーに接続するためにローカルネットワークを使用します。"
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
         CFBundleURLTypes:
@@ -130,7 +129,7 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
         PRODUCT_BUNDLE_IDENTIFIER: jp.sellira.sellerlens
         MARKETING_VERSION: "1.0"
-        CURRENT_PROJECT_VERSION: "6"
+        CURRENT_PROJECT_VERSION: "7"
         # Resources/Assets.xcassets の AppIcon を使う
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
 
