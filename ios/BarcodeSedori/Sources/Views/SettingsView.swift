@@ -181,6 +181,20 @@ final class SettingsViewModel: ObservableObject {
     /// 再インストールしてもKeychain永続のDeviceIdentifierは変わらない(意図的な設計)ため、
     /// 検証中に枠を使い切ったときのリセット手段として用意している。
     /// 成功時はScanQuotaStoreへも即時反映し、他画面の残量表示をリロードなしで更新する。
+    /// ダミー履歴の生成結果を画面に一時表示するためのテキスト。
+    @Published var historySeedResultText: String?
+
+    /// 履歴をダミーデータで埋める。件数が増えたときの挙動(起動時デコード・スクロール・
+    /// 1スキャンあたりの保存コスト)を実機で測るための開発用。
+    /// 保存にかかった時間はScanHistoryStore.save()がコンソールへ出す。
+    func seedDummyHistory(count: Int) {
+        let elapsed = ScanHistoryStore.shared.seedDummyItems(count: count)
+        historySeedResultText = String(
+            format: "%d件生成しました(合計%d件 / %.2f秒)",
+            count, ScanHistoryStore.shared.items.count, elapsed
+        )
+    }
+
     func resetQuota() async {
         do {
             let quota = try await apiClient.resetQuota()
@@ -386,6 +400,22 @@ struct SettingsView: View {
                     }
 
                     Text("このデバイスの本日分のスキャン消費・広告視聴付与をサーバー側で0に戻します。DeviceIdentifierはKeychain永続のため、アプリを削除・再インストールしても無料枠はリセットされません(意図的な設計)。検証中に枠を使い切ったときはこのボタンを使ってください。")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+
+                    Button {
+                        viewModel.seedDummyHistory(count: 5000)
+                    } label: {
+                        Text("履歴にダミーを5,000件生成")
+                    }
+
+                    if let historySeedResultText = viewModel.historySeedResultText {
+                        Text(historySeedResultText)
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                    }
+
+                    Text("履歴が増えたときの起動時間・スクロール・保存コストを測るためのダミーデータです。1スキャンごとの保存時間はコンソールに [ScanHistoryStore] save: として出力されます(件数・KB・ms)。シミュレータはMacのSSDで動き速すぎて実態が出ないため、保存コストの判断は必ず実機で行ってください。消すときは 設定→検索→「検索履歴を削除」を使います。")
                         .font(.footnote)
                         .foregroundColor(.secondary)
                 }

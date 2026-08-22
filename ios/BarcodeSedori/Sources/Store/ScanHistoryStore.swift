@@ -54,6 +54,84 @@ final class ScanHistoryStore: ObservableObject {
         save()
     }
 
+    #if DEBUG
+    /// 開発ビルド専用: 履歴をダミーデータで埋める。件数が増えたときの起動時デコード・
+    /// スクロール・そして最大の関心事である「1スキャンあたりの保存コスト」を実機で
+    /// 測るために用意している(FREEMIUM-PLAN.md 4.2g)。
+    ///
+    /// add()を件数ぶん呼ぶとsave()も件数ぶん走り、書き込み量がO(n^2)になって現実的な
+    /// 時間で終わらない。ここではまとめて挿入し、保存は最後の1回だけにする。
+    ///
+    /// 生成する値は実データと同じ「形」にすることを優先している(桁数・文字数・URLの長さ)。
+    /// ファイルサイズはこれらの長さでほぼ決まるため、中身がランダムでも測定結果は変わらない。
+    /// offersResultはnil(Keepa経路相当)。SP-API連携時はここに出品者一覧が入るぶん更に大きくなる。
+    /// @return 生成から保存完了までにかかった秒数。
+    @discardableResult
+    func seedDummyItems(count: Int) -> TimeInterval {
+        let startedAt = Date()
+        let titleSource = "吾輩は猫である名前はまだ無いどこで生れたか頓と見当がつかぬ何でも薄暗いじめじめした所でニャーニャー泣いて"
+        var generated: [ScanHistoryItem] = []
+        generated.reserveCapacity(count)
+
+        for index in 0..<count {
+            let isbn = Bool.random()
+            // JAN/ISBNと同じ13桁。実データと桁数を揃える。
+            let code = (isbn ? "978" : "4") + String((0..<(isbn ? 10 : 12)).map { _ in "0123456789".randomElement()! })
+            let asin = String((0..<10).map { _ in "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ".randomElement()! })
+            // 実際の商品タイトルに近い長さ(20〜40文字程度)で切り出す。
+            let titleLength = Int.random(in: 20...40)
+            let title = String(titleSource.prefix(titleLength))
+            // Amazonの商品画像URLと同じくらいの長さにする。
+            let imageUrl = "https://images-na.ssl-images-amazon.com/images/I/" +
+                String((0..<11).map { _ in "0123456789abcdefghijklmnopqrstuvwxyz".randomElement()! }) + "._SL500_.jpg"
+
+            let newPrice = Int.random(in: 300...9800)
+            let usedPrice = Int.random(in: 100...max(101, newPrice))
+            let prices = SearchPrices(
+                cart: Bool.random() ? newPrice : nil,
+                new: newPrice,
+                used: usedPrice,
+                points: SearchPoints(cart: Int.random(in: 0...200), new: Int.random(in: 0...200), used: 0)
+            )
+            let result = SearchResult(
+                codeType: isbn ? .isbn : .jan,
+                asin: asin,
+                title: title,
+                isbn13: isbn ? code : nil,
+                imageUrl: imageUrl,
+                salesRank: Int.random(in: 1...900_000),
+                releaseDate: "2024-01-01",
+                modelNumber: nil,
+                prices: prices,
+                source: "keepa",
+                offers: nil,
+                profitInputs: ProfitInputs(
+                    listPrice: Int.random(in: 500...12_000),
+                    sellerCounts: nil,
+                    breakEven: nil
+                ),
+                quota: nil,
+                keepaDebug: nil
+            )
+            // 過去60日ぶんに散らす(日付での絞り込みも試せるようにするため)。
+            let scannedAt = Date().addingTimeInterval(-Double(index) * 60 * 60 * 24 * 60 / Double(max(count, 1)))
+            generated.append(
+                ScanHistoryItem(
+                    scannedAt: scannedAt,
+                    scannedCode: code,
+                    result: result,
+                    offersResult: nil,
+                    profitAlertTriggered: Bool.random() ? true : nil
+                )
+            )
+        }
+
+        items.insert(contentsOf: generated, at: 0)
+        save()
+        return Date().timeIntervalSince(startedAt)
+    }
+    #endif
+
     private func load() {
         guard let data = try? Data(contentsOf: fileURL) else { return }
         if let decoded = try? decoder.decode([ScanHistoryItem].self, from: data) {
@@ -62,7 +140,19 @@ final class ScanHistoryStore: ObservableObject {
     }
 
     private func save() {
+        #if DEBUG
+        // 書き込みコストの実測用。add()は1件追加のたびにこのsave()を呼び、全件を
+        // エンコードしてファイル全体を書き直すため、件数に比例して重くなる
+        // (FREEMIUM-PLAN.md 4.2g)。シミュレータはMacのSSDで動き速すぎて実態が出ないので、
+        // 判断は必ず実機のログで行うこと。
+        let startedAt = Date()
+        #endif
         guard let data = try? encoder.encode(items) else { return }
         try? data.write(to: fileURL, options: .atomic)
+        #if DEBUG
+        let elapsedMs = Date().timeIntervalSince(startedAt) * 1000
+        print(String(format: "[ScanHistoryStore] save: %d件 / %.1f KB / %.1f ms",
+                     items.count, Double(data.count) / 1024, elapsedMs))
+        #endif
     }
 }
