@@ -17,6 +17,12 @@ struct ScanHistoryItem: Codable, Equatable, Identifiable {
     var listPrice: Int?
     /// 発売日(ISO日付文字列)。旧形式で保存された履歴データにはこのキーが存在しないため、Optionalで後方互換を保つ。
     var releaseDate: String?
+    /// 新品/中古の出品者数(profitInputs.sellerCounts)。Keepa経路ではオファー一覧(offersResult)が
+    /// 無いため、商品詳細のオファーカードで出品者数を出すにはこの値が要る(検索画面は
+    /// SearchTabViewModel.newSellerCountで同じフォールバックをしている)。listPriceと同じく
+    /// profitInputsから必要な部分だけ取り出して保存する。
+    /// 旧形式で保存された履歴データにはこのキーが存在しないため、Optionalで後方互換を保つ。
+    var sellerCounts: ProfitInputs.ConditionCounts?
     /// 検索タブで/api/searchの応答に同梱されたオファー一覧(SP-API経路のみ)をそのまま保存する。
     /// 商品タブ(履歴)からの詳細表示はAPIを再度呼ばず、この保存済みデータのみで描画する。
     /// 旧形式で保存された履歴データにはこのキーが存在しないため、Optionalにして後方互換を保つ
@@ -49,6 +55,7 @@ struct ScanHistoryItem: Codable, Equatable, Identifiable {
         self.prices = result.prices
         self.listPrice = result.profitInputs?.listPrice
         self.releaseDate = result.releaseDate
+        self.sellerCounts = result.profitInputs?.sellerCounts
         self.offersResult = offersResult
         self.profitAlertTriggered = profitAlertTriggered
     }

@@ -269,7 +269,8 @@ struct ProductsTabView: View {
                 listPrice: selectedItem.listPrice,
                 releaseDate: selectedItem.releaseDate,
                 prices: selectedItem.prices,
-                scannedAt: selectedItem.scannedAt
+                scannedAt: selectedItem.scannedAt,
+                sellerCounts: selectedItem.sellerCounts
             )
         } else {
             EmptyView()

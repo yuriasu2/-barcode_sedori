@@ -39,6 +39,9 @@ struct ProductDetailView: View {
     let prices: SearchPrices?
     /// 検索日(履歴の`scannedAt`)。情報グリッドの右下セルに出す。
     let scannedAt: Date?
+    /// オファー一覧が無いとき(Keepa経路)に出品者数を出すためのフォールバック値。
+    /// 検索画面のSearchTabViewModel.newSellerCount/usedSellerCountと同じ解決順にする。
+    let sellerCounts: ProfitInputs.ConditionCounts?
 
     @ObservedObject private var entitlements = EntitlementStore.shared
     @ObservedObject private var purchaseList = PurchaseListStore.shared
@@ -63,7 +66,8 @@ struct ProductDetailView: View {
         listPrice: Int?,
         releaseDate: String?,
         prices: SearchPrices?,
-        scannedAt: Date?
+        scannedAt: Date?,
+        sellerCounts: ProfitInputs.ConditionCounts?
     ) {
         _viewModel = StateObject(wrappedValue: ProductDetailViewModel(asin: asin, cachedOffers: cachedOffers))
         self.asin = asin
@@ -75,6 +79,7 @@ struct ProductDetailView: View {
         self.releaseDate = releaseDate
         self.prices = prices
         self.scannedAt = scannedAt
+        self.sellerCounts = sellerCounts
     }
 
     var body: some View {
@@ -127,7 +132,9 @@ struct ProductDetailView: View {
             OffersPanelView(
                 title: panelTitle(
                     base: "新品",
-                    sellerCount: viewModel.offers?.newCount ?? viewModel.offers?.new?.count
+                    // オファー一覧(SP-API経路)→ 保存済みの出品者数(Keepa経路)の順に解決する。
+                    // 検索画面と同じ順序。どちらも無ければ人数を出さない(0人と誤表示しない)。
+                    sellerCount: viewModel.offers?.newCount ?? viewModel.offers?.new?.count ?? sellerCounts?.new
                 ),
                 color: OffersPanelColors.newBlue,
                 offers: viewModel.offers?.new ?? [],
@@ -143,7 +150,7 @@ struct ProductDetailView: View {
             OffersPanelView(
                 title: panelTitle(
                     base: "中古",
-                    sellerCount: viewModel.offers?.usedCount ?? viewModel.offers?.used?.count
+                    sellerCount: viewModel.offers?.usedCount ?? viewModel.offers?.used?.count ?? sellerCounts?.used
                 ),
                 color: OffersPanelColors.usedOrange,
                 offers: viewModel.offers?.used ?? [],

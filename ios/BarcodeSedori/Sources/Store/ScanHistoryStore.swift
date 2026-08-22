@@ -130,7 +130,11 @@ final class ScanHistoryStore: ObservableObject {
                 offers: nil,
                 profitInputs: ProfitInputs(
                     listPrice: Int.random(in: 500...12_000),
-                    sellerCounts: nil,
+                    // 商品詳細の出品者数フォールバックを確認できるよう実データ相当の値を入れる。
+                    sellerCounts: ProfitInputs.ConditionCounts(
+                        new: Int.random(in: 1...40),
+                        used: Int.random(in: 1...60)
+                    ),
                     breakEven: nil
                 ),
                 quota: nil,
