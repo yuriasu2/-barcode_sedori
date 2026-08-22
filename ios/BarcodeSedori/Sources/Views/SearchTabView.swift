@@ -520,6 +520,14 @@ struct SearchTabView: View {
     /// (APIClient.addKeepaKeyHeaderIfNeeded)、この判定はshowsGraphがisProを先に返すため
     /// 非Proの経路でしか呼ばれない。つまりキーが設定されていても共有Keepaキー=無料枠を消費する。
     private var canRequestGraph: Bool {
+        // 端末に取得済みのデータがあるASINは通信せずに描画できる
+        // (PriceHistoryChartView.load()がdataCacheヒットで即return)。既に自分の枠で
+        // 取得済みのものなので、枠の残量に関わらず見せてよい。ProductDetailViewも
+        // 同じdataCacheの有無で表示可否を決めている。
+        if let asin = viewModel.latestResult?.asin,
+           PriceHistoryChartView.dataCache[asin] != nil {
+            return true
+        }
         // Amazon連携済みは検索が枠を消費しない分、グラフ取得だけが枠を消費する。
         // 残量が無ければ結果はサーバーのキャッシュ次第になるため、要求を出さずPro案内へ倒す。
         if settings.isSpApiLinkUsable { return quota.canScanToday }
