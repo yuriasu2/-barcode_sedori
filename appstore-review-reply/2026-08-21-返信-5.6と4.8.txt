@@ -1,30 +1,36 @@
-Thank you for the detailed review. We have removed the mechanism described under Guideline 5.6, and we would like to respectfully ask you to reconsider Guideline 4.8, which we believe does not apply to this app.
+Thank you for the detailed review. We have removed the mechanism described under Guideline 5.6, and we respectfully ask you to reconsider Guideline 4.8, which we believe does not apply to this app.
 
 GUIDELINE 5.6 - DEVELOPER CODE OF CONDUCT
 
-You are correct that the previous build unlocked paid features for 7 days when a user linked an Amazon account. That mechanism has been removed completely in this build.
+You are correct that the previous build unlocked paid features for 7 days when a user linked an Amazon account. That mechanism is removed completely in this build.
 
-Removed:
-- The 7-day Pro trial granted for linking an Amazon Seller account. The server component that issued and tracked it, its API endpoint, and its stored records have all been deleted.
-- The "Try Pro free for 7 days by linking Amazon" button on the paywall, and the matching promotion on the Amazon linking screen.
+Removed: the 7-day Pro trial granted for linking an Amazon Seller account, together with the server component that issued and tracked it, its API endpoint and its stored records; the "Try Pro free for 7 days by linking Amazon" button on the paywall; and the matching promotion on the Amazon linking screen.
 
-Replaced with:
-- A standard StoreKit introductory offer of 7 days free, then 1,980 JPY per month, configured in App Store Connect for jp.sellira.sellerlens.pro.monthly. It is offered to every eligible customer, requires no Amazon account, and is administered entirely by Apple. The paywall now reads "First 7 days free / then 1,980 JPY per month. Cancel anytime."
+Replaced with: a standard StoreKit introductory offer of 7 days free, then 1,980 JPY per month, configured in App Store Connect for jp.sellira.sellerlens.pro.monthly. It is offered to every eligible customer, needs no Amazon account, and is administered entirely by Apple. The paywall now reads "First 7 days free / then 1,980 JPY per month. Cancel anytime."
 
-One related behavior remains, and we want to be transparent about it. A customer who links their Amazon Seller account is not held to the free tier's limit of 5 product lookups per day. This is not paid content given away in exchange for linking; it follows from who pays for the data. Lookups for unlinked users are served through our own paid Keepa API subscription, which charges us per lookup, so we cap them. Once a customer links their own Amazon Seller account, their lookups are served through that customer's own Selling Partner API quota at no cost to us, so there is no reason to cap them. Everything else still requires Pro: unlimited OCR scanning, price-history graphs, the full offer list, listing-restriction warnings, listing creation, ad removal, purchase lists and profit alerts.
+One related behavior remains, and we want to be transparent about it. A customer who links their Amazon Seller account is not held to the free tier's limit of 5 product lookups per day. This is not paid content given away for linking; it follows from who pays for the data. Lookups for unlinked users run through our own paid Keepa API subscription, which charges us per lookup, so we cap them. A linked customer's lookups instead run through that customer's own Selling Partner API quota at no cost to us, so there is no reason to cap them. Everything else still requires Pro: unlimited OCR scanning, price graphs, the full offer list, listing-restriction warnings, listing creation, ad removal, purchase lists and profit alerts.
 
 GUIDELINE 4.8 - LOGIN SERVICES
 
 We believe this guideline does not apply here, for the following reasons.
 
-1. The app has no user accounts at all. There is no registration, no sign-in screen, no profile, and no account deletion, because there is nothing to delete. Every feature works anonymously. There is no primary account for a third-party login service to create or authenticate.
+1. The app has no user accounts at all. There is no registration, no sign-in screen, no profile, and no account deletion, because there is nothing to delete. Every feature works anonymously. There is no primary account for a login service to create or authenticate.
 
-2. The Amazon authorization is not a login to our app. It is an optional OAuth authorization that allows the app to act on the customer's own Amazon Seller Central data through Amazon's Selling Partner API - reading listing restrictions and creating listings in that customer's own inventory. It does not sign the customer in to SellerLens and does not identify them to us.
+2. The Amazon authorization is not a login, and it does not use a consumer login service. Tapping "link" opens Amazon Seller Central's own app-authorization consent page:
 
-3. This is the case described by the exemption in 4.8 for apps that are used to access a specific third-party service, where users sign in directly to their own third-party account to reach their own content. The content here is the customer's own Amazon seller data.
+https://sellercentral.amazon.co.jp/apps/authorize/consent?application_id=...
 
-4. Sign in with Apple could not be an equivalent option, because there is nothing to sign in to. An Apple ID cannot grant access to a customer's Amazon Seller Central inventory; only Amazon's own authorization can. A Sign in with Apple button here would do nothing.
+This is the standard authorization flow for any Selling Partner API integration. Amazon documents it here, under "Authorization URI details":
+https://developer-docs.amazon.com/sp-api/docs/website-authorization-workflow
 
-If we have misunderstood the concern, we would be grateful if you could tell us which part of the flow you consider to be account authentication, and we will address it.
+As that page describes, the seller signs in to Seller Central (Amazon's own site) and grants permission to our application there. (The optional "log-in URI" step on that page applies to integrations that maintain their own user accounts; SellerLens has none and does not use it.)
+
+We request no OAuth scopes at all: no profile, name or e-mail address is requested or received. What we receive is a Selling Partner API refresh token and the seller's merchant ID (selling_partner_id), the same public identifier Amazon displays on product listing pages. Nothing in this flow authenticates a person to SellerLens; it authorizes our application to call the Selling Partner API on that seller's behalf.
+
+3. This is the case described by the exemption in 4.8 for apps used to access a specific third-party service, where users sign in directly to their own third-party account to reach their own content. That content here is the customer's own Amazon seller data.
+
+4. Sign in with Apple could not be an equivalent option, because there is nothing to sign in to. An Apple ID cannot grant access to a customer's Amazon Seller Central inventory; only Amazon's own authorization can.
+
+If we have misunderstood the concern, please tell us which part of the flow you consider to be account authentication and we will address it.
 
 Thank you for your time.
