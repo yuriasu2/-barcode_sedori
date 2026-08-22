@@ -344,22 +344,7 @@ struct SearchTabView: View {
 
                         topContent
 
-                        // 非Proは「今回の検索が枠切れで拒否されたか」でグラフの表示可否を決める。
-                        // quota.canScanToday(=次のスキャンができるか)を使うと、consumeLocally()の
-                        // 楽観的先行減算により、無料枠を使い切る最後の1回(例: 5回目)は
-                        // 検索自体は成功しているのにunitsRemainingが0になっているため
-                        // グラフだけ非表示になってしまう(実際に発生した不具合、詳細は
-                        // lastSearchQuotaExceededのコメント参照)。
-                        // スキャン枠はサーバー側でX-App-Plan(isPro)により判定するため、ここも
-                        // isProで揃える(Amazon連携済みならisSearchUnlimited経由で別途無制限になる。
-                        // 詳細はisSearchUnlimitedのコメント参照)。
-                        //
-                        // グラフ側の枠切れ(lastGraphQuotaExceeded)も同じ扱いにする。連携済みの
-                        // 無料ユーザーは検索が枠を消費しないため検索は成功し、グラフ取得だけが
-                        // 拒否される。この分岐を検索の結果だけで決めると、その場合にPro案内へ
-                        // 切り替わらない(詳細はlastGraphQuotaExceededのコメント参照)。
-                        if entitlements.isPro
-                            || (!viewModel.lastSearchQuotaExceeded && !viewModel.lastGraphQuotaExceeded) {
+                        if showsGraph {
                             keepaGraph
                         } else {
                             freeAdArea
@@ -502,6 +487,44 @@ struct SearchTabView: View {
     private var isSearchUnlimited: Bool { entitlements.isPro || settings.isSpApiLinkUsable }
     /// 無料枠を使い切っており、これ以上スキャンできないか。
     private var isQuotaExhausted: Bool { !isSearchUnlimited && !quota.canScanToday }
+
+    /// グラフ枠(keepaGraph)を出してよいか。falseならPro案内(freeAdArea)へ差し替える。
+    ///
+    /// 「今回の検索が枠切れで拒否されたか」(lastSearchQuotaExceeded)で判定するのが基本。
+    /// quota.canScanToday(=次のスキャンができるか)を使うと、consumeLocally()の楽観的先行減算に
+    /// より、無料枠を使い切る最後の1回(例: 5回目)は検索自体は成功しているのに
+    /// unitsRemainingが0になっているためグラフだけ消える(実際に発生した不具合。
+    /// 詳細はlastSearchQuotaExceededのコメント参照)。
+    ///
+    /// グラフ取得側の枠切れ(lastGraphQuotaExceeded)も同じ扱いにする。連携済みの無料ユーザーは
+    /// 検索がSP-API経路で枠を消費せず成功するため、検索の結果だけで判定するとグラフだけが
+    /// 枠切れになった状態を拾えない(詳細はlastGraphQuotaExceededのコメント参照)。
+    private var showsGraph: Bool {
+        if entitlements.isPro { return true }
+        if viewModel.lastSearchQuotaExceeded || viewModel.lastGraphQuotaExceeded { return false }
+        return canRequestGraph
+    }
+
+    /// グラフ取得(/api/graph-data)のリクエストを出してよいか。
+    ///
+    /// 枠切れ後もリクエストを出すと、サーバーのキャッシュに当たったときだけグラフが表示される。
+    /// 枠を使い切っているのに商品によって出たり出なかったりするのは挙動として分かりにくいので、
+    /// 消費が発生し得る状態では要求自体を送らない。
+    ///
+    /// 未連携(Keepa経路)を残量で止めない理由: この場合サーバーは検索時のKeepa応答から
+    /// グラフ用データを先に作ってキャッシュへ入れている(routes.jsのgraphDataCache先入れ)ため、
+    /// 直前の検索に対応するグラフは追加消費なしで返る。ここで残量を見て止めると、枠を使い切る
+    /// 最後の1回でグラフだけ消える上記の不具合を作り直すことになる。なお枠を使い切った後の
+    /// 次の検索は検索自体が拒否され、そもそもこの分岐へ来ない。
+    /// 自前Keepaキーはここでは考慮しない。X-Keepa-Keyヘッダーが付くのはProのときだけで
+    /// (APIClient.addKeepaKeyHeaderIfNeeded)、この判定はshowsGraphがisProを先に返すため
+    /// 非Proの経路でしか呼ばれない。つまりキーが設定されていても共有Keepaキー=無料枠を消費する。
+    private var canRequestGraph: Bool {
+        // Amazon連携済みは検索が枠を消費しない分、グラフ取得だけが枠を消費する。
+        // 残量が無ければ結果はサーバーのキャッシュ次第になるため、要求を出さずPro案内へ倒す。
+        if settings.isSpApiLinkUsable { return quota.canScanToday }
+        return true
+    }
     /// リワード広告(動画を見てスキャンを続ける)の導線を出してよいか。
     /// AdsConfig.enabled(全広告のマスタースイッチ)も尊重するため RewardedAdManager.isEnabled を経由する。
     private var showsRewardedAdOption: Bool {
