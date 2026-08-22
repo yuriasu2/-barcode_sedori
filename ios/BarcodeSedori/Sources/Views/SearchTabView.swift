@@ -62,6 +62,14 @@ final class SearchTabViewModel: ObservableObject {
     /// 未来向きの値ではなく、この検索自体の成否で判定する必要があるため専用フラグを持つ。
     @Published var lastSearchQuotaExceeded = false
 
+    /// 今回の検索に対するグラフ取得(/api/graph-data)が枠切れで拒否されたか。
+    /// lastSearchQuotaExceededとは別に持つ必要がある: Amazon連携済みの無料ユーザーは
+    /// 検索がSP-API経路になり無料枠を消費しない(=検索は成功する)一方、グラフは常に
+    /// Keepa経路で枠を消費するため、「検索は成功したがグラフだけ枠切れ」が起こりうる。
+    /// このフラグが無いと、その状態でグラフ枠に「グラフを一時的に取得できません」という
+    /// 誤った案内(再読込しても直らない)が出てしまう。
+    @Published var lastGraphQuotaExceeded = false
+
     /// SP-API経路のとき/api/search応答に同梱されるオファー一覧。Keepa経路ではnil。
     @Published var offersResult: OffersResult?
     /// オファー読み込み中フラグ
@@ -112,6 +120,7 @@ final class SearchTabViewModel: ObservableObject {
         searchErrorMessage = nil
         keepaBusyMessage = nil
         lastSearchQuotaExceeded = false
+        lastGraphQuotaExceeded = false
         latestScannedCode = code
         latestResult = nil
         offersResult = nil
@@ -344,7 +353,13 @@ struct SearchTabView: View {
                         // スキャン枠はサーバー側でX-App-Plan(isPro)により判定するため、ここも
                         // isProで揃える(Amazon連携済みならisSearchUnlimited経由で別途無制限になる。
                         // 詳細はisSearchUnlimitedのコメント参照)。
-                        if entitlements.isPro || !viewModel.lastSearchQuotaExceeded {
+                        //
+                        // グラフ側の枠切れ(lastGraphQuotaExceeded)も同じ扱いにする。連携済みの
+                        // 無料ユーザーは検索が枠を消費しないため検索は成功し、グラフ取得だけが
+                        // 拒否される。この分岐を検索の結果だけで決めると、その場合にPro案内へ
+                        // 切り替わらない(詳細はlastGraphQuotaExceededのコメント参照)。
+                        if entitlements.isPro
+                            || (!viewModel.lastSearchQuotaExceeded && !viewModel.lastGraphQuotaExceeded) {
                             keepaGraph
                         } else {
                             freeAdArea
@@ -1016,7 +1031,9 @@ struct SearchTabView: View {
                 Spacer().frame(height: 10)
                 // サーバーから履歴データ(/api/graph-data)を取得し、端末側でSwift Chartsに描画する。
                 // チャート本体・凡例(メイン/出品者数とも)はPriceHistoryChartView側で描画する。
-                PriceHistoryChartView(asin: asin, range: selectedGraphRange)
+                PriceHistoryChartView(asin: asin, range: selectedGraphRange) {
+                    viewModel.lastGraphQuotaExceeded = true
+                }
                 graphRangeSegment
             }
         }

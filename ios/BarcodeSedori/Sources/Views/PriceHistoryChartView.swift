@@ -152,6 +152,10 @@ private struct AlignedRankScale {
 struct PriceHistoryChartView: View {
     let asin: String
     let range: GraphRange
+    /// グラフ用の無料枠を使い切って取得を拒否された(429 quota_exceeded)ときに呼ばれる。
+    /// このビュー自身は「取得できません+再読込」しか出せないが、枠切れは再読込しても
+    /// 解決しないため、Pro案内へ差し替える判断は呼び出し側(検索タブ)へ委ねる。
+    var onQuotaExceeded: (() -> Void)?
 
     @State private var graphData: GraphData?
     @State private var loadFailed = false
@@ -238,6 +242,10 @@ struct PriceHistoryChartView: View {
             // quotaは反映しておき、検索タブのグラフ枠がfreeAdAreaへ即座に切り替わるようにする。
             if case APIClientError.quotaExceeded(let quota, _) = error {
                 ScanQuotaStore.shared.apply(quota)
+                // 枠切れは「一時的な取得失敗」ではないので、失敗表示ではなくPro案内に
+                // 差し替えてもらう。Amazon連携済みの無料ユーザーは検索自体が枠を消費せず
+                // 成功するため、呼び出し側は検索の結果からは枠切れを知れない。
+                onQuotaExceeded?()
             }
             if case APIClientError.keepaBusy(let message) = error {
                 busyMessage = message ?? "混み合っているので時間を空けてお試しください。"
