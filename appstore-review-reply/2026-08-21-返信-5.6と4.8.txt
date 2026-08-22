@@ -6,7 +6,7 @@ You are correct that the previous build unlocked paid features for 7 days when a
 
 Removed: the 7-day Pro trial granted for linking an Amazon Seller account, along with the server component that issued and tracked it, its API endpoint and its records; the "Try Pro free for 7 days" button on the paywall; and the matching promotion on the linking screen.
 
-Replaced with: a standard StoreKit introductory offer of 7 days free, then 1,980 JPY per month, configured in App Store Connect for jp.sellira.sellerlens.pro.monthly. It is offered to every eligible customer, needs no Amazon account, and is administered by Apple. The paywall now reads "First 7 days free / then 1,980 JPY per month."
+Replaced with: a standard StoreKit introductory offer of 7 days free, then 1,980 JPY per month, configured in App Store Connect for jp.sellira.sellerlens.pro.monthly. It is offered to every eligible customer, needs no Amazon account, and is run by Apple. The paywall now reads "First 7 days free / then 1,980 JPY per month."
 
 One related behavior remains, and we want to be transparent about it. A customer who links their Amazon Seller account is not held to the free tier's 5 lookups per day. This is not paid content given away for linking; it follows from who pays for the data. Lookups for unlinked users run through our paid Keepa API subscription, which charges us per lookup, so we cap them. A linked customer's lookups run through that customer's own Selling Partner API quota at no cost to us, so there is no reason to cap them. Everything else still requires Pro: unlimited OCR, price graphs, the full offer list, listing restrictions, listing creation, ad removal, purchase lists and profit alerts.
 
@@ -16,13 +16,11 @@ We believe this guideline does not apply, for the following reasons.
 
 1. SellerLens has no user accounts at all. There is no registration, sign-in screen, profile, or account deletion, because there is nothing to delete. Every feature works anonymously. There is no primary account for a login service to create or authenticate.
 
-2. The Amazon authorization is not a login to SellerLens. Tapping "link" opens Amazon Seller Central's own app-authorization consent page, at the URL Amazon documents as <Seller Central URL>/apps/authorize/consent?application_id=... - the standard flow for every Selling Partner API integration. Amazon documents it publicly here, under "Authorization URI details":
+2. The Amazon authorization is not a login to SellerLens. Tapping "link" opens Amazon Seller Central's own app-authorization consent page, at the URL Amazon documents as <Seller Central URL>/apps/authorize/consent?application_id=... - the standard flow for every Selling Partner API integration. Amazon documents it in its Selling Partner API documentation (developer-docs.amazon.com/sp-api), under "Website Authorization Workflow" > "Authorization URI details".
 
-https://developer-docs.amazon.com/sp-api/docs/website-authorization-workflow
+The seller does sign in at that step, and we want to be precise. That sign-in is to Seller Central, on Amazon's own website, because Amazon requires an authenticated seller before showing the consent screen. It does not sign them in to SellerLens: we never see their credentials and get no identity token. (The "log-in URI" step in that article is for integrations that keep their own user accounts; SellerLens has none.)
 
-The seller does sign in at that step, and we want to be precise about it. That sign-in is to Seller Central, on Amazon's own website, because Amazon requires an authenticated seller before showing the consent screen. It does not sign them in to SellerLens: we never see their credentials and get no identity token. (The "log-in URI" step on that page is for integrations that keep their own user accounts; SellerLens has none.)
-
-We request no OAuth scopes at all: no profile, name or e-mail is requested or received. What the authorization yields is a Selling Partner API refresh token, kept only in the iPhone's Keychain and never stored on our servers, plus the seller's merchant ID (selling_partner_id) - the same public identifier Amazon shows on listing pages. Nothing here authenticates a person to SellerLens; it authorizes our app to call the Selling Partner API on that seller's behalf.
+We request no OAuth scopes at all: no profile, name or e-mail is requested or received. What the authorization yields is a Selling Partner API refresh token, kept only in the iPhone's Keychain and never stored on our servers, plus the seller's merchant ID (selling_partner_id) - the public identifier Amazon shows on listing pages. Nothing here authenticates a person to SellerLens; it authorizes our app to call the Selling Partner API on that seller's behalf.
 
 3. This is the case described by the exemption in 4.8 for apps used to access a specific third-party service, where users sign in directly to their own account there to reach their own content - here, the customer's own Amazon seller data.
 
