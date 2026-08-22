@@ -84,7 +84,9 @@ struct AmazonLinkSettingsView: View {
                 .disabled(viewModel.isSpApiTesting)
             }
 
-            Section("連携特典") {
+            // 見出しは付けない。「特典」という言い方は、連携すると有料機能が開くという
+            // 誤解(App Store審査 Guideline 5.6の指摘そのもの)を招くため使わない。
+            Section {
                 benefitBlock(
                     icon: "bolt.fill",
                     iconColor: .orange,
@@ -159,14 +161,14 @@ struct AmazonLinkSettingsView: View {
 
     /// Proに加えてAmazon連携も必要な機能。連携そのものの特典ではない点に注意
     /// (かつてここは「連携すると7日間無料で使える機能」の一覧だったが、
-    /// App Store審査のGuideline 5.6を受けて連携特典としての無料開放は廃止した)。
+    /// App Store審査のGuideline 5.6を受けて連携による無料開放は廃止した)。
     private static let linkOnlyFeatures = [
         "出品可否(出品制限)の表示",
         "アプリからの出品登録",
         "出品者ごとの価格一覧",
     ]
 
-    /// 連携特典の1ブロック。アイコン+見出し+説明の並びを2つの特典で共通化する。
+    /// 連携の説明1ブロック。アイコン+見出し+説明の並びを2件で共通化する。
     /// 追加の内容(機能の一覧など)は`extra`に渡す。
     private func benefitBlock<Extra: View>(
         icon: String,
