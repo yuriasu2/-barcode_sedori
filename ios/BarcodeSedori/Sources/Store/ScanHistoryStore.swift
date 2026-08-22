@@ -5,6 +5,16 @@ import Combine
 final class ScanHistoryStore: ObservableObject {
     static let shared = ScanHistoryStore()
 
+    /// 保持する最大件数。超えたぶんは古い順(配列の末尾側)に削除する。
+    ///
+    /// この上限の主目的は保存コストの頭打ちにある。add()は1件追加のたびにsave()を呼び、
+    /// 全件をエンコードしてファイル全体を書き直すため、件数に比例して重くなる。
+    /// 実機での実測値: 1件=0.4KB/3.4ms、5,000件=2,487KB/39.8ms。上限が無いとこれが
+    /// 際限なく伸びる(FREEMIUM-PLAN.md 4.2g)。
+    ///
+    /// 1日100件スキャンする使い方で約50日ぶんに相当する。
+    static let maxItems = 5000
+
     @Published private(set) var items: [ScanHistoryItem] = []
 
     private let fileURL: URL
@@ -28,7 +38,15 @@ final class ScanHistoryStore: ObservableObject {
 
     func add(_ item: ScanHistoryItem) {
         items.insert(item, at: 0)
+        trimToMaxItems()
         save()
+    }
+
+    /// 上限を超えたぶんを古い順に捨てる。itemsは新しいものを先頭へinsertしているため、
+    /// 末尾側が古い。
+    private func trimToMaxItems() {
+        guard items.count > Self.maxItems else { return }
+        items.removeLast(items.count - Self.maxItems)
     }
 
     /// 指定したidの履歴エントリを更新する(見つからなければ何もしない)。
@@ -136,6 +154,9 @@ final class ScanHistoryStore: ObservableObject {
         guard let data = try? Data(contentsOf: fileURL) else { return }
         if let decoded = try? decoder.decode([ScanHistoryItem].self, from: data) {
             items = decoded
+            // 上限を導入する前に保存されたファイルや、開発用のダミー生成で上限を超えている
+            // 場合に備えて読み込み時にも切り詰める(次の保存で実ファイルへ反映される)。
+            trimToMaxItems()
         }
     }
 

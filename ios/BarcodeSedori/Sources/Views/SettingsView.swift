@@ -510,6 +510,13 @@ struct SettingsView: View {
             } message: {
                 Text("商品タブの検索履歴をすべて削除します。保存されている価格推移グラフも削除されます。この操作は取り消せません。")
             }
+
+            // 上限の存在は利用者に見えないと「古い履歴が勝手に消えた」と受け取られるため、
+            // 削除ボタンのすぐ下に常時表示しておく。数値はコード側の定数から組み立て、
+            // 上限を変えたときに文言だけ古くなることを防ぐ。
+            Text("履歴は最新\(ScanHistoryStore.maxItems.formatted())件まで保存されます。超えたぶんは古いものから自動的に削除されます。価格推移グラフは直近\(GraphArchive.maxFiles.formatted())件ぶんが保存されるため、それより古い履歴を開いたときはグラフが表示されないことがあります。")
+                .font(.footnote)
+                .foregroundColor(.secondary)
         }
     }
 
