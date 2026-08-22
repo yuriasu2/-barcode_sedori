@@ -343,10 +343,12 @@ private struct HistoryRow: View {
         item.offersResult?.usedCount ?? item.offersResult?.used?.count ?? item.sellerCounts?.used
     }
 
-    /// 価格表示へ出品者数を添える(商品詳細のパネル見出しと同じ書式)。取得できていなければ何も足さない。
+    /// 価格表示へ出品者数を添える。取得できていなければ何も足さない。
+    /// 一覧は1行に収める(lineLimit(1) + minimumScaleFactor)ため、商品詳細の
+    /// 「出品者数N人」より短い「出品者N人」にして縮小を抑える。
     private static func withSellerCount(_ text: String, _ count: Int?) -> String {
         guard let count else { return text }
-        return "\(text)(出品者数\(count)人)"
+        return "\(text)(出品者\(count)人)"
     }
 
     /// 新品の表示文字列。Amazon本体が最安なら「新品(Ama):¥1430」と区別する。
@@ -362,12 +364,11 @@ private struct HistoryRow: View {
         return nil
     }
 
-    /// 中古の表示文字列。コンディション名を添える(例: 「中古品:良い ¥640」)。
+    /// 中古の表示文字列。コンディション名は出さない(出品者数を併記するようになり、
+    /// 1行に収めると縮小が強くなりすぎるため。コンディションは商品詳細で確認できる)。
     private var usedPriceText: String? {
         if let offer = cheapestUsedOffer, let landed = offer.landed {
-            let condition = offer.conditionDisplayName
-            let base = condition.isEmpty ? "中古品:¥\(landed)" : "中古品:\(condition) ¥\(landed)"
-            return Self.withSellerCount(base, usedSellerCount)
+            return Self.withSellerCount("中古品:¥\(landed)", usedSellerCount)
         }
         if let price = item.prices?.used {
             return Self.withSellerCount("中古品:¥\(price)", usedSellerCount)
