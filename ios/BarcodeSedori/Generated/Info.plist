@@ -30,7 +30,7 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>7</string>
+	<string>8</string>
 	<key>GADApplicationIdentifier</key>
 	<string>ca-app-pub-2265019305495449~6870745818</string>
 	<key>NSAppTransportSecurity</key>
