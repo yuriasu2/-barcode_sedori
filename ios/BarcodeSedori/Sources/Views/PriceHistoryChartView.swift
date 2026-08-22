@@ -152,6 +152,10 @@ private struct AlignedRankScale {
 struct PriceHistoryChartView: View {
     let asin: String
     let range: GraphRange
+    /// サーバーへ取りに行ってよいか。商品タブ(履歴)からの表示はfalseにして、
+    /// 手元にあるデータ(メモリキャッシュ or GraphArchive)だけで描く。履歴を眺めただけで
+    /// Keepaトークンと無料枠を消費させないための制約。
+    var allowsRemoteFetch = true
     /// グラフ用の無料枠を使い切って取得を拒否された(429 quota_exceeded)ときに呼ばれる。
     /// このビュー自身は「取得できません+再読込」しか出せないが、枠切れは再読込しても
     /// 解決しないため、Pro案内へ差し替える判断は呼び出し側(検索タブ)へ委ねる。
@@ -206,6 +210,13 @@ struct PriceHistoryChartView: View {
         lruOrder.removeAll { $0 == asin }
         lruOrder.append(asin)
         return entry.data
+    }
+
+    /// メモリキャッシュを空にする。検索履歴の全削除に合わせて呼ぶ
+    /// (履歴を消したのに直前に見たグラフだけ残るのを防ぐ)。
+    static func clearMemoryCache() {
+        entries.removeAll()
+        lruOrder.removeAll()
     }
 
     /// キャッシュへ格納する。上限を超えたら最も長く使われていないものから捨てる。
@@ -264,6 +275,20 @@ struct PriceHistoryChartView: View {
             loadFailed = false
             return
         }
+        // メモリに無ければ保存済みファイルを見る。履歴からの表示はここで完結する
+        // (アプリを再起動してもグラフが残るのはこの経路のため)。
+        if let archived = GraphArchive.data(for: asin) {
+            Self.cache(archived, for: asin)
+            graphData = archived
+            loadFailed = false
+            return
+        }
+        guard allowsRemoteFetch else {
+            // 履歴からの表示で手元に何も無い場合。通信はせず失敗表示に倒す
+            // (呼び出し側がGraphArchive.hasDataで事前に弾くので通常ここへは来ない)。
+            loadFailed = true
+            return
+        }
         graphData = nil
         loadFailed = false
         busyMessage = nil
@@ -284,6 +309,8 @@ struct PriceHistoryChartView: View {
         do {
             let data = try await APIClient.shared.graphData(asin: asin)
             Self.cache(data, for: asin)
+            // 履歴から見返せるよう永続化する。アプリ終了で消えるメモリキャッシュとは別。
+            GraphArchive.store(data, for: asin)
             graphData = data
             // 無料枠ユニットの残量をローカルへ反映する(Pro・SP-API連携済みはquota==nilで何もしない)。
             ScanQuotaStore.shared.apply(data.quota)

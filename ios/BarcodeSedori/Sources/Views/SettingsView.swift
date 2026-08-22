@@ -217,6 +217,8 @@ struct SettingsView: View {
     /// 設定値の唯一の真実。OAuthコールバックでの更新を画面に反映させるため直接監視する。
     @ObservedObject private var settings = SettingsStore.shared
     @State private var showPaywall = false
+    /// 検索履歴の全削除の確認アラート。取り消せない操作なので必ず確認を挟む。
+    @State private var showHistoryDeleteConfirm = false
     /// アプリ内ブラウザ(SafariView)で開く対象。お問い合わせフォームをアプリ内で開くために使う。
     @State private var browserTarget: BrowserTarget?
     #if DEBUG
@@ -457,6 +459,27 @@ struct SettingsView: View {
             // スキャン成功時の一瞬の振動(ScannerView.emit)。利益アラートの振動とは別設定で、
             // 誰でも(無料でも)発生するため常にここに出す。
             Toggle("バイブレーション", isOn: $settings.scanSuccessHapticsEnabled)
+
+            Button(role: .destructive) {
+                showHistoryDeleteConfirm = true
+            } label: {
+                Text("検索履歴を削除")
+            }
+            // アラートはボタン自身に付ける。SettingsViewの外側には接続テスト用の
+            // .alert(item:)が既にあり、同一階層に重ねると片方が出なくなる制限があるため
+            // (viewModel.connectionTestAlertのコメント参照)、階層を分けて回避する。
+            .alert("検索履歴を削除しますか？", isPresented: $showHistoryDeleteConfirm) {
+                Button("削除する", role: .destructive) {
+                    ScanHistoryStore.shared.clear()
+                    // 履歴に紐づく保存済みグラフも消す。履歴が無いのにグラフのファイルだけ
+                    // 残しても参照されず、容量を占めるだけになるため。
+                    GraphArchive.removeAll()
+                    PriceHistoryChartView.clearMemoryCache()
+                }
+                Button("キャンセル", role: .cancel) {}
+            } message: {
+                Text("商品タブの検索履歴をすべて削除します。保存されている価格推移グラフも削除されます。この操作は取り消せません。")
+            }
         }
     }
 

@@ -229,11 +229,13 @@ struct ProductDetailView: View {
     /// キャッシュが無い場合は再取得せず案内のみ出す(Keepaトークンを追加消費しないため)。
     @ViewBuilder
     private var graphSection: some View {
-        if PriceHistoryChartView.cachedData(for: viewModel.asin) != nil {
+        if PriceHistoryChartView.cachedData(for: viewModel.asin) != nil
+            || GraphArchive.hasData(for: viewModel.asin) {
             VStack(spacing: 6) {
                 // キャッシュ済みのためPriceHistoryChartViewは通信せず即描画される。
                 // チャート本体・凡例(メイン/出品者数とも)はPriceHistoryChartView側で描画する。
-                PriceHistoryChartView(asin: viewModel.asin, range: selectedGraphRange)
+                // 履歴からの表示ではサーバーへ取りに行かない(トークン・無料枠を消費させない)。
+                PriceHistoryChartView(asin: viewModel.asin, range: selectedGraphRange, allowsRemoteFetch: false)
                 graphRangeSegment
             }
             .padding(12)
