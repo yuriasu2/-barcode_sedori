@@ -229,7 +229,7 @@ struct ProductDetailView: View {
     /// キャッシュが無い場合は再取得せず案内のみ出す(Keepaトークンを追加消費しないため)。
     @ViewBuilder
     private var graphSection: some View {
-        if PriceHistoryChartView.dataCache[viewModel.asin] != nil {
+        if PriceHistoryChartView.cachedData(for: viewModel.asin) != nil {
             VStack(spacing: 6) {
                 // キャッシュ済みのためPriceHistoryChartViewは通信せず即描画される。
                 // チャート本体・凡例(メイン/出品者数とも)はPriceHistoryChartView側で描画する。

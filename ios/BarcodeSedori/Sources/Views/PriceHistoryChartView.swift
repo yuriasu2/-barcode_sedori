@@ -164,9 +164,60 @@ struct PriceHistoryChartView: View {
     /// 失敗理由がKeepa混雑(keepa_busy)のときのサーバー文言。nilなら汎用の失敗文言を出す。
     @State private var busyMessage: String?
 
-    /// asinをキーにしたセッション内キャッシュ。期間切替は通信を伴わずこのデータをフィルタするだけ
-    /// (Keepaトークンの追加消費ゼロ)。同じasinの再取得も避ける(アプリ終了で破棄)。
-    static var dataCache: [String: GraphData] = [:]
+    /// asinをキーにしたセッション内キャッシュ(メモリのみ。アプリ終了で破棄)。
+    /// 期間切替は通信を伴わずこのデータをフィルタするだけで、同じasinの再取得も避ける
+    /// (Keepaトークンの追加消費ゼロ)。
+    ///
+    /// 取り出しは `cachedData(for:)`、格納は `cache(_:for:)` を使う。辞書を直接公開しないのは、
+    /// 添字アクセスだとTTL判定を挟めず期限切れの値をそのまま返してしまうため。
+    private static var entries: [String: CacheEntry] = [:]
+    /// LRUの並び(先頭が最も古い)。Swiftの辞書は順序を持たないため別に管理する。
+    private static var lruOrder: [String] = []
+
+    private struct CacheEntry {
+        let data: GraphData
+        let storedAt: Date
+    }
+
+    /// キャッシュの寿命。
+    ///
+    /// 「アプリ終了まで」にしないのは、iOSがアプリを何日もメモリに保持し続けることがあり、
+    /// 強制終了しない利用者に何日も前の価格を見せてしまうため。古い価格を現在の価格として
+    /// 見せることは仕入れ判断を誤らせる=金銭的な損害に直結するので、取り直す方に倒す。
+    ///
+    /// **サーバー側のグラフキャッシュ(GRAPH_CACHE_TTL_MS、既定6時間)より必ず短く保つこと。**
+    /// 逆転すると端末が最も古い層になり、サーバー側でTTLを設計した意味が無くなる。
+    /// なお期限切れで取り直してもサーバーのキャッシュに当たればKeepaトークンは消費しない。
+    static let cacheTTL: TimeInterval = 60 * 60
+
+    /// 保持する最大件数。店舗で数百件スキャンするとasin数ぶん積み上がるため上限を設ける
+    /// (超過分は最も長く使われていないものから捨てる)。
+    static let cacheMaxCount = 500
+
+    /// 有効なキャッシュがあれば返す。期限切れのエントリはその場で破棄してnilを返す。
+    static func cachedData(for asin: String) -> GraphData? {
+        guard let entry = entries[asin] else { return nil }
+        guard Date().timeIntervalSince(entry.storedAt) < cacheTTL else {
+            entries.removeValue(forKey: asin)
+            lruOrder.removeAll { $0 == asin }
+            return nil
+        }
+        // 参照されたものを最後尾へ回し、直近に使ったものが残るようにする。
+        lruOrder.removeAll { $0 == asin }
+        lruOrder.append(asin)
+        return entry.data
+    }
+
+    /// キャッシュへ格納する。上限を超えたら最も長く使われていないものから捨てる。
+    static func cache(_ data: GraphData, for asin: String) {
+        entries[asin] = CacheEntry(data: data, storedAt: Date())
+        lruOrder.removeAll { $0 == asin }
+        lruOrder.append(asin)
+        while lruOrder.count > cacheMaxCount, let oldest = lruOrder.first {
+            lruOrder.removeFirst()
+            entries.removeValue(forKey: oldest)
+        }
+    }
 
     /// 価格とランキングを重ねた1段構成の高さ。チャート本体もこの値を使う。
     /// ロード中/失敗時も同じ高さを確保してレイアウトが跳ねないようにする。
@@ -208,7 +259,7 @@ struct PriceHistoryChartView: View {
     }
 
     private func load() async {
-        if let cached = Self.dataCache[asin] {
+        if let cached = Self.cachedData(for: asin) {
             graphData = cached
             loadFailed = false
             return
@@ -232,7 +283,7 @@ struct PriceHistoryChartView: View {
 
         do {
             let data = try await APIClient.shared.graphData(asin: asin)
-            Self.dataCache[asin] = data
+            Self.cache(data, for: asin)
             graphData = data
             // 無料枠ユニットの残量をローカルへ反映する(Pro・SP-API連携済みはquota==nilで何もしない)。
             ScanQuotaStore.shared.apply(data.quota)
