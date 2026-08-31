@@ -1,0 +1,35 @@
+Thank you for the detailed feedback, and we are sorry for the time this has cost you.
+
+WHAT WENT WRONG WAS OUR REVIEW NOTES, NOT THE IMPLEMENTATION
+
+App Tracking Transparency is implemented and works, including on iPadOS. The reason it could not be located is a mistake in the notes we gave you.
+
+The request appears after four successful searches. Our notes said so, but listed only three sample product codes. Following them exactly stops at three searches, one short of the threshold, so the request never appears. On an iPad, where scanning real barcodes is impractical, those codes were the only practical way to search, so the shortfall was decisive. This was our error.
+
+HOW TO SEE THE REQUEST IN THIS BUILD
+
+From a fresh install, or after resetting permissions in iOS Settings > Privacy & Security > Tracking:
+
+1. Launch the app; the Search tab opens. Camera access can be declined - it is not needed.
+2. Tap the search field at the top.
+3. Enter 4948872416030 and search. A product card appears.
+4. Repeat with 9784342013157
+5. Then 9784088820545
+6. Then 4902370548501
+7. On the fourth search a short explanation appears with a button to continue. Tapping it shows Apple's ATT dialog.
+
+All four codes were verified against our live service on 2026-08-31 and each returns a product with prices. The free tier allows five searches per day, so four fit within it. We have replaced the App Review Information notes with these steps.
+
+ABOUT THE ATTACHED RECORDING
+
+The recording is captured on a physical iPhone, from a fresh install, and shows the four searches, the explanation, Apple's ATT dialog, and the flow that follows.
+
+We recorded on iPhone rather than iPad because the cause is not platform-specific: it is the same code path and the same four-search threshold on both, and nothing in it is conditional on device type. The problem was purely that our notes did not provide enough codes to reach the threshold. If you would prefer a recording made on an iPad, please tell us and we will provide one.
+
+WHY THE REQUEST IS NOT ON FIRST LAUNCH
+
+We show it after the user has used the app, so the request is made in context rather than on a cold first launch. No tracking data is collected before it: while the status is undetermined the IDFA is unavailable to us and ads are served non-personalised. Our App Store privacy declaration reflects that we do track once permission is granted, so we have not changed it.
+
+We have also added, for a future update, a permanent entry in the app's Settings that opens the ATT dialog directly, so the request can always be reached without performing four searches. It is not in the build now under review.
+
+Thank you for your time.
