@@ -1,40 +1,39 @@
 HOW TO REACH THE APP TRACKING TRANSPARENCY REQUEST
 
-Our previous notes said the request appears after four searches but listed only three sample codes, so it could not be reached. We are sorry.
+Our previous notes said the request appears after four searches but listed only three sample codes, so it could not be reached. Sorry.
 
-The request is not shown on first launch, so the user sees the app first. It appears after four successful searches. No camera or barcode is needed; the codes can be typed in.
+It appears after four successful searches, not on first launch. From a fresh install (or after resetting permissions in Settings > Privacy & Security > Tracking):
 
-From a fresh install (or after resetting tracking permissions in iOS Settings > Privacy & Security > Tracking):
+1. Launch the app and grant camera access.
+2. Perform four successful searches: scan four different product barcodes, or type these into the search field one at a time, searching after each:
+9784888663601
+9784904686010
+9784905217039
+9784881751183
+4948872417419
+3. On the fourth search a short explanation appears with a button to continue. Tapping it shows Apple's ATT dialog.
 
-1. Launch the app; the Search tab opens. Camera access can be declined; it is not needed here.
-2. Tap the search field at the top ("ISBN、JANコードで検索").
-3. Enter 4948872416030 and search. A product card appears.
-4. Repeat with 9784342013157
-5. Then 9784088820545
-6. Then 4902370548501
-7. On the fourth search a short explanation appears with a button to continue. Tap it, and Apple's ATT dialog appears.
+Two things to expect: on the free tier there is a short wait between searches (if "あと◯秒" appears, wait a few seconds and search again); and with the camera the same barcode twice in a row is ignored, so use four different products. Typed codes are not affected.
 
-These codes were verified against our live service on 2026-08-31 and each returns a product with prices. The free tier allows 5 searches a day, so four fit within it.
+Every code above was verified against our live service on 2026-08-31 and returns a product with prices. The free tier allows 5 searches a day, so four fit within it.
 
 No tracking data is collected beforehand: while ATT is undetermined the IDFA is unavailable and ads are non-personalised.
 
 HOW TO TEST THIS APP
-No account or login is required: no registration, sign-in or deletion flow, and no user-generated content.
-
-Allow camera access and point it at a barcode (JAN / EAN-13), or use the search field with any code above (it also takes a 10-digit ISBN-10). The result shows product info, offer prices, sales rank and price graphs; scroll for the profit figures.
+No account or login is required: no registration, sign-in or deletion flow, and no user-generated content. Scan a barcode (JAN / EAN-13) or use the search field with any code above (it also takes a 10-digit ISBN-10). The result shows product info, offer prices, sales rank and price graphs; scroll for the profit figures.
 
 WHY WE CANNOT PROVIDE A DEMO ACCOUNT
-Three features need the user's own Seller Central account, linked via Amazon's OAuth: the per-seller offer list, listing-restriction warnings, and listing creation. Amazon's Data Protection Policy forbids sharing Selling Partner credentials, and these can create real listings, so a shared test account is not viable; a screen recording of all three is provided instead. Unlinked, they show a lock icon and "Amazon account linking required"; the app does not crash.
+Three features need the user's own Seller Central account, linked via Amazon's OAuth: the per-seller offer list, listing-restriction warnings, and listing creation. Amazon's Data Protection Policy forbids sharing Selling Partner credentials, and these can create real listings, so a shared test account is not viable; a screen recording is provided instead. Unlinked, they show a lock icon and a message asking to link; the app does not crash.
 
 IN-APP PURCHASE
 SellerLens Pro, auto-renewable, 1,980 JPY per month, product ID jp.sellira.sellerlens.pro.monthly, with a 7-day free introductory offer open to every eligible customer, needing no Amazon account.
 
-Reach the paywall from the Settings tab, by exhausting the free quota, or by tapping a locked feature. It shows the title, length (monthly), free-trial period and price, and links to the Terms of Use (Apple's standard EULA) and our Privacy Policy. Sandbox purchases are free. Pro unlocks unlimited scans, OCR and price graphs, the full offer list, listing restrictions and listing creation (these two also need linking), no ads, and unlimited purchase lists and profit alerts.
+Reach the paywall from the Settings tab, by using up the free quota, or by tapping a locked feature. It shows the title, length (monthly), free-trial period and price, and links to the Terms of Use (Apple's standard EULA) and our Privacy Policy. Sandbox purchases are free. Pro unlocks unlimited scans, OCR and price graphs, the full offer list, listing restrictions and listing creation (these two also need linking), no ads, and unlimited purchase lists and alerts.
 
 FREE TIER AND AMAZON LINKING (re: Guideline 5.6)
-The 7-day Pro trial previously granted for linking an Amazon account is removed, along with the server component behind it. The free trial is now Apple's introductory offer above. Linking still lifts the 5-lookups-per-day cap: that cap limits our own paid Keepa API usage, which bills us per lookup, while a linked customer's lookups run on their own SP-API quota at no cost to us. Every other paid feature still requires Pro.
+The 7-day Pro trial previously granted for linking an Amazon account is removed, along with the server component behind it. The free trial is now Apple's introductory offer above. Linking still lifts the 5-lookups-per-day cap: that cap limits our own paid Keepa API usage, which bills us per lookup, while a linked customer's lookups run on their own SP-API quota at no cost to us. Other paid features still require Pro.
 
 EXTERNAL SERVICES AND THIRD-PARTY MATERIAL
-Keepa API (api.keepa.com): product and price / sales-rank history, under a paid commercial subscription. Amazon SP-API (sellingpartnerapi-fe.amazon.com): fee estimates, listing restrictions and listing creation, for the signed-in user's own account only. Login with Amazon (api.amazon.com, sellercentral.amazon.co.jp): OAuth for the above. images-na.ssl-images-amazon.com: thumbnails. Google AdMob (free tier only), PostHog (anonymous analytics), Cloudflare Workers (api.sellira.jp), Apple StoreKit. No AI services; no payment processor but Apple.
+Keepa API (api.keepa.com): product and price / sales-rank history, under a paid commercial subscription. Amazon SP-API (sellingpartnerapi-fe.amazon.com): fee estimates, listing restrictions and listing creation, for the signed-in user's own account only. Login with Amazon (api.amazon.com, sellercentral.amazon.co.jp): OAuth for the above. images-na.ssl-images-amazon.com: images. Google AdMob (free tier only), PostHog (anonymous analytics), Cloudflare Workers (api.sellira.jp), Apple StoreKit. No AI; no payment processor but Apple.
 
-A sourcing-research tool for Amazon Japan sellers. Japanese UI, Amazon.co.jp and Japan distribution only. Not a regulated industry. SellerLens is independent of Amazon.
+A sourcing-research tool for Amazon Japan sellers. Japanese UI, Amazon.co.jp and Japan only. Not a regulated industry. SellerLens is independent of Amazon.
