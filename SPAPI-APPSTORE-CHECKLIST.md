@@ -77,6 +77,7 @@
 ## 3. 掲載承認後にやること（コード側）
 
 - [ ] `server/src/oauth.js` の認可URLから `version=beta` を外す（環境変数化して切替可能にしておくと再デプロイ不要）
+- [ ] 初回のLWAトークン交換（`grant_type=authorization_code`）に `redirect_uri` を追加する。値はAmazonへ登録したOAuthリダイレクトURI（例: `https://api.sellira.jp/oauth/callback`）と完全一致させ、テストでも送信値を検証する
 - [ ] 本番OAuthの通し確認（第三者セラーの連携）
 
 ## 4. 推奨順序
