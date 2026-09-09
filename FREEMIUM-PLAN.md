@@ -23,7 +23,7 @@
 
 - ~~サーバー `.env` から `LWA_REFRESH_TOKEN` を外す~~ → 本番はCloudflare Workersのため`.env`自体がデプロイされない。代わりに`wrangler secret list`でSecretに登録されていないことを確認する運用に変更（詳細は4.2の該当箇所）。
 - ~~バンドルID `com.example.barcodesedori` → 本番ID~~ `jp.sellira.sellerlens` に変更済み（2026-08-14）。
-- ~~AdMob を本番IDへ差し替え~~ アプリ側（`GADApplicationIdentifier`）・サーバー側KVとも本番ID取得・設定済み。**ただし開発中は動作確認のためKVをテストIDへ戻してある**（未公開アプリの本番ユニットはNo Fillで広告が出ないため）。本番IDと切り替え手順はSESSION-HANDOFF.mdの「AdMob本番IDと切り替え運用」に記録済み。
+- ~~AdMob を本番IDへ差し替え~~ アプリ側（`GADApplicationIdentifier`）・サーバー側KVとも本番IDを設定済み。App Store公開後の2026-09-09にKVも全5枠を本番IDへ切り替えた（`version:10`）。本番IDと切り替え履歴はSESSION-HANDOFF.mdの「AdMob本番IDと切り替え運用」に記録済み。
 - ~~PrivacyInfo の TrackingDomains 記載~~ 実測して記載済み（2026-08-14）。**ただし`PrivacyInfo.xcprivacy`が長期間アプリバンドルに含まれていない不具合があり、この記載も含めて何も効いていなかった**。`project.yml`の`sources:`への個別ファイル指定で修正済み。SESSION-HANDOFF.mdの「プライバシーマニフェスト」参照。
 - ~~試験用の手動SP-APIキー入力欄を削除~~ 対応済み（`SecureField`は現在Keepa BYOキー欄のみで、これは意図通り）。
 - **PostHog**: APIキー設定済み。プライバシーポリシーへの記載、App Store Connectのプライバシー表示申告は**未対応のまま**（下記参照）。
