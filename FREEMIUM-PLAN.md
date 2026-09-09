@@ -195,6 +195,8 @@
 
 **2026-09-09 更新（ユーザー指定範囲）**: iOSの認可開始を `ASWebAuthenticationSession` に変更。認可結果はそのセッションの完了ハンドラだけで受信し、通常の `onOpenURL` からのトークン保存は廃止した。キャンセル・不正な応答時は既存の連携情報を変更しない。新ビルドの配信が必要で、公開済みビルド9には未反映。実機でのAmazon認可完了・キャンセル確認は未実施。
 
+同日、Amazon Selling Partner Appstore掲載承認後のサーバー切替も完了。Published版を認可するため本番URLから`version=beta`を除去し、Draft試験時だけ`SPAPI_AUTH_VERSION=beta`で再付与できる。初回LWAトークン交換には、Amazon登録値と完全一致する`LWA_REDIRECT_URI=https://api.sellira.jp/oauth/callback`を送信する。本番Workerへデプロイし、認可開始URLの転送先に`version`がないことまで確認済み。第三者セラーによる通し確認は未実施。
+
 今回、Universal Links・短命交換コード・PKCEは実装しない。サーバーは従来どおりカスタムURLとHTMLにトークンを含めるため、この点は残る。Apple標準の認証セッションは開始元アプリへのコールバック配送を保護するが、正規アプリであることをサーバーへ証明する仕組みではない。短命コード＋PKCEも、それだけで正規アプリの証明にはならない。
 
 **きっかけ（2026-08-21）**: 審査返信のためにOAuthの実装を読み返して気づいた。認可完了後、サーバー（`server/src/oauth.js`）はリフレッシュトークンを**カスタムURLスキームのクエリパラメータ**でアプリへ渡している。

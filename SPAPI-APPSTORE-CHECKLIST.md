@@ -8,7 +8,7 @@
   公式: "Although you're not required to list your app on the Selling Partner Appstore, authorization limits apply to unlisted apps that serve sellers."
   → 少人数のβ運用は掲載前でも可能。ユーザー数を伸ばすなら掲載が実質必須。
 - 掲載審査の所要: **承認後、公開まで3〜4週間**。不承認時は違反点が通知され再申請可。
-- 現在のOAuth実装は `version=beta`（ドラフト用）。掲載承認後は beta 無しの本番URLに切替える。
+- OAuth実装は掲載承認後の本番運用へ切替済み。通常は`version`を付けずPublished版を認可し、`SPAPI_AUTH_VERSION=beta`を明示した場合だけDraft版へ切り替える。
 
 ## 1. sellira.jp ウェブサイトガイドライン チェックリスト
 
@@ -76,8 +76,8 @@
 
 ## 3. 掲載承認後にやること（コード側）
 
-- [ ] `server/src/oauth.js` の認可URLから `version=beta` を外す（環境変数化して切替可能にしておくと再デプロイ不要）
-- [ ] 初回のLWAトークン交換（`grant_type=authorization_code`）に `redirect_uri` を追加する。値はAmazonへ登録したOAuthリダイレクトURI（例: `https://api.sellira.jp/oauth/callback`）と完全一致させ、テストでも送信値を検証する
+- [x] `server/src/oauth.js` の認可URLから `version=beta` を外す。`SPAPI_AUTH_VERSION=beta`を明示した場合だけ付与する（2026-09-09、本番URLの302転送先に`version`がないことを確認済み）
+- [x] 初回のLWAトークン交換（`grant_type=authorization_code`）に `redirect_uri` を追加。`LWA_REDIRECT_URI=https://api.sellira.jp/oauth/callback`を必須設定とし、送信値の完全一致と設定不足をテスト済み（2026-09-09）
 - [ ] 本番OAuthの通し確認（第三者セラーの連携）
 
 ## 4. 推奨順序

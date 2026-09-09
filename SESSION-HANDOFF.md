@@ -8,6 +8,9 @@
 - バージョン/ビルド番号は未変更。公開済みアプリにはまだ反映されない。実機でAmazon認可成功・キャンセル・再連携・シート経由の開始を確認してから新ビルドを提出する。
 - コールバック検証テスト: `swiftc -module-cache-path /tmp/sellerlens-swift-cache ios/BarcodeSedori/Sources/Models/SpApiAuthorizationCallback.swift ios/tests/SpApiAuthorizationCallbackTests.swift -o /tmp/sellerlens-oauth-tests && /tmp/sellerlens-oauth-tests`
 - 検証結果: 上記テスト、generic iOS Simulator向けの署名なしDebugビルド成功。シミュレーターは起動していない。既存箇所の非推奨API・Swift 6移行向け警告は残る。`docs/infra.drawio` はdraw.io CLIでSVG書き出し成功。
+- 掲載承認後のサーバー対応も実施。通常の認可URLから`version=beta`を除去し、`SPAPI_AUTH_VERSION=beta`の明示時だけDraft版へ切替可能にした。初回LWAトークン交換へ、必須設定`LWA_REDIRECT_URI`の値を`redirect_uri`として送る。
+- 本番設定は`LWA_REDIRECT_URI=https://api.sellira.jp/oauth/callback`、`SPAPI_AUTH_VERSION`未設定。Worker Version ID `afa55254-cec3-443a-921f-f9357f7d195b`としてデプロイ済み。本番`/oauth/login`が302を返し、転送先に`version`が含まれないことを確認済み。
+- OAuth単体17件、サーバー全417件、Wrangler dry-run成功。残件は第三者セラーによる本番OAuthの通し確認。
 
 アプリ名: **セラーレンズ**(旧アマレンズ、さらに前は「バーコードせどり」)。
 Amazonセラー向けの仕入れリサーチiPhoneアプリ。**App Storeへ初回申請中**。
