@@ -1,0 +1,18 @@
+<mxfile host="app.diagrams.net">
+  <diagram name="SP-API認可（2026-09-09）" id="spapi-auth">
+    <mxGraphModel dx="1000" dy="700" grid="1" gridSize="10" page="1" pageWidth="1169" pageHeight="827">
+      <root>
+        <mxCell id="0"/><mxCell id="1" parent="0"/>
+        <mxCell id="app" value="セラーレンズ iOS&#xa;AmazonAuthorizationSession&#xa;検証後にKeychain保存" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="40" y="60" width="250" height="90" as="geometry"/></mxCell>
+        <mxCell id="session" value="Apple ASWebAuthenticationSession&#xa;開始元アプリの完了ハンドラへ返す&#xa;通常のonOpenURLでは保存しない" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="420" y="60" width="290" height="90" as="geometry"/></mxCell>
+        <mxCell id="worker" value="Cloudflare Workers / api.sellira.jp&#xa;/oauth/login → state署名・認可画面へ&#xa;/oauth/callback → LWAトークン交換&#xa;トークンはDBへ永続化しない" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="420" y="290" width="290" height="110" as="geometry"/></mxCell>
+        <mxCell id="amazon" value="Amazon Seller Central / LWA&#xa;販売パートナーがアクセスを許可" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="820" y="290" width="270" height="110" as="geometry"/></mxCell>
+        <mxCell id="start" value="認可開始" edge="1" parent="1" source="app" target="session" style="endArrow=classic;"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="https" value="HTTPS / 認可ページ表示" edge="1" parent="1" source="session" target="worker" style="endArrow=classic;"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="lwa" value="認可コード / HTTPSトークン交換" edge="1" parent="1" source="worker" target="amazon" style="endArrow=classic;startArrow=classic;"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="return" value="barcodesedori://spapi-auth&#xa;refresh_token + selling_partner_id&#xa;セッションがコールバックを受信" edge="1" parent="1" source="worker" target="session" style="endArrow=classic;edgeStyle=orthogonalEdgeStyle;"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="340" y="350"/><mxPoint x="340" y="180"/></Array></mxGeometry></mxCell>
+        <mxCell id="note" value="今回の変更範囲: iOSの認可受信経路。サーバーは既存仕様。&#xa;Universal Links / PKCE / 短命コードは未導入。URLとHTMLへのトークン埋め込みは残る。&#xa;図はSP-API認可に限定。新ビルド配信前の実装を示す。" style="text;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="40" y="490" width="1000" height="90" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

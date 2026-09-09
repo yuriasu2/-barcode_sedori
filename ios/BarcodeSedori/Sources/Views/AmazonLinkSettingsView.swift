@@ -10,6 +10,7 @@ import UIKit
 struct AmazonLinkSettingsView: View {
     @ObservedObject var viewModel: SettingsViewModel
     @ObservedObject private var settings = SettingsStore.shared
+    @StateObject private var authorization = AmazonAuthorizationSession()
 
     var body: some View {
         Form {
@@ -20,7 +21,7 @@ struct AmazonLinkSettingsView: View {
 
                 HStack(spacing: 12) {
                     Button {
-                        openOAuthLogin()
+                        authorization.start(serverURL: viewModel.serverURLString)
                     } label: {
                         // Amazon公式のLogin with Amazonボタン素材。ブランド規約があるため
                         // 自前で似せたボタンを描かず、配布された画像をそのまま使う。
@@ -34,6 +35,7 @@ struct AmazonLinkSettingsView: View {
                     // Formの行にButtonを置くと行全体がタップに反応してしまうため、
                     // 画像部分だけを反応させる(送料設定のゴミ箱ボタンと同じ理由)。
                     .buttonStyle(.borderless)
+                    .disabled(authorization.isRunning)
 
                     // 連携状態はボタンの右隣に出す。押す対象と現在の状態を横に並べることで、
                     // 「押す前/押した後」がひと目で分かるようにする。
@@ -129,6 +131,12 @@ struct AmazonLinkSettingsView: View {
             }
         }
         .navigationTitle("Amazon連携")
+        .onChange(of: authorization.message) { message in
+            guard let message = message else { return }
+            // 既存の接続テストと同じ提示先を使い、アラートの競合を避ける。
+            viewModel.connectionTestAlert = .init(title: "Amazon連携", message: message)
+            authorization.message = nil
+        }
         // SettingsView側の「Keepa連携」接続テストとconnectionTestAlertを共有しているが、
         // 表示先はその時点で画面に出ているビュー側のみになるため、ここにも同じ.alert(item:)を
         // 付けないとこの画面からの接続テスト結果が出ない(過去に別画面へ付け忘れて
@@ -197,10 +205,4 @@ struct AmazonLinkSettingsView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// ログインボタンから、サーバーの /oauth/login をSafari(外部ブラウザ)で開く。
-    /// SettingsView.openOAuthLogin()から移設(SP-API連携セクションがこの画面に統合されたため)。
-    private func openOAuthLogin() {
-        guard let url = URL(string: "\(viewModel.serverURLString)/oauth/login") else { return }
-        UIApplication.shared.open(url)
-    }
 }

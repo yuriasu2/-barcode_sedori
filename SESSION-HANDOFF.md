@@ -1,5 +1,14 @@
 # セッション引き継ぎ(2026-08-21 更新)
 
+## 2026-09-09 Amazon認可の更新
+
+- ユーザー指定で `ASWebAuthenticationSession` のみ導入。AmazonAuthorizationSessionがセッションと表示ウィンドウを保持し、完了結果の検証後にKeychain保存する。
+- 通常の `onOpenURL` 経由のSP-API認可受信は廃止。キャンセル・エラー時は既存連携を保持。外部Safariへのフォールバックは設けない。
+- サーバー、Universal Links、PKCE、短命コードは変更なし。URL/HTMLへのトークン埋め込みは残る。
+- バージョン/ビルド番号は未変更。公開済みアプリにはまだ反映されない。実機でAmazon認可成功・キャンセル・再連携・シート経由の開始を確認してから新ビルドを提出する。
+- コールバック検証テスト: `swiftc -module-cache-path /tmp/sellerlens-swift-cache ios/BarcodeSedori/Sources/Models/SpApiAuthorizationCallback.swift ios/tests/SpApiAuthorizationCallbackTests.swift -o /tmp/sellerlens-oauth-tests && /tmp/sellerlens-oauth-tests`
+- 検証結果: 上記テスト、generic iOS Simulator向けの署名なしDebugビルド成功。シミュレーターは起動していない。既存箇所の非推奨API・Swift 6移行向け警告は残る。`docs/infra.drawio` はdraw.io CLIでSVG書き出し成功。
+
 アプリ名: **セラーレンズ**(旧アマレンズ、さらに前は「バーコードせどり」)。
 Amazonセラー向けの仕入れリサーチiPhoneアプリ。**App Storeへ初回申請中**。
 

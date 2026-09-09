@@ -40,10 +40,9 @@ struct BarcodeSedoriApp: App {
     }
 }
 
-/// アプリのルートコンテナ。SP-API OAuthのディープリンク(barcodesedori://spapi-auth)を
-/// 受け取ってSettingsStoreに反映し、完了アラートを表示する薄いラッパー。
+/// OAuthの結果はAmazonAuthorizationSessionだけで受信する。
+/// 通常のディープリンクは開発用の画面操作にのみ使用する。
 private struct RootContainerView: View {
-    @State private var showSpApiLinkedAlert = false
 
     var body: some View {
         RootTabView()
@@ -55,9 +54,6 @@ private struct RootContainerView: View {
                 applyDebugLaunchArguments()
             }
             #endif
-            .alert("SP-API連携が完了しました", isPresented: $showSpApiLinkedAlert) {
-                Button("OK", role: .cancel) {}
-            }
     }
 
     private func handle(url: URL) {
@@ -72,22 +68,7 @@ private struct RootContainerView: View {
         if handleDebugURL(url) { return }
         #endif
 
-        guard url.host == "spapi-auth" else { return }
-        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return }
-        let items = components.queryItems ?? []
-        guard let refreshToken = items.first(where: { $0.name == "refresh_token" })?.value,
-              !refreshToken.isEmpty else { return }
-        SettingsStore.shared.spapiRefreshToken = refreshToken
-        SettingsStore.shared.spapiLinkEnabled = true
-        // 連携が完了したという事実のみ送る(refresh_token・selling_partner_idは送らない)。
-        Analytics.shared.capture(.amazonLinkCompleted)
-        // selling_partner_id(公開の出品者ID)。Sellers APIからは取得不可能なため、
-        // この認可コールバックで受け取れた場合のみ保存する(空なら保存しない=既存値を維持)。
-        if let sellerId = items.first(where: { $0.name == "selling_partner_id" })?.value,
-           !sellerId.isEmpty {
-            SettingsStore.shared.spapiSellerId = sellerId
-        }
-        showSpApiLinkedAlert = true
+        // 外部から直接渡されたspapi-authでは連携情報を更新しない。
     }
 
     #if DEBUG
