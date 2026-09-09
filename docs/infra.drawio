@@ -30,8 +30,8 @@
         <mxCell id="b-e3" value="検証・保存" edge="1" parent="1" source="b-worker" target="b-do" style="endArrow=classic;startArrow=classic;"><mxGeometry relative="1" as="geometry"/></mxCell>
         <mxCell id="b-e4" value="購読照会 / 署名付き通知" edge="1" parent="1" source="b-worker" target="b-apple" style="endArrow=classic;startArrow=classic;"><mxGeometry relative="1" as="geometry"/></mxCell>
         <mxCell id="b-e5" value="検証済みPro" edge="1" parent="1" source="b-worker" target="b-api" style="endArrow=classic;edgeStyle=orthogonalEdgeStyle;"><mxGeometry relative="1" as="geometry"/></mxCell>
-        <mxCell id="b-staging" value="検証Worker（2026-09-10公開）&#xa;barcode-sedori-api-staging&#xa;.saastids2025.workers.dev&#xa;4つのDOは本番と独立 / Secrets登録待ち" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;" vertex="1" parent="1"><mxGeometry x="40" y="420" width="320" height="100" as="geometry"/></mxCell>
-        <mxCell id="b-note" value="本番: 購入検証コード未反映。検証環境: health 200、課金キー登録は承認待ち。&#xa;Apple API鍵とAPI資格署名鍵は別のWorker Secrets。生JWSはサーバーへ永続保存しない。&#xa;本番通知後の既発行資格は最長15分残る。Sandbox検索/グラフは全体100要求/UTC日。" style="text;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="40" y="550" width="1050" height="100" as="geometry"/></mxCell>
+        <mxCell id="b-staging" value="検証Worker（2026-09-10公開）&#xa;barcode-sedori-api-staging&#xa;.saastids2025.workers.dev&#xa;4つのDOは本番と独立 / 課金Secrets登録済" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;" vertex="1" parent="1"><mxGeometry x="40" y="420" width="320" height="100" as="geometry"/></mxCell>
+        <mxCell id="b-note" value="本番: 購入検証コード未反映。検証環境: health/session 200、実購入確認待ち。&#xa;Apple API鍵とAPI資格署名鍵は別のWorker Secrets。生JWSはサーバーへ永続保存しない。&#xa;本番通知後の既発行資格は最長15分残る。Sandbox検索/グラフは全体100要求/UTC日。" style="text;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="40" y="550" width="1050" height="100" as="geometry"/></mxCell>
       </root>
     </mxGraphModel>
   </diagram>

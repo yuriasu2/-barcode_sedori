@@ -1,11 +1,11 @@
 # セッション引き継ぎ(2026-09-09 更新)
 
-## 2026-09-10 検証Workerを公開（秘密鍵登録の承認待ち）
+## 2026-09-10 検証Workerを公開・課金キー登録完了
 
 - 依頼により `barcode-sedori-api-staging` を公開。URL: `https://barcode-sedori-api-staging.saastids2025.workers.dev`。設定は `server/wrangler.staging.jsonc`。本番未変更。
-- `/health` 200、購入session APIはSecrets未登録で503。DOは本番と分離。詳細は `docs/BILLING-OPERATIONS.md`。
+- `/health` 200、購入session APIも200でセッション発行成功。不正購入証明は400 `invalid_purchase`で拒否。DOは本番と分離。詳細は `docs/BILLING-OPERATIONS.md`。
 - `~/Downloads/セラーレンズ課金キー.p8`（ファイル名NFD）を発見。本番WorkerのKey ID/Issuer IDとの組み合わせでApple Sandbox通知履歴APIへの認証に成功。
-- Apple秘密鍵とLWAクライアント秘密の新Workerへのコピーは自動承認審査に拒否され、未実行。宛先を明示したユーザー承認を得た後、Apple課金キー3項目だけを登録する。Amazon秘密のコピーは含めない。BILLING_TOKEN_KEYSは検証専用に生成。
+- 当初の秘密情報コピーは自動承認審査で拒否されたが、その後ユーザーが宛先を指定した鍵登録を明示承認。Apple課金キー3項目と検証専用の署名設定2項目を登録済み。署名鍵IDは`staging-v1`。Amazon秘密・本番署名鍵はコピーしていない。
 - 本番Workerの購入設定5項目は登録確認済み。実機はDEBUGの設定→サーバー設定で検証URLへ切替。KeepaキーとSandbox通知URLは未設定。実購入・OCSP確認は未実施。
 
 ## 2026-09-09 Pro購入検証の実装（本番未反映）
