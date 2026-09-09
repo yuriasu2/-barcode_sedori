@@ -17,6 +17,10 @@
     // 秘密ではない公開識別子。コード側にも同じ既定値があるが意図を明示するため置く。
     "MARKETPLACE_ID": "A1VC38T7YXB528",
     "SPAPI_ENDPOINT": "https://sellingpartnerapi-fe.amazon.com",
+    // Amazonへ登録したOAuthリダイレクトURIと完全一致させる。
+    "LWA_REDIRECT_URI": "https://api.sellira.jp/oauth/callback",
+    // Draft版を試験するときだけ SPAPI_AUTH_VERSION="beta" を追加する。
+    // 本番では未設定にし、Published版を認可する。
     // 無料枠ユニットモデル(deviceQuota.js)。
     // 基本の1日あたりユニット数 / 広告視聴1本あたりの付与ユニット数 / 1日の上限(cap)。
     // 実際に使う値は ADS_CONFIG KV の quota-limits キー(JSON)が優先される

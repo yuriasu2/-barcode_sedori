@@ -25,6 +25,8 @@ npm start
 |---|---|
 | `LWA_CLIENT_ID` | LWAクライアントID |
 | `LWA_CLIENT_SECRET` | LWAクライアントシークレット |
+| `LWA_REDIRECT_URI` | Amazonへ登録したOAuthリダイレクトURI。初回トークン交換で送信するため必須。本番は `https://api.sellira.jp/oauth/callback` |
+| `SPAPI_AUTH_VERSION` | Draft版の認可試験時だけ `beta`。本番は未設定にしてPublished版を認可 |
 | `LWA_REFRESH_TOKEN` | SP-API用リフレッシュトークン |
 | `MARKETPLACE_ID` | 既定 `A1VC38T7YXB528` (日本) |
 | `SPAPI_ENDPOINT` | 既定 `https://sellingpartnerapi-fe.amazon.com` |
@@ -43,11 +45,11 @@ Catalog Items検索 → 新品/中古オファーを並列取得してカート�
 
 ### `GET /oauth/login`
 利用者自身のAmazon大口出品アカウントでSP-API連携するためのOAuth認可フロー起点。
-Seller Centralの認可画面(consent)へリダイレクトする。
+Seller Centralの認可画面(consent)へリダイレクトする。本番では`version`を付けずPublished版を認可し、`SPAPI_AUTH_VERSION=beta`のときだけDraft版へ切り替える。
 
 ### `GET /oauth/callback`
 Amazon側からのリダイレクトを受け取り、LWAトークンエンドポイントでrefresh_tokenを取得し、
-iOSアプリへディープリンク(`barcodesedori://spapi-auth`)で引き渡す。
+iOSアプリへディープリンク(`barcodesedori://spapi-auth`)で引き渡す。初回トークン交換には、Amazonへ登録した値と完全一致する`LWA_REDIRECT_URI`を送信する。
 
 ## コード変換仕様
 

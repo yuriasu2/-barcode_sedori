@@ -196,9 +196,15 @@ async function handleOAuthLogin(req, res) {
       );
   }
 
-  const redirectUrl = `${sellerCentralUrl}/apps/authorize/consent?application_id=${encodeURIComponent(
-    spapiAppId
-  )}&state=${state}&version=beta`;
+  const authorizationParams = new URLSearchParams({
+    application_id: spapiAppId,
+    state,
+  });
+  // Draft版を明示的に試験するときだけ付ける。未設定の本番フローではPublished版を認可する。
+  if (process.env.SPAPI_AUTH_VERSION === 'beta') {
+    authorizationParams.set('version', 'beta');
+  }
+  const redirectUrl = `${sellerCentralUrl}/apps/authorize/consent?${authorizationParams.toString()}`;
 
   return res.redirect(redirectUrl);
 }
@@ -227,14 +233,15 @@ async function handleOAuthCallback(req, res) {
 
   const clientId = process.env.LWA_CLIENT_ID;
   const clientSecret = process.env.LWA_CLIENT_SECRET;
+  const redirectUri = process.env.LWA_REDIRECT_URI;
 
-  if (!clientId || !clientSecret) {
+  if (!clientId || !clientSecret || !redirectUri) {
     return res
       .status(500)
       .html(
         renderErrorHtml(
           '設定エラー',
-          'サーバーにLWA_CLIENT_ID / LWA_CLIENT_SECRETが設定されていません。'
+          'サーバーにLWA_CLIENT_ID / LWA_CLIENT_SECRET / LWA_REDIRECT_URIが設定されていません。'
         )
       );
   }
@@ -242,6 +249,7 @@ async function handleOAuthCallback(req, res) {
   const body = new URLSearchParams({
     grant_type: 'authorization_code',
     code: spapiOauthCode,
+    redirect_uri: redirectUri,
     client_id: clientId,
     client_secret: clientSecret,
   });

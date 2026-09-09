@@ -181,12 +181,13 @@ test('handleOAuthLogin: OAUTH_STATE_SECRET未設定なら503(フェイルセー�
   );
 });
 
-test('handleOAuthLogin: SPAPI_APP_ID・OAUTH_STATE_SECRET設定時はSeller Central認可URLへ302リダイレクト', async () => {
+test('handleOAuthLogin: 本番認可URLにはversionパラメータを付けない', async () => {
   await withEnv(
     {
       SPAPI_APP_ID: 'test-app-id',
       SELLER_CENTRAL_URL: 'https://sellercentral.amazon.co.jp',
       OAUTH_STATE_SECRET: TEST_SECRET,
+      SPAPI_AUTH_VERSION: undefined,
     },
     async () => {
       const req = createMockReq();
@@ -199,7 +200,25 @@ test('handleOAuthLogin: SPAPI_APP_ID・OAUTH_STATE_SECRET設定時はSeller Cent
       assert.match(location, /^https:\/\/sellercentral\.amazon\.co\.jp\/apps\/authorize\/consent\?/);
       assert.match(location, /application_id=test-app-id/);
       assert.match(location, /state=\d+\.[0-9a-f]{32}\.[0-9a-f]+/);
-      assert.match(location, /version=beta/);
+      assert.equal(new URL(location).searchParams.has('version'), false);
+    }
+  );
+});
+
+test('handleOAuthLogin: SPAPI_AUTH_VERSION=betaの場合だけversion=betaを付ける', async () => {
+  await withEnv(
+    {
+      SPAPI_APP_ID: 'test-app-id',
+      SELLER_CENTRAL_URL: 'https://sellercentral.amazon.co.jp',
+      OAUTH_STATE_SECRET: TEST_SECRET,
+      SPAPI_AUTH_VERSION: 'beta',
+    },
+    async () => {
+      const res = createMockRes();
+      await oauth.handleOAuthLogin(createMockReq(), res);
+
+      assert.equal(res.statusCode, 302);
+      assert.equal(new URL(res.headers.Location).searchParams.get('version'), 'beta');
     }
   );
 });
@@ -220,13 +239,50 @@ test('handleOAuthCallback: 存在しないstateは403', async () => {
   });
 });
 
-test('handleOAuthCallback: LWA交換成功時、HTMLにディープリンクとrefresh_tokenが含まれる', async (t) => {
+test('handleOAuthCallback: LWA_REDIRECT_URI未設定ならトークン交換前に500', async (t) => {
   const originalFetch = global.fetch;
-  global.fetch = async () => ({
-    ok: true,
-    status: 200,
-    json: async () => ({ access_token: 'test-access-token', refresh_token: 'test-refresh-token' }),
+  let fetchCalled = false;
+  global.fetch = async () => {
+    fetchCalled = true;
+    throw new Error('fetch must not be called');
+  };
+  t.after(() => {
+    global.fetch = originalFetch;
   });
+
+  await withEnv(
+    {
+      LWA_CLIENT_ID: 'env-client-id',
+      LWA_CLIENT_SECRET: 'env-client-secret',
+      LWA_REDIRECT_URI: undefined,
+      OAUTH_STATE_SECRET: TEST_SECRET,
+    },
+    async () => {
+      const state = await oauth._createState();
+      const res = createMockRes();
+      await oauth.handleOAuthCallback(
+        createMockReq({ query: { state, spapi_oauth_code: 'auth-code-xyz', selling_partner_id: 'SP123' } }),
+        res
+      );
+
+      assert.equal(res.statusCode, 500);
+      assert.equal(fetchCalled, false);
+      assert.match(res.body, /LWA_REDIRECT_URI/);
+    }
+  );
+});
+
+test('handleOAuthCallback: LWA交換へ登録済みredirect_uriを完全一致で送信する', async (t) => {
+  const originalFetch = global.fetch;
+  let requestBody;
+  global.fetch = async (_url, options) => {
+    requestBody = new URLSearchParams(options.body);
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ access_token: 'test-access-token', refresh_token: 'test-refresh-token' }),
+    };
+  };
 
   t.after(() => {
     global.fetch = originalFetch;
@@ -236,6 +292,7 @@ test('handleOAuthCallback: LWA交換成功時、HTMLにディープリンクとr
     {
       LWA_CLIENT_ID: 'env-client-id',
       LWA_CLIENT_SECRET: 'env-client-secret',
+      LWA_REDIRECT_URI: 'https://api.sellira.jp/oauth/callback',
       OAUTH_STATE_SECRET: TEST_SECRET,
     },
     async () => {
@@ -247,6 +304,7 @@ test('handleOAuthCallback: LWA交換成功時、HTMLにディープリンクとr
       await oauth.handleOAuthCallback(req, res);
 
       assert.equal(res.statusCode, 200);
+      assert.equal(requestBody.get('redirect_uri'), 'https://api.sellira.jp/oauth/callback');
       assert.equal(typeof res.body, 'string');
       assert.match(res.body, /barcodesedori:\/\/spapi-auth/);
       assert.match(res.body, new RegExp(`refresh_token=${encodeURIComponent('test-refresh-token')}`));
@@ -272,6 +330,7 @@ test('handleOAuthCallback: LWA交換失敗時(res.ok=false)は502でエラーHTM
     {
       LWA_CLIENT_ID: 'env-client-id',
       LWA_CLIENT_SECRET: 'env-client-secret',
+      LWA_REDIRECT_URI: 'https://api.sellira.jp/oauth/callback',
       OAUTH_STATE_SECRET: TEST_SECRET,
     },
     async () => {
