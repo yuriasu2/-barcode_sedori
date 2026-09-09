@@ -1,6 +1,10 @@
 # Pro購入検証の運用
 
-2026-09-09: コード実装済み。本番未デプロイ、Apple Sandbox実購入・オンライン証明書確認は未検証。
+2026-09-10: 検証Workerで実機Sandbox購入・復元・OCSP・Pro反映を確認後、本番へ購入検証を反映。本番health/sessionは200、不正購入証明は400。通知V2 URLは本番/Sandboxとも登録済みで、Appleテスト通知の配送SUCCESSを両環境で確認。
+
+本番コードVersion: `c09e45c4-f026-477e-89e8-2241ca5800c1`（その後署名キー設定を更新）。本番署名設定でsession503が発生したため、セッション未発行の段階で本番専用乱数キーをJSON形式で再登録し、session200を確認。既存変数を消さないよう`keep_vars: true`を設定。
+
+配布準備: 1.0.1 / build10、Releaseは保存済み検証URLを使用せず本番URL固定。StoreKit ConfigurationはNone。
 
 ## 検証サーバー（2026-09-10公開）
 
@@ -48,7 +52,7 @@ Worker Secretsへ次を設定する。値や.p8ファイルをGit・チャット
 - 通常API: `Authorization: Bearer <accessToken>` と `X-Billing-Session`。利用資格は最長15分、既知の購読・猶予期限を超えない。
 - `POST /api/apple/notifications`: AppleのJSON `signedPayload`。署名検証と永続保存後に200。処理失敗はエラーで再送を促す。
 
-App Store ConnectのProduction/Sandbox通知URLを `https://api.sellira.jp/api/apple/notifications`、V2に設定する（現時点では未設定）。Appleのテスト通知を送り成功を確認する。
+App Store ConnectのProduction/Sandbox通知URLは `https://api.sellira.jp/api/apple/notifications`、V2で登録・読み戻し確認済み。登録直後は4040007が返ったが、その後本番・Sandbox両環境のテスト通知配送SUCCESSを確認。
 通知による取消後も発行済み利用資格は最大15分残る。通常APIでDOを毎回照会しない設計上の上限。
 
 購読DOのキーは環境とoriginalTransactionId。JWSはサーバー永続保存せず、検証済み購読の最小状態を保持。

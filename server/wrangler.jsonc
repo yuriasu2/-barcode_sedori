@@ -1,6 +1,7 @@
 {
   "name": "barcode-sedori-api",
   "main": "src/worker.js",
+  "keep_vars": true,
   "compatibility_date": "2026-07-01",
   "compatibility_flags": ["nodejs_compat"],
   "alias": { "node-fetch": "./src/billing/workers-fetch.js" },

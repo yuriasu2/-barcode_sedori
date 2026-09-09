@@ -530,7 +530,11 @@ final class SettingsStore: ObservableObject {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        #if DEBUG
         self.serverURLString = defaults.string(forKey: Keys.serverURL) ?? Self.defaultServerURL
+        #else
+        self.serverURLString = Self.defaultServerURL
+        #endif
         self.spapiLinkEnabled = defaults.bool(forKey: Keys.spapiLinkEnabled)
         // 出品者IDはKeychainから読む(移行処理はリフレッシュトークンと合わせて後段でまとめて行う)。
         self.spapiSellerId = ""

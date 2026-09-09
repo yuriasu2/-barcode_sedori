@@ -1,5 +1,14 @@
 # セッション引き継ぎ(2026-09-09 更新)
 
+## 2026-09-10 本番購入検証反映・ビルド10準備
+
+- **アップロード完了:** `/tmp/SellerLens-1.0.1-10-fixed.xcarchive` の1.0.1/build10をApp Store Connectへアップロード成功（xcodebuild export exit0 / EXPORT SUCCEEDED）。GoogleMobileAds・UserMessagingPlatformのdSYM不足警告あり。バイナリのアップロードは成功。App Store Connect APIでビルド10のprocessingState=VALIDを確認。TestFlightの実機確認は別途必要。審査には提出していない。
+
+- ユーザーの「すすめて」で本番準備を開始。コードVersion `c09e45c4-f026-477e-89e8-2241ca5800c1`を本番へデプロイ。既存変数を保持するkeep_varsを追加。本番session503を確認し、セッション未発行の段階で本番専用署名キーを正しいJSON形式で再登録。session200、不正proof400、health/notice200を確認。
+- App Store Connect APIで本番/Sandbox両方の通知V2 URLを `https://api.sellira.jp/api/apple/notifications` に登録・GETで確認。登録直後のAppleテスト通知は4040007だったが、後に本番・Sandbox両環境の配送SUCCESSを確認。
+- アプリ1.0.1/build10へ繰上げ。project.ymlとローカル生成pbxprojを更新。StoreKit ConfigurationはNone。Releaseは端末に保存されたstaging URLを無視し本番へ接続。Release実機向け署名なしビルド成功。初回アップロードはInfo.plist固定値9の見落としで拒否。Info.plistをビルド設定参照へ修正し、/tmp/SellerLens-1.0.1-10-fixed.xcarchive 内部の1.0.1/10を確認後、再アップロード中。
+- 本番サーバー経由の実機購入・復元、TestFlight確認、審査提出は未完了。既存の未追跡AGENTS.mdは変更していない。
+
 ## 2026-09-10 OCSP通信の503修正（実機Sandbox購入・Pro反映確認済み）
 
 - **最新結果:** ユーザーがSandboxでテスト購入し「proになりました」と確認。サーバーログも `/api/billing/verify` HTTP200を2件、診断エラーなしで確認。購入→サーバー検証→Pro反映の実機確認が完了。本番デプロイ、通知配送、失効/返金の実機検証は別途残る。
