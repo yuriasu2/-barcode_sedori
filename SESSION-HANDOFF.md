@@ -1,6 +1,8 @@
 # セッション引き継ぎ(2026-09-09 更新)
 
-## 2026-09-10 OCSP通信の503修正（実機の再確認待ち）
+## 2026-09-10 OCSP通信の503修正（実機Sandbox購入・Pro反映確認済み）
+
+- **最新結果:** ユーザーがSandboxでテスト購入し「proになりました」と確認。サーバーログも `/api/billing/verify` HTTP200を2件、診断エラーなしで確認。購入→サーバー検証→Pro反映の実機確認が完了。本番デプロイ、通知配送、失効/返金の実機検証は別途残る。
 
 - **再確認結果:** ユーザー実機で「購入履歴を確認しましたが、現在有効なPro契約はありません」。同時刻のログで `/api/billing/verify` HTTP200、診断エラーなしを確認。実購入証明の署名/OCSP、Apple購読API、応答検証を通過。現在のサーバー判定はPro無効。正確な失効理由/日時はログに出しておらず未確認。有効なSandbox購入によるPro付与テストは残る。
 
@@ -9,7 +11,7 @@
 - Wranglerのnode-fetch aliasを `server/src/billing/workers-fetch.js` に設定。通信・timeout・buffer()の互換処理のみ。Apple公式ライブラリ3.1.0の署名/証明書チェーン/OCSP検証コード、onlineChecks=trueは維持。Nodeサーバーは元のnode-fetchを使用。
 - 全433テスト成功。ローカルworkerdのbilling-probeで11項目成功（公式OCSP処理が標準fetchを呼び、503や不正応答を拒否することを含む）。直接Miniflareにdry-run出力を渡す場合、buffer/stream/util/crypto/urlのimportをnode:付きへ解決する必要があった。
 - 検証Workerへversion `375fd909-d3b5-4da5-855e-c33b19431bfe` をデプロイ済み。本番は未デプロイ。構成図のOCSP経路を更新、draw.io SVG書出し成功。
-- ユーザーに再ビルド不要で「購入を復元」を依頼済み。実取引の成功はまだ未確認。引き続き診断ログでincoming_signatureが通過し、Apple購読API/応答署名まで成功するか確認する。
+- 上記の実機再確認により、復元時の購入証明検証と新しいSandbox購入後のPro反映を確認済み。
 
 ## 2026-09-10 Sandbox購入エラーの調査・復元経路の修正
 
