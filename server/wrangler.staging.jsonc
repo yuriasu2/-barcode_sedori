@@ -1,0 +1,29 @@
+{
+  "name": "barcode-sedori-api-staging",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-07-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "keep_vars": true,
+  "vars": {
+    "MARKETPLACE_ID": "A1VC38T7YXB528",
+    "SPAPI_ENDPOINT": "https://sellingpartnerapi-fe.amazon.com",
+    "BASE_DAILY_UNITS": "5",
+    "UNITS_PER_AD": "5",
+    "MAX_DAILY_UNITS": "100",
+    "KEEPA_REFILL_PER_MIN": "5",
+    "IP_RATE_LIMIT_PER_MIN": "20",
+    "GRAPH_CACHE_TTL_MS": "21600000"
+  },
+  "durable_objects": {
+    "bindings": [
+      { "name": "DEVICE_QUOTA", "class_name": "DeviceQuotaDO" },
+      { "name": "KEEPA_THROTTLE", "class_name": "KeepaThrottleDO" },
+      { "name": "IP_RATE_LIMIT", "class_name": "IpRateLimitDO" },
+      { "name": "BILLING", "class_name": "BillingDO" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["DeviceQuotaDO", "KeepaThrottleDO", "IpRateLimitDO", "BillingDO"] }
+  ]
+}

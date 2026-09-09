@@ -2,6 +2,20 @@
 
 2026-09-09: コード実装済み。本番未デプロイ、Apple Sandbox実購入・オンライン証明書確認は未検証。
 
+## 検証サーバー（2026-09-10公開）
+
+- URL: `https://barcode-sedori-api-staging.saastids2025.workers.dev`
+- 設定: `server/wrangler.staging.jsonc`。デプロイは `cd server && npx wrangler deploy --config wrangler.staging.jsonc`。
+- Version: `fb831f10-3cec-49ee-8f78-36a1900c9015`。4つのDO名前空間は本番と独立。本番ドメイン・KVは参照しない。追加変数は`keep_vars: true`で保持。
+- `/health` 200。検証WorkerのSecrets未登録により`/api/billing/session`は503で購入開始を拒否。
+- 本番Workerの購入設定5項目は登録確認済み。ダウンロード済みApp内課金キーと登録済みKey ID/Issuer IDで、Apple Sandbox通知履歴APIへの認証に成功（ローカルから確認、秘密値・通知本文は出力せず）。
+- 新しいWorkerへの秘密鍵コピーは自動承認審査で拒否され、未実行。宛先を指定したユーザー承認待ち。次はApple課金キー3項目のみを登録する。アプリ用署名鍵は検証専用に生成し、本番の署名鍵はコピーしない。
+- Keepaキー・Amazon OAuth開始設定は未登録。まず購入・復元・Pro資格とquotaを検証する。商品検索も試す場合は外部API設定の追加が必要。
+
+実機ではXcodeのStoreKit ConfigurationをNoneにしてRunし、アプリの「設定 → サーバー設定」（DEBUG限定）に上記URLを入力する。検証WorkerのSecrets登録後にSandbox購入を試す。終了後は `https://api.sellira.jp` へ戻す。
+
+Sandbox通知URL候補: `https://barcode-sedori-api-staging.saastids2025.workers.dev/api/apple/notifications`。App Store Connect側への登録、通知配送、実購入、オンライン証明書確認は未実施。
+
 ## 設定と公開前確認
 
 App ID `6801570852` / Bundle ID `jp.sellira.sellerlens` / 商品 `jp.sellira.sellerlens.pro.monthly`。
