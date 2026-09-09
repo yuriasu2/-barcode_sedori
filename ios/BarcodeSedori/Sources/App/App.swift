@@ -4,6 +4,7 @@ import GoogleMobileAds
 @main
 struct BarcodeSedoriApp: App {
     @StateObject private var entitlements = EntitlementStore.shared
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {
         // AdMob(Google Mobile Ads)を初期化する。
@@ -27,6 +28,9 @@ struct BarcodeSedoriApp: App {
         WindowGroup {
             RootContainerView()
                 .environmentObject(entitlements)
+                .onChange(of: scenePhase) { phase in
+                    if phase == .active { Task { await entitlements.refreshEntitlements() } }
+                }
                 .task {
                     // 起動時にPro状態(StoreKit)を初期化・監視開始する。
                     entitlements.start()

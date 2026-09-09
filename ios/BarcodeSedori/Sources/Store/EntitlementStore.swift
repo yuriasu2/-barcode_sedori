@@ -7,7 +7,7 @@ import StoreKit
 /// - 起動時に `start()` を呼び、Transaction監視・現在のエンタイトルメント反映・商品情報読込を行う。
 /// - `isPro` は `Transaction.currentEntitlements` から算出する(サブスク有効かつ未失効)。
 /// - APIClient(非メインアクター・同期)から参照できるよう、`isPro` を UserDefaults にミラーする
-///   (`isProCachedKey`)。ネットワークヘッダー `X-App-Plan` の付与に使う。
+///   (`isProCachedKey`)。APIの利用資格はBillingClientで別途検証する。
 @MainActor
 final class EntitlementStore: ObservableObject {
     static let shared = EntitlementStore()
@@ -36,6 +36,7 @@ final class EntitlementStore: ObservableObject {
     @Published private(set) var isEligibleForIntroOffer = false
     @Published private(set) var isLoadingProduct = false
     @Published private(set) var purchaseInProgress = false
+    @Published private(set) var isPurchaseSyncPending = false
     /// 購入・復元の失敗時に表示する日本語メッセージ。表示後は呼び出し側でnilに戻すこと。
     @Published var lastActionErrorMessage: String?
     /// 商品情報読込(`loadProduct()`)の診断情報。原因切り分け用で、購入・復元用の
@@ -92,6 +93,13 @@ final class EntitlementStore: ObservableObject {
     #endif
 
     private init() {}
+
+    func serverSynchronizationCompleted() {
+        isPurchaseSyncPending = false
+        if lastActionErrorMessage == BillingClient.Pending().localizedDescription {
+            lastActionErrorMessage = nil
+        }
+    }
 
     /// アプリ起動時に一度呼ぶ。
     func start() {
@@ -154,13 +162,22 @@ final class EntitlementStore: ObservableObject {
         #endif
 
         var active = false
+        var pending = false
         for await result in Transaction.currentEntitlements {
             guard case .verified(let transaction) = result else { continue }
             if transaction.productID == Self.proProductID, transaction.revocationDate == nil {
                 active = true
+                do {
+                    _ = try await BillingClient.shared.synchronize(result.jwsRepresentation)
+                    await transaction.finish()
+                } catch {
+                    pending = true
+                }
             }
         }
         setIsPro(active)
+        isPurchaseSyncPending = pending
+        if !active { BillingClient.shared.clearAccess() }
     }
 
     /// 購入フロー。成功で isPro を更新し true を返す。キャンセル/保留/失敗は false。
@@ -171,12 +188,24 @@ final class EntitlementStore: ObservableObject {
         lastActionErrorMessage = nil
         defer { purchaseInProgress = false }
         do {
-            let result = try await product.purchase()
+            let accountToken = try await BillingClient.shared.appAccountToken()
+            let result = try await product.purchase(options: [.appAccountToken(accountToken)])
             switch result {
             case .success(let verification):
                 if case .verified(let transaction) = verification {
-                    await transaction.finish()
-                    await refreshEntitlements()
+                    setIsPro(transaction.revocationDate == nil)
+                    do {
+                        let serverPro = try await BillingClient.shared.synchronize(verification.jwsRepresentation)
+                        await transaction.finish()
+                        isPurchaseSyncPending = !serverPro
+                    } catch {
+                        // Remains unfinished in StoreKit and retries on launch/updates/API use.
+                        isPurchaseSyncPending = true
+                    }
+                    if isPurchaseSyncPending {
+                        lastActionErrorMessage = BillingClient.Pending().localizedDescription
+                        return false
+                    }
                     if isPro {
                         Analytics.shared.capture(.proPurchased)
                     }
@@ -211,7 +240,10 @@ final class EntitlementStore: ObservableObject {
             lastActionErrorMessage = "復元を完了できませんでした。通信環境をご確認のうえ再度お試しください。"
         }
         await refreshEntitlements()
-        if isPro {
+        if isPurchaseSyncPending {
+            lastActionErrorMessage = BillingClient.Pending().localizedDescription
+            return false
+        } else if isPro {
             lastActionErrorMessage = nil
         }
         return isPro
@@ -228,7 +260,11 @@ final class EntitlementStore: ObservableObject {
         Task(priority: .background) { [weak self] in
             for await result in Transaction.updates {
                 guard case .verified(let transaction) = result else { continue }
-                await transaction.finish()
+                guard transaction.productID == Self.proProductID else { continue }
+                do {
+                    _ = try await BillingClient.shared.synchronize(result.jwsRepresentation)
+                    await transaction.finish()
+                } catch { self?.isPurchaseSyncPending = true }
                 await self?.refreshEntitlements()
             }
         }

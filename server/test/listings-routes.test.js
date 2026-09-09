@@ -1,4 +1,5 @@
 'use strict';
+const { proHeaders } = require('./billing-fixture');
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -46,7 +47,7 @@ const ENV = { LWA_CLIENT_ID: 'cid', LWA_CLIENT_SECRET: 'sec' };
 
 // sellerIdはSellers APIから解決せず、X-Spapi-Seller-Idヘッダーで渡す方式(OAuth時のselling_partner_idを
 // アプリが保持してヘッダー送信する)。テストのゲート通過用に共通のヘッダーセットを用意する。
-const PRO_HEADERS = { 'x-app-plan': 'pro', 'x-spapi-refresh-token': 'rt', 'x-spapi-seller-id': 'SELLER123' };
+const PRO_HEADERS = { ...proHeaders(), 'x-spapi-refresh-token': 'rt', 'x-spapi-seller-id': 'SELLER123' };
 
 /**
  * LWAトークン + Listings系APIをまとめてモックするfetch。
@@ -120,7 +121,7 @@ test('restrictions: Pro + seller-id + トークンなら通過する', async () 
         {
           query: { asin: 'B000TEST', condition: 'used_good' },
           headers: {
-            'x-app-plan': 'pro',
+            ...proHeaders(),
             'x-spapi-refresh-token': 'rt',
             'x-spapi-seller-id': 'SELLER-PRO',
           },
@@ -140,7 +141,7 @@ test('restrictions: ProでもX-Spapi-Refresh-Tokenが無ければ403 spapi_link_
     const res = createMockRes();
     const route = routes.match('GET', '/api/listings/restrictions');
     await route.handler(
-      { query: { asin: 'B000TEST', condition: 'used_good' }, headers: { 'x-app-plan': 'pro', 'x-spapi-seller-id': 'SELLER123' } },
+      { query: { asin: 'B000TEST', condition: 'used_good' }, headers: { ...proHeaders(), 'x-spapi-seller-id': 'SELLER123' } },
       res
     );
     assert.equal(res.statusCode, 403);
@@ -154,7 +155,7 @@ test('restrictions: ProかつトークンありでもX-Spapi-Seller-Idが無け�
     const res = createMockRes();
     const route = routes.match('GET', '/api/listings/restrictions');
     await route.handler(
-      { query: { asin: 'B000TEST', condition: 'used_good' }, headers: { 'x-app-plan': 'pro', 'x-spapi-refresh-token': 'rt' } },
+      { query: { asin: 'B000TEST', condition: 'used_good' }, headers: { ...proHeaders(), 'x-spapi-refresh-token': 'rt' } },
       res
     );
     assert.equal(res.statusCode, 403);
@@ -231,7 +232,7 @@ test('restrictions: 制限ありは理由メッセージと解除申請リンク
       await route.handler(
         {
           query: { asin: 'B000TEST', condition: 'used_good' },
-          headers: { 'x-app-plan': 'pro', 'x-spapi-refresh-token': 'rt-restricted', 'x-spapi-seller-id': 'SELLER123' },
+          headers: { ...proHeaders(), 'x-spapi-refresh-token': 'rt-restricted', 'x-spapi-seller-id': 'SELLER123' },
         },
         res
       );
@@ -266,7 +267,7 @@ test('restrictions: 異なるX-Spapi-Seller-Idヘッダーはそのままリク�
       await route.handler(
         {
           query: { asin: 'B000TEST', condition: 'used_good' },
-          headers: { 'x-app-plan': 'pro', 'x-spapi-refresh-token': 'rt', 'x-spapi-seller-id': 'A2OTHERSELLER' },
+          headers: { ...proHeaders(), 'x-spapi-refresh-token': 'rt', 'x-spapi-seller-id': 'A2OTHERSELLER' },
         },
         res
       );
@@ -356,7 +357,7 @@ test('listings POST: Pro + seller-id + トークンなら通過する', async ()
             conditionNote: '',
           },
           headers: {
-            'x-app-plan': 'pro',
+            ...proHeaders(),
             'x-spapi-refresh-token': 'rt',
             'x-spapi-seller-id': 'SELLER-PRO',
           },
@@ -384,7 +385,7 @@ test('fees-estimate: Pro + seller-id + トークンなら通過する', async ()
         {
           query: { asin: 'B000TEST', price: '1500' },
           headers: {
-            'x-app-plan': 'pro',
+            ...proHeaders(),
             'x-spapi-refresh-token': 'rt',
             'x-spapi-seller-id': 'SELLER-PRO',
           },
@@ -476,12 +477,12 @@ test('listings POST: 無料は403 plan_required(seller-id無し)、Proでもト�
     assert.equal(res1.body.error, 'plan_required');
 
     const res2 = createMockRes();
-    await route.handler({ body: {}, headers: { 'x-app-plan': 'pro' } }, res2);
+    await route.handler({ body: {}, headers: { ...proHeaders() } }, res2);
     assert.equal(res2.statusCode, 403);
     assert.equal(res2.body.error, 'spapi_link_required');
 
     const res3 = createMockRes();
-    await route.handler({ body: {}, headers: { 'x-app-plan': 'pro', 'x-spapi-refresh-token': 'rt' } }, res3);
+    await route.handler({ body: {}, headers: { ...proHeaders(), 'x-spapi-refresh-token': 'rt' } }, res3);
     assert.equal(res3.statusCode, 403);
     assert.equal(res3.body.error, 'seller_id_required');
   });
@@ -546,7 +547,7 @@ test('listings POST: putListingsItemへ正しいURL(ヘッダー由来のsellerI
             quantity: 1,
             conditionNote: '書き込みはありません。',
           },
-          headers: { 'x-app-plan': 'pro', 'x-spapi-refresh-token': 'rt-put', 'x-spapi-seller-id': 'SELLER123' },
+          headers: { ...proHeaders(), 'x-spapi-refresh-token': 'rt-put', 'x-spapi-seller-id': 'SELLER123' },
         },
         res
       );
@@ -608,7 +609,7 @@ test('listings POST: 異なるX-Spapi-Seller-IdヘッダーはそのままputLis
             quantity: 1,
             conditionNote: '',
           },
-          headers: { 'x-app-plan': 'pro', 'x-spapi-refresh-token': 'rt', 'x-spapi-seller-id': 'A2OTHERSELLER' },
+          headers: { ...proHeaders(), 'x-spapi-refresh-token': 'rt', 'x-spapi-seller-id': 'A2OTHERSELLER' },
         },
         res
       );
@@ -646,7 +647,7 @@ test('listings POST: INVALID応答(issues付き)もそのまま透過する(日�
             quantity: 1,
             conditionNote: '',
           },
-          headers: { 'x-app-plan': 'pro', 'x-spapi-refresh-token': 'rt-invalid', 'x-spapi-seller-id': 'SELLER123' },
+          headers: { ...proHeaders(), 'x-spapi-refresh-token': 'rt-invalid', 'x-spapi-seller-id': 'SELLER123' },
         },
         res
       );
@@ -775,13 +776,13 @@ test('fees-estimate: 無料は403 plan_required、Proでもトークン無しは
     assert.equal(res1.body.error, 'plan_required');
 
     const res2 = createMockRes();
-    await route.handler({ query: { asin: 'B000TEST', price: '1500' }, headers: { 'x-app-plan': 'pro' } }, res2);
+    await route.handler({ query: { asin: 'B000TEST', price: '1500' }, headers: { ...proHeaders() } }, res2);
     assert.equal(res2.statusCode, 403);
     assert.equal(res2.body.error, 'spapi_link_required');
 
     const res3 = createMockRes();
     await route.handler(
-      { query: { asin: 'B000TEST', price: '1500' }, headers: { 'x-app-plan': 'pro', 'x-spapi-refresh-token': 'rt' } },
+      { query: { asin: 'B000TEST', price: '1500' }, headers: { ...proHeaders(), 'x-spapi-refresh-token': 'rt' } },
       res3
     );
     assert.equal(res3.statusCode, 403);

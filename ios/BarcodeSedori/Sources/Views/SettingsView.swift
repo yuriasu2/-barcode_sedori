@@ -291,11 +291,19 @@ struct SettingsView: View {
                         } label: {
                             Text("Proにアップグレード")
                         }
-                        Button {
-                            Task { await entitlements.restore() }
-                        } label: {
-                            Text("購入を復元")
-                        }
+                    }
+                    if entitlements.isPurchaseSyncPending {
+                        Text("購入状態を確認しています。再購入は不要です。「購入を復元」から再確認できます。")
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                    }
+                    Button {
+                        Task { await entitlements.restore() }
+                    } label: {
+                        Text("購入を復元")
+                    }
+                    if let message = entitlements.lastActionErrorMessage {
+                        Text(message).font(.footnote).foregroundColor(.secondary)
                     }
                 }
 

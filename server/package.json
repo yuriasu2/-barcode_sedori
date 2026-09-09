@@ -14,7 +14,9 @@
     "dev:cf": "wrangler dev",
     "deploy:cf": "wrangler deploy"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@apple/app-store-server-library": "3.1.0"
+  },
   "devDependencies": {
     "wrangler": "^4"
   }

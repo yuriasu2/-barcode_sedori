@@ -122,7 +122,12 @@ struct PaywallView: View {
                         .foregroundColor(.white)
                         .cornerRadius(12)
                     }
-                    .disabled(entitlements.purchaseInProgress || entitlements.product == nil)
+                    .disabled(entitlements.purchaseInProgress || entitlements.product == nil || entitlements.isPurchaseSyncPending)
+                    if entitlements.isPurchaseSyncPending {
+                        Text("購入状態を確認しています。再購入は不要です。「購入を復元」から再確認できます。")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
 
                     Button {
                         Task {

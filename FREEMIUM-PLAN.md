@@ -85,6 +85,8 @@
 
 クライアント側の出し分けだけでは改ざん・直叩きで回避可能。段階的にサーバーでも制限する。ゲートは**ソース依存**（SP-APIは各自の枠なので開放、Keepaは共有コストなので制限）。
 
+**2026-09-09更新:** App Store Server APIによる検証をコード実装済み。本番未反映。新コードは自己申告ヘッダーを信用せず、署名付きAPI資格と匿名セッションを検証する。以下のPhase 1記述は公開中の旧実装。設定・公開前確認は [運用手順](docs/BILLING-OPERATIONS.md) を参照。
+
 - アプリはリクエストに `X-App-Plan: free|pro` を付与（Phase 1: 自己申告）。
 - サーバーの無料プラン動作:
   - `/api/search`: **SP-API接続時（refresh tokenあり）はSP-API＝オファー同梱を含めて通常どおり返す**（各自の枠のため制限不要）。**SP-API未接続（Keepaフォールバック）時は第1段階の簡易価格のみ**返し、オファーは含めない。
@@ -95,7 +97,7 @@
 
 ### 4.2b SP-API認証情報（BYO / OAuth）の保存方針
 
-> Pro購入のサーバー検証は別途 [App Store Server API実装企画書](APP-STORE-SERVER-VERIFICATION-PLAN.md) に集約（2026-09-09作成・未実装）。匿名復元、通知、旧ビルド移行と未決定事項を含む。
+> Pro購入のサーバー検証は別途 [App Store Server API実装企画書](APP-STORE-SERVER-VERIFICATION-PLAN.md) に集約（2026-09-09コード実装、本番反映待ち）。匿名復元、通知、旧ビルドへの影響を含む。
 
 - 利用者は自分のセラーアカウントを **OAuth（LWA）で接続**し、取得した refresh token をアプリが保持、リクエストヘッダー `X-Spapi-Refresh-Token` で送る（clientId/clientSecret は開発者アプリ共通=サーバー .env）。→ 現行実装済み。
 - **公開前に、試験用の「手動SP-APIキー入力欄」は削除**し、接続導線はOAuthのみにする。

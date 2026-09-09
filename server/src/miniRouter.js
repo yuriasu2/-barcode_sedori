@@ -9,16 +9,25 @@
 const { URL } = require('url');
 
 class MiniRouter {
-  constructor() {
+  constructor(authorize) {
     this.routes = []; // { method, pattern, handler }
+    this.authorize = authorize;
+  }
+
+  wrap(handler, path) {
+    return async (req, res) => {
+      req.url ||= path;
+      if (this.authorize && !(await this.authorize(req, res))) return;
+      return handler(req, res);
+    };
   }
 
   get(pathPattern, handler) {
-    this.routes.push({ method: 'GET', pathPattern, handler });
+    this.routes.push({ method: 'GET', pathPattern, handler: this.wrap(handler, pathPattern) });
   }
 
   post(pathPattern, handler) {
-    this.routes.push({ method: 'POST', pathPattern, handler });
+    this.routes.push({ method: 'POST', pathPattern, handler: this.wrap(handler, pathPattern) });
   }
 
   match(method, pathname) {
@@ -142,7 +151,25 @@ class MiniRouter {
 
       let reqBody = undefined;
       if (request.method === 'POST') {
-        reqBody = await request.json().catch(() => ({}));
+        if (url.pathname.startsWith('/api/billing/') || url.pathname === '/api/apple/notifications') {
+          // Stream limit also applies without Content-Length (chunked requests).
+          const reader = request.body?.getReader();
+          let bytes = 0;
+          const chunks = [];
+          if (reader) {
+            while (true) {
+              const { value, done } = await reader.read();
+              if (done) break;
+              bytes += value.length;
+              if (bytes > 65536) { await reader.cancel(); return Response.json({ error: 'payload_too_large' }, { status: 413 }); }
+              chunks.push(Buffer.from(value));
+            }
+          }
+          try { reqBody = JSON.parse(Buffer.concat(chunks).toString() || '{}'); }
+          catch { return Response.json({ error: 'invalid_json' }, { status: 400 }); }
+        } else {
+          reqBody = await request.json().catch(() => ({}));
+        }
       }
 
       const req = {

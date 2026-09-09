@@ -7,10 +7,10 @@ const routes = require('../src/routes');
 
 // --- isProRequest 単体 ---
 
-test('isProRequest: X-App-Plan=pro は true(大文字小文字・ヘッダー名の揺れ許容)', () => {
-  assert.equal(routes.isProRequest({ 'x-app-plan': 'pro' }), true);
-  assert.equal(routes.isProRequest({ 'X-App-Plan': 'PRO' }), true);
-  assert.equal(routes.isProRequest({ 'x-app-plan': 'Pro' }), true);
+test('isProRequest: 自己申告Proは表記に関係なく拒否する', () => {
+  assert.equal(routes.isProRequest({ 'x-app-plan': 'pro' }), false);
+  assert.equal(routes.isProRequest({ 'X-App-Plan': 'PRO' }), false);
+  assert.equal(routes.isProRequest({ 'x-app-plan': 'Pro' }), false);
 });
 
 test('isProRequest: free / 未指定 / 非文字列 / その他値は false(安全側=無料)', () => {

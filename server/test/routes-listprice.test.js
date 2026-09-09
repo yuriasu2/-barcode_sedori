@@ -1,4 +1,5 @@
 'use strict';
+const { proHeaders } = require('./billing-fixture');
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -115,7 +116,7 @@ test('/api/search spapi経路: profitInputsのlistPriceにCatalogのattributes.l
       const route = routes.match('GET', '/api/search');
       const res = createMockRes();
       await route.handler(
-        { query: { code: '9784000000000' }, headers: { 'x-app-plan': 'pro' } },
+        { query: { code: '9784000000000' }, headers: { ...proHeaders() } },
         res
       );
 
@@ -158,7 +159,7 @@ test('/api/search spapi経路: attributes.list_priceが無い商品はlistPrice�
       const route = routes.match('GET', '/api/search');
       const res = createMockRes();
       await route.handler(
-        { query: { code: '9784000000001' }, headers: { 'x-app-plan': 'pro' } },
+        { query: { code: '9784000000001' }, headers: { ...proHeaders() } },
         res
       );
 
@@ -236,7 +237,7 @@ test('/api/search spapi経路: レスポンスにCatalogのmodelNumberが含ま�
       const route = routes.match('GET', '/api/search');
       const res = createMockRes();
       await route.handler(
-        { query: { code: '9784000000003' }, headers: { 'x-app-plan': 'pro' } },
+        { query: { code: '9784000000003' }, headers: { ...proHeaders() } },
         res
       );
 
@@ -278,7 +279,7 @@ test('/api/search spapi経路: 型番の無い商品(書籍等)はmodelNumberが
       const route = routes.match('GET', '/api/search');
       const res = createMockRes();
       await route.handler(
-        { query: { code: '9784000000002' }, headers: { 'x-app-plan': 'pro' } },
+        { query: { code: '9784000000002' }, headers: { ...proHeaders() } },
         res
       );
 

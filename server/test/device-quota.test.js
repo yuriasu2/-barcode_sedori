@@ -1,4 +1,5 @@
 'use strict';
+const { proHeaders } = require('./billing-fixture');
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -395,7 +396,7 @@ test('ルート: Proは基本枠(5)を超えても429にならず、quotaフィ�
     mockKeepaSuccess(keepa);
     routes.deviceQuota._reset();
 
-    const headers = { 'x-device-id': 'DEV-PRO-A', 'x-app-plan': 'pro' };
+    const headers = { 'x-device-id': 'DEV-PRO-A', ...proHeaders() };
     const route = routes.match('GET', '/api/search');
 
     for (let i = 0; i < 8; i += 1) {
@@ -419,7 +420,7 @@ test('GET /api/quota: Proは{unlimited:true, reason:"pro"}、非Proはquotaオ�
   const route = routes.match('GET', '/api/quota');
 
   const resPro = createMockRes();
-  await route.handler({ query: {}, headers: { 'x-app-plan': 'pro' } }, resPro);
+  await route.handler({ query: {}, headers: { ...proHeaders() } }, resPro);
   assert.equal(resPro.statusCode, 200);
   assert.deepEqual(resPro.body, { unlimited: true, reason: 'pro' });
 

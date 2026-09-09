@@ -58,7 +58,8 @@
     "bindings": [
       { "name": "DEVICE_QUOTA", "class_name": "DeviceQuotaDO" },
       { "name": "KEEPA_THROTTLE", "class_name": "KeepaThrottleDO" },
-      { "name": "IP_RATE_LIMIT", "class_name": "IpRateLimitDO" }
+      { "name": "IP_RATE_LIMIT", "class_name": "IpRateLimitDO" },
+      { "name": "BILLING", "class_name": "BillingDO" }
     ]
   },
   // new_sqlite_classes を使う(new_classes ではない)。無料プランではSQLiteバックエンドの
@@ -70,7 +71,8 @@
     { "tag": "v4", "new_sqlite_classes": ["SellerTrialDO"] },
     // Amazon連携による7日間Proお試しの廃止(App Store審査 Guideline 5.6 対応、2026-08-21)。
     // 無料体験はStoreKitの導入オファーへ移したため、出品者ID単位の記録は不要になった。
-    { "tag": "v5", "deleted_classes": ["SellerTrialDO"] }
+    { "tag": "v5", "deleted_classes": ["SellerTrialDO"] },
+    { "tag": "v6", "new_sqlite_classes": ["BillingDO"] }
   ]
   // Secrets(LWA_CLIENT_ID/LWA_CLIENT_SECRET/KEEPA_API_KEY/SPAPI_APP_ID/OAUTH_STATE_SECRET/
   // ADMIN_TOKEN)は `wrangler secret put` で登録する(このファイルに書かない)。
@@ -82,4 +84,7 @@
   // 同じ値をハードコードして使う(Releaseビルドには含まれない。RewardedAdManagerの
   // fallbackUnitIdと同じ扱い)。他secretと使い回さないこと。
   // LWA_REFRESH_TOKEN はどの環境にも置かない(BYO前提)。
+  // 購入検証: APPLE_IAP_PRIVATE_KEY / APPLE_IAP_KEY_ID / APPLE_IAP_ISSUER_ID /
+  // BILLING_TOKEN_KEYS / BILLING_TOKEN_KEY_ID。docs/BILLING-OPERATIONS.mdを参照。
+  // この変更は実機Sandbox検証と鍵設定を完了してから本番へデプロイする。
 }

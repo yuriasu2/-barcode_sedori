@@ -104,7 +104,6 @@ final class APIClient {
         var request = URLRequest(url: url)
         request.timeoutInterval = 10
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        addPlanHeader(to: &request)
         addDeviceHeader(to: &request)
         addSpApiHeadersIfNeeded(to: &request)
         addKeepaKeyHeaderIfNeeded(to: &request)
@@ -115,7 +114,7 @@ final class APIClient {
         return request
     }
 
-    /// JSONボディ付きPOSTリクエストを作る。ヘッダー類(X-App-Plan / X-Device-Id /
+    /// JSONボディ付きPOSTリクエストを作る。ヘッダー類(X-Device-Id /
     /// X-Spapi-Refresh-Token / X-Spapi-Seller-Id)はmakeRequestと同一の付与ロジックを通す。
     private func makePostRequest<Body: Encodable>(path: String, body: Body) throws -> URLRequest {
         var request = try makeRequest(path: path)
@@ -133,18 +132,6 @@ final class APIClient {
     /// DeviceIdentifierが常に値を返すため条件分岐は不要(以前はIDFVがnilのとき無付与だった)。
     private func addDeviceHeader(to request: inout URLRequest) {
         request.setValue(deviceId, forHTTPHeaderField: "X-Device-Id")
-    }
-
-    /// フリーミアム: 自己申告のプランヘッダー(X-App-Plan)を付与する。
-    /// Pro状態は EntitlementStore(メインアクター)が UserDefaults にミラーした値を同期で読む。
-    /// キーは EntitlementStore.isProCachedKey と一致させること。
-    ///
-    /// 無料体験(StoreKitの導入オファー)中も購読者なのでisProがtrueになり、ここは"pro"を送る。
-    /// かつてのAmazon連携によるお試しは対象機能が限られていたためisProと区別が要ったが、
-    /// 審査(Guideline 5.6)対応で廃止したのでその使い分けは無くなった。
-    private func addPlanHeader(to request: inout URLRequest) {
-        let isPro = UserDefaults.standard.bool(forKey: "settings.isProCached")
-        request.setValue(isPro ? "pro" : "free", forHTTPHeaderField: "X-App-Plan")
     }
 
     /// SP-API連携が有効(Toggle ON かつリフレッシュトークンが非空)であれば、リクエストにSP-API認証ヘッダーを付与する。
@@ -168,7 +155,7 @@ final class APIClient {
 
     /// 利用者自身のKeepa APIキー(BYO)が設定されていれば、リクエストにX-Keepa-Keyヘッダーを付与する。
     /// Proかつキーが非空のときだけ付ける(Keepaキー入力欄自体がPro限定のため、無料プランでは
-    /// 送っても意味が無い)。Pro状態はaddPlanHeaderと同じくEntitlementStoreがミラーした
+    /// 送っても意味が無い)。Pro状態はEntitlementStoreがミラーした
     /// UserDefaultsを同期で読む(EntitlementStore.shared.isProはメインアクター隔離のため、
     /// 非メインアクターのAPIClientから直接は参照できない)。
     ///
@@ -210,7 +197,7 @@ final class APIClient {
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await session.data(for: request)
+            (data, response) = try await authorizedData(for: request)
         } catch {
             throw APIClientError.underlying(error)
         }
@@ -255,6 +242,24 @@ final class APIClient {
         } catch {
             throw APIClientError.decodingError(error)
         }
+    }
+
+    private func authorizedData(for original: URLRequest) async throws -> (Data, URLResponse) {
+        var request = original
+        for (name, value) in try await BillingClient.shared.authorization() {
+            request.setValue(value, forHTTPHeaderField: name)
+        }
+        let first = try await session.data(for: request)
+        // Only GET is replayed. A listing POST may already have reached Amazon.
+        if (first.1 as? HTTPURLResponse)?.statusCode == 401, (request.httpMethod ?? "GET") == "GET" {
+            request.setValue(nil, forHTTPHeaderField: "Authorization")
+            request.setValue(nil, forHTTPHeaderField: "X-Billing-Session")
+            for (name, value) in try await BillingClient.shared.authorization(force: true) {
+                request.setValue(value, forHTTPHeaderField: name)
+            }
+            return try await session.data(for: request)
+        }
+        return first
     }
 
     /// GET /api/search?code={13桁}

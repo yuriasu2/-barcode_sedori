@@ -15,4 +15,23 @@
       </root>
     </mxGraphModel>
   </diagram>
+  <diagram id="billing" name="Pro購入検証（実装済・未デプロイ）">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" page="1" pageWidth="1169" pageHeight="827">
+      <root>
+        <mxCell id="0"/><mxCell id="1" parent="0"/>
+        <mxCell id="b-ios" value="iOS / StoreKit 2&#xa;購入・復元・前面復帰&#xa;JWS / appAccountToken" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;" vertex="1" parent="1"><mxGeometry x="40" y="100" width="240" height="100" as="geometry"/></mxCell>
+        <mxCell id="b-keychain" value="端末Keychain&#xa;匿名セッション・API資格&#xa;サーバーAPI資格とローカルProは別管理" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="40" y="300" width="240" height="100" as="geometry"/></mxCell>
+        <mxCell id="b-worker" value="Cloudflare Workers / api.sellira.jp&#xa;Apple公式ライブラリ・信頼ルート&#xa;/api/billing/session, verify, refresh&#xa;/api/apple/notifications" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;" vertex="1" parent="1"><mxGeometry x="410" y="100" width="300" height="120" as="geometry"/></mxCell>
+        <mxCell id="b-do" value="BillingDO（新規）&#xa;環境＋originalTransactionId単位&#xa;購読状態・通知重複・照会直列化&#xa;別インスタンス: 入口制限 / Sandbox予算" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;" vertex="1" parent="1"><mxGeometry x="410" y="320" width="300" height="120" as="geometry"/></mxCell>
+        <mxCell id="b-apple" value="Apple&#xa;App Store Server API&#xa;Server Notifications V2&#xa;Production / Sandbox" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="830" y="100" width="260" height="120" as="geometry"/></mxCell>
+        <mxCell id="b-api" value="検索・グラフ・出品API&#xa;署名付き資格＋セッションでPro判定&#xa;既存無料枠DO / Keepaスロットルを維持" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="830" y="320" width="260" height="120" as="geometry"/></mxCell>
+        <mxCell id="b-e1" value="JWS / HTTPS&#xa;資格は最長15分" edge="1" parent="1" source="b-ios" target="b-worker" style="endArrow=classic;startArrow=classic;"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="b-e2" edge="1" parent="1" source="b-ios" target="b-keychain" style="endArrow=classic;"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="b-e3" value="検証・保存" edge="1" parent="1" source="b-worker" target="b-do" style="endArrow=classic;startArrow=classic;"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="b-e4" value="購読照会 / 署名付き通知" edge="1" parent="1" source="b-worker" target="b-apple" style="endArrow=classic;startArrow=classic;"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="b-e5" value="検証済みPro" edge="1" parent="1" source="b-worker" target="b-api" style="endArrow=classic;edgeStyle=orthogonalEdgeStyle;"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="b-note" value="2026-09-09: コード構成。購入キー・実購入/OCSP・通知配送の確認後にデプロイ。&#xa;Apple API鍵とAPI資格署名鍵は別のWorker Secrets。生JWSはサーバーへ永続保存しない。&#xa;本番通知後の既発行資格は最長15分残る。Sandbox検索/グラフは全体100要求/UTC日。" style="text;whiteSpace=wrap;html=1;" vertex="1" parent="1"><mxGeometry x="40" y="530" width="1050" height="100" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
 </mxfile>

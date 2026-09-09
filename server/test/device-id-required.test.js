@@ -1,4 +1,5 @@
 'use strict';
+const { proHeaders } = require('./billing-fixture');
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -36,7 +37,7 @@ test('/api/quota: X-Device-Idが無い無料リクエストは400 device_id_requ
 test('/api/quota: Proは端末IDが無くてもunlimitedを返す(クォータ対象外のため)', async () => {
   const res = createMockRes();
   const route = routes.match('GET', '/api/quota');
-  await route.handler({ query: {}, headers: { 'x-app-plan': 'pro' } }, res);
+  await route.handler({ query: {}, headers: { ...proHeaders() } }, res);
 
   assert.equal(res.statusCode, 200);
   assert.equal(res.body.unlimited, true);

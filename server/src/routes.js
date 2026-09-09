@@ -16,6 +16,7 @@ const keepaCoalesce = require('./keepaCoalesce');
 const ipRateLimit = require('./ipRateLimit');
 const admobSsv = require('./admobSsv');
 const listings = require('./spapi/listings');
+const billing = require('./billing/service');
 const spapiClient = require('./spapi/client');
 
 /**
@@ -63,7 +64,8 @@ function graphDataCacheKey(asin) {
  */
 const KEEPA_CACHE_TTL_MS = 30 * 60 * 1000;
 
-const router = new MiniRouter();
+const router = new MiniRouter(billing.authorize);
+billing.register(router);
 
 // Amazon.co.jp本体のセラーID。出品者一覧でAmazon自身の在庫を判別するために使う
 // (実データで確認: 販売元がAmazon.co.jpの商品ページにこのmerchantIdが出現する)。
@@ -87,13 +89,11 @@ const LISTING_CONDITION_TYPES = [
 ];
 
 /**
- * アプリが自己申告するプランを判定する(フリーミアム Phase 1: X-App-Plan ヘッダー)。
- * 'pro' のときのみ true。ヘッダー無し/その他は無料(false)扱い(安全側)。
- * ※自己申告のためPhase 2でサーバー側レシート検証(App Store Server API)に置き換える。
+ * 入口で署名とセッションを検証した結果だけを参照する。
+ * X-App-Planは一切信用しない。
  */
 function isProRequest(headers) {
-  const plan = headers && (headers['x-app-plan'] || headers['X-App-Plan']);
-  return String(plan || '').toLowerCase() === 'pro';
+  return billing.isPro(headers);
 }
 
 /**
@@ -198,7 +198,7 @@ function attachQuota(res, quota) {
  * 場合もここだけは通していたが、App Store審査のGuideline 5.6(有料機能を外部アカウントの
  * 連携と引き換えに無料開放している、との指摘)を受けて2026-08-21に廃止した。無料体験は
  * StoreKitの導入オファー(7日間無料)へ移し、その期間中は通常のサブスク加入者として
- * X-App-Plan: pro が送られてくるため、このゲートはPro判定だけを見ればよくなった。
+ * 署名検証済みのAPI利用資格を送るため、このゲートはPro判定だけを参照する。
  */
 async function requireProByoCredentials(req, res) {
   const sellerId =

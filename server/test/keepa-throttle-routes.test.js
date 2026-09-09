@@ -1,4 +1,5 @@
 'use strict';
+const { proHeaders } = require('./billing-fixture');
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -120,7 +121,7 @@ test('/api/graph-data: スロットル拒否(残量0で即拒否)は429 keepa_bu
 
     const req = {
       query: { asin: 'B000THROTTLE1' },
-      headers: { 'x-app-plan': 'pro', 'x-device-id': 'dev-throttle-1' },
+      headers: { ...proHeaders(), 'x-device-id': 'dev-throttle-1' },
     };
     const res = createMockRes();
     const route = routes.match('GET', '/api/graph-data');
@@ -182,7 +183,7 @@ test('/api/search: BYOキー(X-Keepa-Key)はスロットル枯渇中でも素通
 
     const req = {
       query: { code: '9784873119045' },
-      headers: { 'x-app-plan': 'pro', 'x-device-id': 'dev-byo-1', 'x-keepa-key': 'my-own-key' },
+      headers: { ...proHeaders(), 'x-device-id': 'dev-byo-1', 'x-keepa-key': 'my-own-key' },
     };
     const res = createMockRes();
     const route = routes.match('GET', '/api/search');
@@ -202,7 +203,7 @@ test('/api/graph-data: 成功時はtokensLeftがスロットルへ報告され�
     throttleEnv(t, { KEEPA_BUCKET_CAPACITY: '10', KEEPA_REFILL_PER_MIN: '1' });
     keepa.getProduct = async ({ asin }) => ({ product: { asin, csv: [] }, tokensLeft: 0 });
 
-    const headers = { 'x-app-plan': 'pro', 'x-device-id': 'dev-report-1' };
+    const headers = { ...proHeaders(), 'x-device-id': 'dev-report-1' };
 
     const req1 = { query: { asin: 'B000REPORT01' }, headers };
     const res1 = createMockRes();
@@ -231,7 +232,7 @@ test('/api/graph-data: レスポンス構築(extractGraphSeries)で例外が起�
 
     const req = {
       query: { asin: 'B000CONSTRUCT1' },
-      headers: { 'x-app-plan': 'pro', 'x-device-id': 'dev-construct-1' },
+      headers: { ...proHeaders(), 'x-device-id': 'dev-construct-1' },
     };
     const res = createMockRes();
     await routes.match('GET', '/api/graph-data').handler(req, res);
@@ -260,7 +261,7 @@ test('/api/search: X-Keepa-Debugヘッダー付き(通常経路)は_keepaDebug�
 
     const req = {
       query: { code: '9784873119045' },
-      headers: { 'x-app-plan': 'pro', 'x-device-id': 'dev-debug-1', 'x-keepa-debug': '1' },
+      headers: { ...proHeaders(), 'x-device-id': 'dev-debug-1', 'x-keepa-debug': '1' },
     };
     const res = createMockRes();
     await routes.match('GET', '/api/search').handler(req, res);
@@ -294,7 +295,7 @@ test('/api/search: X-Keepa-Debug+BYOキーはbypass=byoでスロットルに触�
     const req = {
       query: { code: '9784873119045' },
       headers: {
-        'x-app-plan': 'pro',
+        ...proHeaders(),
         'x-device-id': 'dev-debug-2',
         'x-keepa-key': 'my-own-key',
         'x-keepa-debug': '1',
@@ -326,7 +327,7 @@ test('/api/search: X-Keepa-Debug+キャッシュヒットはbypass=cacheで、�
       tokensLeft: 9,
     });
 
-    const baseHeaders = { 'x-app-plan': 'pro', 'x-device-id': 'dev-debug-3' };
+    const baseHeaders = { ...proHeaders(), 'x-device-id': 'dev-debug-3' };
 
     // 1回目: キャッシュへ入れる(デバッグ無し)
     const req1 = { query: { code: '9784873119045' }, headers: baseHeaders };
@@ -374,7 +375,7 @@ test('/api/search: X-Keepa-Debugヘッダーが無ければ_keepaDebugは一切�
 
     const req = {
       query: { code: '9784873119045' },
-      headers: { 'x-app-plan': 'pro', 'x-device-id': 'dev-debug-4' },
+      headers: { ...proHeaders(), 'x-device-id': 'dev-debug-4' },
     };
     const res = createMockRes();
     await routes.match('GET', '/api/search').handler(req, res);
@@ -398,7 +399,7 @@ test('/api/graph-data: X-Keepa-Debugヘッダー付き(通常経路)は_keepaDeb
 
     const req = {
       query: { asin: 'B000GDDEBUG1' },
-      headers: { 'x-app-plan': 'pro', 'x-device-id': 'dev-gd-debug-1', 'x-keepa-debug': '1' },
+      headers: { ...proHeaders(), 'x-device-id': 'dev-gd-debug-1', 'x-keepa-debug': '1' },
     };
     const res = createMockRes();
     await routes.match('GET', '/api/graph-data').handler(req, res);
@@ -432,7 +433,7 @@ test('/api/graph-data: X-Keepa-Debug+BYOキーはbypass=byoでスロットルに
     const req = {
       query: { asin: 'B000GDDEBUG2' },
       headers: {
-        'x-app-plan': 'pro',
+        ...proHeaders(),
         'x-device-id': 'dev-gd-debug-2',
         'x-keepa-key': 'my-own-key',
         'x-keepa-debug': '1',
@@ -464,7 +465,7 @@ test('/api/graph-data: X-Keepa-Debug+キャッシュヒットはbypass=cacheで�
       tokensLeft: 9,
     });
 
-    const baseHeaders = { 'x-app-plan': 'pro', 'x-device-id': 'dev-gd-debug-3' };
+    const baseHeaders = { ...proHeaders(), 'x-device-id': 'dev-gd-debug-3' };
 
     // 1回目: キャッシュへ入れる(デバッグ無し)
     const req1 = { query: { asin: 'B000GDDEBUG3' }, headers: baseHeaders };
@@ -512,7 +513,7 @@ test('/api/graph-data: X-Keepa-Debugヘッダーが無ければ_keepaDebugは一
 
     const req = {
       query: { asin: 'B000GDDEBUG4' },
-      headers: { 'x-app-plan': 'pro', 'x-device-id': 'dev-gd-debug-4' },
+      headers: { ...proHeaders(), 'x-device-id': 'dev-gd-debug-4' },
     };
     const res = createMockRes();
     await routes.match('GET', '/api/graph-data').handler(req, res);
@@ -724,7 +725,7 @@ test('/api/search: X-Keepa-DemoだけではBYOキー無しならglobalとして�
 
     const demoHeaderOnlyReq = {
       query: { code: '9784873119045' },
-      headers: { 'x-app-plan': 'pro', 'x-device-id': 'dev-demo-header-only', 'x-keepa-demo': '1' },
+      headers: { ...proHeaders(), 'x-device-id': 'dev-demo-header-only', 'x-keepa-demo': '1' },
     };
     const res = createMockRes();
     await routes.match('GET', '/api/search').handler(demoHeaderOnlyReq, res);
@@ -759,11 +760,11 @@ test('/api/search: X-Keepa-Demo単体(BYO無し)は通常リクエストと同�
     // 'demo'と'global'に分離されコアレッシングされず2回呼ばれていた)。
     const demoHeaderOnlyReq = {
       query: { code: '9784873119045' },
-      headers: { 'x-app-plan': 'pro', 'x-device-id': 'dev-demo-header-merge', 'x-keepa-demo': '1' },
+      headers: { ...proHeaders(), 'x-device-id': 'dev-demo-header-merge', 'x-keepa-demo': '1' },
     };
     const normalReq = {
       query: { code: '9784873119045' },
-      headers: { 'x-app-plan': 'pro', 'x-device-id': 'dev-normal-merge' },
+      headers: { ...proHeaders(), 'x-device-id': 'dev-normal-merge' },
     };
 
     const [demoHeaderRes, normalRes] = await Promise.all([
@@ -805,7 +806,7 @@ test('/api/search: X-Keepa-Demo付きでもBYOキーが優先されスロット�
     const req = {
       query: { code: '9784873119045' },
       headers: {
-        'x-app-plan': 'pro',
+        ...proHeaders(),
         'x-device-id': 'dev-demo-byo-1',
         'x-keepa-key': 'my-own-key',
         'x-keepa-demo': '1',
@@ -835,7 +836,7 @@ test('/api/graph-data: X-Keepa-Demo経路(BYOキー併用)の成功時は実Keep
     const req = {
       query: { asin: 'B000DEMOKEEP1' },
       headers: {
-        'x-app-plan': 'pro',
+        ...proHeaders(),
         'x-device-id': 'dev-demo-keep-1',
         'x-keepa-demo': '1',
         'x-keepa-key': 'my-own-key',
@@ -872,7 +873,7 @@ test('/api/search: 同一コードへの同時リクエストはKeepaを1回し�
 
     const makeReq = (deviceId) => ({
       query: { code: '9784873119045' },
-      headers: { 'x-app-plan': 'pro', 'x-device-id': deviceId },
+      headers: { ...proHeaders(), 'x-device-id': deviceId },
     });
 
     const responses = await Promise.all(
@@ -915,7 +916,7 @@ test('/api/search: コアレッシングされたリクエストがスロット�
 
     const makeReq = (deviceId) => ({
       query: { code: '9784873119045' },
-      headers: { 'x-app-plan': 'pro', 'x-device-id': deviceId },
+      headers: { ...proHeaders(), 'x-device-id': deviceId },
     });
 
     const responses = await Promise.all(
@@ -960,7 +961,7 @@ test('/api/search: BYOキーが異なる2ユーザーの同時リクエストは
 
     const makeReq = (deviceId, byoKey) => ({
       query: { code: '9784873119045' },
-      headers: { 'x-app-plan': 'pro', 'x-device-id': deviceId, 'x-keepa-key': byoKey },
+      headers: { ...proHeaders(), 'x-device-id': deviceId, 'x-keepa-key': byoKey },
     });
 
     const [resA, resB] = await Promise.all([
@@ -1025,7 +1026,7 @@ test('/api/search: 共有キーでのPro同時リクエストと無料同時リ�
 
     const proReq = {
       query: { code: '9784873119045' },
-      headers: { 'x-app-plan': 'pro', 'x-device-id': 'dev-prio-pro' },
+      headers: { ...proHeaders(), 'x-device-id': 'dev-prio-pro' },
     };
     const freeReq = {
       query: { code: '9784873119045' },

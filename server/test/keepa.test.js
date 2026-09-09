@@ -1,4 +1,5 @@
 'use strict';
+const { proHeaders } = require('./billing-fixture');
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -56,7 +57,7 @@ function createMockRes() {
 
 // フリーミアム: Keepa経路のオファー(第2段階)とグラフはPro限定のため、
 // それらのデータ挙動を検証するテストはPro申告ヘッダーを付けて叩く。
-const PRO = { 'x-app-plan': 'pro' };
+const PRO = { ...proHeaders() };
 
 // ---------------------------------------------------------------------------
 // keepa/client.js 単体テスト
