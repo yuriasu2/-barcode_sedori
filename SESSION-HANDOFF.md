@@ -1,5 +1,14 @@
 # セッション引き継ぎ(2026-09-09 更新)
 
+## 2026-09-10 OCSP通信の503修正（実機の再確認待ち）
+
+- 実機ログで `incoming_signature / Sandbox / verificationStatus=2` → `apple_unavailable` →503を確認。Apple公式ライブラリのOCSP失効確認の通信段階で失敗。
+- ローカルworkerdでnode-fetchのPOSTが `TypeError: Cannot read properties of null (reading 'has')`（node-internal:internal_http_outgoing/processHeader）となることを再現。標準fetchは応答を受信できた。
+- Wranglerのnode-fetch aliasを `server/src/billing/workers-fetch.js` に設定。通信・timeout・buffer()の互換処理のみ。Apple公式ライブラリ3.1.0の署名/証明書チェーン/OCSP検証コード、onlineChecks=trueは維持。Nodeサーバーは元のnode-fetchを使用。
+- 全433テスト成功。ローカルworkerdのbilling-probeで11項目成功（公式OCSP処理が標準fetchを呼び、503や不正応答を拒否することを含む）。直接Miniflareにdry-run出力を渡す場合、buffer/stream/util/crypto/urlのimportをnode:付きへ解決する必要があった。
+- 検証Workerへversion `375fd909-d3b5-4da5-855e-c33b19431bfe` をデプロイ済み。本番は未デプロイ。構成図のOCSP経路を更新、draw.io SVG書出し成功。
+- ユーザーに再ビルド不要で「購入を復元」を依頼済み。実取引の成功はまだ未確認。引き続き診断ログでincoming_signatureが通過し、Apple購読API/応答署名まで成功するか確認する。
+
 ## 2026-09-10 Sandbox購入エラーの調査・復元経路の修正
 
 - 実機購入時に「購入状態を確認しています」。約3分後の復元では無表示。ユーザー確認済み: プラン無料、staging URL、Pro強制オフ。**最初のサーバー購入確認エラーの原因は未特定。期限切れと断定しない。**

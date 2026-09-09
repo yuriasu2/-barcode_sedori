@@ -3,6 +3,7 @@
   "main": "src/worker.js",
   "compatibility_date": "2026-07-01",
   "compatibility_flags": ["nodejs_compat"],
+  "alias": { "node-fetch": "./src/billing/workers-fetch.js" },
   "workers_dev": true,
   "keep_vars": true,
   "vars": {

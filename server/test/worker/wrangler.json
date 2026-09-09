@@ -2,5 +2,6 @@
   "name": "sellerlens-billing-local-test",
   "main": "billing-probe.js",
   "compatibility_date": "2026-07-01",
-  "compatibility_flags": ["nodejs_compat"]
+  "compatibility_flags": ["nodejs_compat"],
+  "alias": { "node-fetch": "../../src/billing/workers-fetch.js" }
 }
