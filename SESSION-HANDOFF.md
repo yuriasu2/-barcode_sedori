@@ -2,6 +2,8 @@
 
 ## 2026-09-10 OCSP通信の503修正（実機の再確認待ち）
 
+- **再確認結果:** ユーザー実機で「購入履歴を確認しましたが、現在有効なPro契約はありません」。同時刻のログで `/api/billing/verify` HTTP200、診断エラーなしを確認。実購入証明の署名/OCSP、Apple購読API、応答検証を通過。現在のサーバー判定はPro無効。正確な失効理由/日時はログに出しておらず未確認。有効なSandbox購入によるPro付与テストは残る。
+
 - 実機ログで `incoming_signature / Sandbox / verificationStatus=2` → `apple_unavailable` →503を確認。Apple公式ライブラリのOCSP失効確認の通信段階で失敗。
 - ローカルworkerdでnode-fetchのPOSTが `TypeError: Cannot read properties of null (reading 'has')`（node-internal:internal_http_outgoing/processHeader）となることを再現。標準fetchは応答を受信できた。
 - Wranglerのnode-fetch aliasを `server/src/billing/workers-fetch.js` に設定。通信・timeout・buffer()の互換処理のみ。Apple公式ライブラリ3.1.0の署名/証明書チェーン/OCSP検証コード、onlineChecks=trueは維持。Nodeサーバーは元のnode-fetchを使用。
