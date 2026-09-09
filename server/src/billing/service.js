@@ -3,6 +3,7 @@ const { randomUUID, createHash } = require('node:crypto');
 const tokens = require('./tokens');
 const apple = require('./apple');
 const { evaluate } = require('./state');
+const { report } = require('./diagnostics');
 const DAY = 86400000;
 const verifiedRequests = new WeakMap();
 async function call(name, body) {
@@ -45,6 +46,7 @@ async function authorize(req, res) {
   } catch (e) { sendError(res, e, 401); return false; }
 }
 function sendError(res, error, fallback = 503) {
+  report('billing_response', error);
   const code = error.message;
   const status = code === 'billing_rate_limited' ? 429 : ['invalid_purchase', 'purchase_not_found', 'invalid_environment'].includes(code) ? 400 : code === 'billing_unauthorized' ? 401 : fallback;
   return res.status(status).json({ error: status === 503 ? 'billing_unavailable' : code, message: status === 429 ? '購入状態の確認が集中しています。少し待って再度お試しください。' : '購入状態を確認できませんでした。再購入せず、しばらくしてから再度お試しください。' });

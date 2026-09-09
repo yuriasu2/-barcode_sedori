@@ -1,5 +1,6 @@
 'use strict';
 const { evaluate, mergeState } = require('./state');
+const { report } = require('./diagnostics');
 const root = require('./apple-root.json');
 const BUNDLE = 'jp.sellira.sellerlens';
 const verifiers = new Map();
@@ -21,6 +22,7 @@ async function decode(jws, method) {
   const environment = payload.environment || payload.data?.environment || payload.summary?.environment;
   try { return await verifier(environment)[method](jws); }
   catch (e) {
+    report('incoming_signature', e, environment);
     const { VerificationStatus } = require('@apple/app-store-server-library');
     if (e.status === VerificationStatus.RETRYABLE_VERIFICATION_FAILURE) throw new Error('apple_unavailable');
     throw new Error('invalid_purchase');
@@ -38,6 +40,7 @@ async function latest(environment, originalTransactionId, env) {
   let response;
   try { response = await client.getAllSubscriptionStatuses(originalTransactionId); }
   catch (e) {
+    report('subscription_api', e, environment);
     if (e.httpStatusCode === 404) throw new Error('purchase_not_found');
     throw new Error('apple_unavailable');
   }
@@ -55,6 +58,7 @@ async function latest(environment, originalTransactionId, env) {
       }
     }
   } catch (e) {
+    report('subscription_signature', e, environment);
     const { VerificationStatus } = require('@apple/app-store-server-library');
     if (e.status === VerificationStatus.RETRYABLE_VERIFICATION_FAILURE) throw new Error('apple_unavailable');
     throw new Error('invalid_purchase');
