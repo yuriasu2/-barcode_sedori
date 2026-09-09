@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 import StoreKit
 
 /// フリーミアムのPro状態を一元管理するストア(StoreKit 2)。
@@ -37,6 +38,9 @@ final class EntitlementStore: ObservableObject {
     @Published private(set) var isLoadingProduct = false
     @Published private(set) var purchaseInProgress = false
     @Published private(set) var isPurchaseSyncPending = false
+    @Published private(set) var restoreInProgress = false
+    @Published private(set) var restoreStatusMessage: String?
+    private var purchaseSyncErrorMessage: String?
     /// 購入・復元の失敗時に表示する日本語メッセージ。表示後は呼び出し側でnilに戻すこと。
     @Published var lastActionErrorMessage: String?
     /// 商品情報読込(`loadProduct()`)の診断情報。原因切り分け用で、購入・復元用の
@@ -96,7 +100,7 @@ final class EntitlementStore: ObservableObject {
 
     func serverSynchronizationCompleted() {
         isPurchaseSyncPending = false
-        if lastActionErrorMessage == BillingClient.Pending().localizedDescription {
+        if lastActionErrorMessage?.hasPrefix(BillingClient.Pending().localizedDescription) == true {
             lastActionErrorMessage = nil
         }
     }
@@ -163,6 +167,7 @@ final class EntitlementStore: ObservableObject {
 
         var active = false
         var pending = false
+        purchaseSyncErrorMessage = nil
         for await result in Transaction.currentEntitlements {
             guard case .verified(let transaction) = result else { continue }
             if transaction.productID == Self.proProductID, transaction.revocationDate == nil {
@@ -172,6 +177,7 @@ final class EntitlementStore: ObservableObject {
                     await transaction.finish()
                 } catch {
                     pending = true
+                    purchaseSyncErrorMessage = (error as? BillingClient.Pending)?.localizedDescription
                 }
             }
         }
@@ -186,6 +192,8 @@ final class EntitlementStore: ObservableObject {
         guard let product else { return false }
         purchaseInProgress = true
         lastActionErrorMessage = nil
+        restoreStatusMessage = nil
+        purchaseSyncErrorMessage = nil
         defer { purchaseInProgress = false }
         do {
             let accountToken = try await BillingClient.shared.appAccountToken()
@@ -201,9 +209,10 @@ final class EntitlementStore: ObservableObject {
                     } catch {
                         // Remains unfinished in StoreKit and retries on launch/updates/API use.
                         isPurchaseSyncPending = true
+                        purchaseSyncErrorMessage = (error as? BillingClient.Pending)?.localizedDescription
                     }
                     if isPurchaseSyncPending {
-                        lastActionErrorMessage = BillingClient.Pending().localizedDescription
+                        lastActionErrorMessage = purchaseSyncErrorMessage ?? BillingClient.Pending().localizedDescription
                         return false
                     }
                     if isPro {
@@ -232,6 +241,10 @@ final class EntitlementStore: ObservableObject {
     /// 購入の復元。App Storeと同期後にエンタイトルメントを再評価する。
     @discardableResult
     func restore() async -> Bool {
+        guard !restoreInProgress else { return false }
+        restoreInProgress = true
+        restoreStatusMessage = nil
+        defer { restoreInProgress = false }
         lastActionErrorMessage = nil
         do {
             try await AppStore.sync()
@@ -241,12 +254,40 @@ final class EntitlementStore: ObservableObject {
         }
         await refreshEntitlements()
         if isPurchaseSyncPending {
-            lastActionErrorMessage = BillingClient.Pending().localizedDescription
+            lastActionErrorMessage = purchaseSyncErrorMessage ?? BillingClient.Pending().localizedDescription
             return false
         } else if isPro {
             lastActionErrorMessage = nil
+            restoreStatusMessage = "購入を復元しました。"
+            return true
         }
-        return isPro
+
+        // currentEntitlements excludes expired purchases. A previous purchase may
+        // still need server verification after its initial synchronization failed.
+        // Use only a StoreKit-verified proof; the server determines current access.
+        guard let latest = await Transaction.latest(for: Self.proProductID) else {
+            if lastActionErrorMessage == nil {
+                restoreStatusMessage = "このApp Storeアカウントに復元できる購入が見つかりませんでした。"
+            }
+            return false
+        }
+        guard case .verified(let transaction) = latest else {
+            lastActionErrorMessage = "購入情報の署名を確認できませんでした。再購入せず、しばらくしてから再度お試しください。"
+            return false
+        }
+        do {
+            let serverPro = try await BillingClient.shared.synchronize(latest.jwsRepresentation)
+            await transaction.finish()
+            setIsPro(serverPro)
+            isPurchaseSyncPending = false
+            lastActionErrorMessage = nil
+            restoreStatusMessage = serverPro ? "購入を復元しました。" : "購入履歴を確認しましたが、現在有効なPro契約はありません。"
+            return serverPro
+        } catch {
+            isPurchaseSyncPending = true
+            lastActionErrorMessage = (error as? BillingClient.Pending)?.localizedDescription ?? BillingClient.Pending().localizedDescription
+            return false
+        }
     }
 
     private func setIsPro(_ value: Bool) {

@@ -75,6 +75,18 @@ final class BillingProtocol: URLProtocol {
         }
         let revoked = try await client.authorization(force: true)
         precondition(revoked.isEmpty && refreshCalls == 1, "revocation must remove API access")
+        BillingProtocol.respond = { _ in (400, ["error": "invalid_purchase", "message": "SECRET-PURCHASE-DATA"]) }
+        do { _ = try await client.synchronize("private-proof"); fatalError("invalid proof must fail") }
+        catch {
+            #if DEBUG
+            precondition(error.localizedDescription.contains("HTTP 400"), "verification diagnostics must identify HTTP status")
+            precondition(error.localizedDescription.contains("invalid_purchase"))
+            #else
+            precondition(!error.localizedDescription.contains("HTTP 400"))
+            #endif
+            precondition(!error.localizedDescription.contains("SECRET-PURCHASE-DATA"))
+            precondition(!error.localizedDescription.contains("private-proof"))
+        }
         KeychainStore.failWrites = true
         BillingProtocol.respond = { _ in (200, ["pro": true, "accessToken": "new", "refreshToken": "refresh", "expiresAt": 123]) }
         do { _ = try await client.synchronize("proof"); fatalError("Keychain failure must not acknowledge delivery") }

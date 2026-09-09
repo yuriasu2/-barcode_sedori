@@ -300,7 +300,14 @@ struct SettingsView: View {
                     Button {
                         Task { await entitlements.restore() }
                     } label: {
-                        Text("購入を復元")
+                        HStack {
+                            Text(entitlements.restoreInProgress ? "購入を確認中…" : "購入を復元")
+                            if entitlements.restoreInProgress { ProgressView() }
+                        }
+                    }
+                    .disabled(entitlements.restoreInProgress)
+                    if let message = entitlements.restoreStatusMessage {
+                        Text(message).font(.footnote).foregroundColor(.secondary)
                     }
                     if let message = entitlements.lastActionErrorMessage {
                         Text(message).font(.footnote).foregroundColor(.secondary)

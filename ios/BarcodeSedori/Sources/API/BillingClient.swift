@@ -23,7 +23,14 @@ final class BillingClient {
         let expiresAt: Double
     }
     struct Pending: LocalizedError {
-        var errorDescription: String? { "購入状態を確認しています。再購入は不要です。通信環境をご確認のうえ、しばらくしてから再度お試しください。" }
+        var diagnostic: String? = nil
+        var errorDescription: String? {
+            let message = "購入状態を確認しています。再購入は不要です。通信環境をご確認のうえ、しばらくしてから再度お試しください。"
+            #if DEBUG
+            if let diagnostic { return message + "\n検証情報: " + diagnostic }
+            #endif
+            return message
+        }
     }
     private var task: Task<[String: String], Error>?
     private var sessionTask: Task<Credentials, Error>?
@@ -44,13 +51,23 @@ final class BillingClient {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(session, forHTTPHeaderField: "X-Billing-Session")
         request.httpBody = try JSONEncoder().encode(body)
-        let (data, response) = try await transport.data(for: request)
+        let data: Data
+        let response: URLResponse
+        do { (data, response) = try await transport.data(for: request) }
+        catch let error as URLError { throw Pending(diagnostic: "通信エラー \(error.code.rawValue)") }
         guard let http = response as? HTTPURLResponse else { throw Pending() }
         if http.statusCode == 401 {
             // Expired/rotated session: a fresh StoreKit proof is required to restore access.
             KeychainStore.delete(storageKey)
         }
-        guard http.statusCode == 200 else { throw Pending() }
+        guard http.statusCode == 200 else {
+            // Never include response messages, headers, credentials or purchase proofs.
+            let body = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            let code = body?["error"] as? String ?? ""
+            let allowed = ["invalid_purchase", "purchase_not_found", "invalid_environment", "billing_unavailable", "billing_unauthorized", "billing_rate_limited"]
+            let detail = allowed.contains(code) ? " / " + code : ""
+            throw Pending(diagnostic: "\(path) HTTP \(http.statusCode)\(detail)")
+        }
         return try JSONDecoder().decode(T.self, from: data)
     }
     private func credentials() async throws -> Credentials {

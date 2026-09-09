@@ -1,5 +1,14 @@
 # セッション引き継ぎ(2026-09-09 更新)
 
+## 2026-09-10 Sandbox購入エラーの調査・復元経路の修正
+
+- 実機購入時に「購入状態を確認しています」。約3分後の復元では無表示。ユーザー確認済み: プラン無料、staging URL、Pro強制オフ。**最初のサーバー購入確認エラーの原因は未特定。期限切れと断定しない。**
+- stagingの安全な診断ログを追加済み（コミット `67341fd`、Worker version `8b986f2e-df2d-40a0-98df-8943c781f3e6`）。ログのリスナーが稼働中に復元リクエストは見られず、healthのログは確認できた。本文・JWS・識別子・鍵は記録しない。
+- `restore()`がcurrentEntitlementsだけを見て、空の場合に無表示になる点を修正。StoreKitで検証済みの直近購入もサーバーへ送り、現時点のPro可否を確認する。サーバー失敗時にはfinishせず再試行可能なまま残す。確認中、購入なし、有効契約なし、成功を設定に表示。
+- DEBUGのみ、安全なエラーコードとHTTPステータスを表示。Releaseには診断詳細を表示しない。秘密・レスポンスmessage・購入JWSは表示対象外。
+- `ios/tests/EntitlementRestoreTests.swift` は実際のEntitlementStoreを使い、StoreKit/サーバー/UserDefaultsをローカル代替にして購入なし・未検証・通信失敗・期限切れ・有効の5ケースを確認。BillingClientテストはDEBUG/非DEBUGとも成功。generic iOS Simulator向けビルド成功（起動なし）。
+- 次: Xcodeから最新コードを実機へRunし、設定の「購入を復元」に出る結果/検証情報をユーザーから取得する。StoreKit ConfigurationはNoneを維持。初回エラー解消の確認ができるまで本番へ課金Workerをデプロイしない。
+
 ## 2026-09-10 検証Workerを公開・課金キー登録完了
 
 - 依頼により `barcode-sedori-api-staging` を公開。URL: `https://barcode-sedori-api-staging.saastids2025.workers.dev`。設定は `server/wrangler.staging.jsonc`。本番未変更。
