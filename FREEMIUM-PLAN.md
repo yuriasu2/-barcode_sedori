@@ -95,6 +95,8 @@
 
 ### 4.2b SP-API認証情報（BYO / OAuth）の保存方針
 
+> Pro購入のサーバー検証は別途 [App Store Server API実装企画書](APP-STORE-SERVER-VERIFICATION-PLAN.md) に集約（2026-09-09作成・未実装）。匿名復元、通知、旧ビルド移行と未決定事項を含む。
+
 - 利用者は自分のセラーアカウントを **OAuth（LWA）で接続**し、取得した refresh token をアプリが保持、リクエストヘッダー `X-Spapi-Refresh-Token` で送る（clientId/clientSecret は開発者アプリ共通=サーバー .env）。→ 現行実装済み。
 - **公開前に、試験用の「手動SP-APIキー入力欄」は削除**し、接続導線はOAuthのみにする。
 

@@ -1,5 +1,9 @@
 # セッション引き継ぎ(2026-08-21 更新)
 
+## 2026-09-09 Pro購入のサーバー検証企画
+
+`APP-STORE-SERVER-VERIFICATION-PLAN.md` を作成。現在のStoreKit 2とX-App-Plan自己申告を確認し、Apple署名検証・購読状態API・通知V2・短命資格・匿名復元・旧版移行を提案した。企画書のみで、コード変更・インフラ追加・デプロイは未実施。匿名復元のコピー耐性には限界があり、ログイン導入とは別判断。Workersで公式ライブラリが動くかを実装前の第一検証項目とする。
+
 ## 2026-09-09 Amazon認可の更新
 
 - ユーザー指定で `ASWebAuthenticationSession` のみ導入。AmazonAuthorizationSessionがセッションと表示ウィンドウを保持し、完了結果の検証後にKeychain保存する。
