@@ -1,5 +1,13 @@
 # セッション引き継ぎ(2026-09-10 更新)
 
+## 2026-09-10 AdMobバナーの表示幅修正
+
+- iPhone 8 PlusでAdChoicesが表示されるAdMobバナーがぼやけるとの報告を受け、原因候補だった自社画像バナーではなくAdMob経路を調査。
+- `ios/BarcodeSedori/Sources/Views/AdSlotView.swift`のAdMob枠を`GeometryReader`で実際の広告枠幅に合わせ、`BannerAdView`へ渡すよう変更。
+- `ios/BarcodeSedori/Sources/Ads/BannerAdView.swift`は広告枠幅からアダプティブサイズを計算し、幅変更時だけ`adSize`更新と再読み込みを行う。`AdaptiveBannerLayout`で0/非有限幅をSDKへ渡さない。
+- 広告表示の見た目を確認するための実機インストールは未実施。次はiPhone 8 Plus/iOS16.7.11で、広告が表示された状態の文字・画像の鮮明さと広告枠の高さを確認する。
+- `ios/tests/AdaptiveBannerLayoutTests.swift`の幅正規化テスト成功。generic iOS Simulator Debugビルド、generic iOS device Debugビルドとも成功。シミュレーターは起動していない。
+
 ## 2026-09-10 iOS16履歴一覧をScrollViewへ移行
 
 - iPhone 8 Plus/iOS16.7.11で、別タブから先頭へ追加した新しい履歴が最初の商品の表示・詳細遷移を再利用する問題を修正。

@@ -27,11 +27,21 @@ struct AdSlotView: View {
     private func content(for slot: AdSlot) -> some View {
         switch slot {
         case .admob(let admob):
-            // AdMobはどの枠でもアダプティブバナーにする(端末幅から高さが同期算出されるため、
-            // 枠ごとに高さを決め打ちせずレイアウトも跳ねない)。
-            BannerAdView(unitId: admob.unitId, size: .adaptive)
-                .frame(height: BannerAdView.Size.adaptive.height)
+            // AdMobはどの枠でもアダプティブバナーにする。GeometryReaderで実際の広告枠幅を
+            // 取得してSDKへ渡し、端末画面幅とSafe Area幅の差による再スケールを避ける。
+            GeometryReader { proxy in
+                let width = AdaptiveBannerLayout.width(from: proxy.size.width)
+                BannerAdView(
+                    unitId: admob.unitId,
+                    size: .adaptive,
+                    adaptiveWidth: width
+                )
+                .frame(width: width, height: BannerAdView.Size.adaptive.height(for: width))
                 .frame(maxWidth: .infinity)
+            }
+            // 初回レイアウト時の仮の高さ。実際の広告枠幅が確定すると内部の広告サイズを更新する。
+            .frame(height: BannerAdView.Size.adaptive.height)
+            .frame(maxWidth: .infinity)
         case .custom(let custom):
             customAdView(custom)
         }
