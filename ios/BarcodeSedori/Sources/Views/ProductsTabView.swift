@@ -48,6 +48,14 @@ struct ProductsTabView: View {
         }
     }
 
+    /// iOS 16では別タブで先頭に履歴を追加すると、Listの可視セルに以前の
+    /// 内容とタップ先が残る場合がある。先頭の履歴が変わった時だけListを再生成する。
+    /// 検索・選択状態はListの外に保持し、同じ履歴の価格更新では再生成しない。
+    private var historyListIdentity: UUID? {
+        if #available(iOS 17, *) { return nil }
+        return historyStore.items.first?.id
+    }
+
     var body: some View {
         NavigationView {
             Group {
@@ -59,19 +67,18 @@ struct ProductsTabView: View {
 
                         List(selection: $selectedIds) {
                             ForEach(filteredItems) { item in
-                                if isSelecting {
-                                    HistoryRow(item: item)
-                                } else {
-                                    HistoryRow(item: item)
-                                        .contentShape(Rectangle())
-                                        .onTapGesture {
-                                            if item.asin != nil {
-                                                selectedItem = item
-                                            }
+                                HistoryRow(item: item)
+                                    .id(item.id)
+                                    .tag(item.id)
+                                    .contentShape(Rectangle())
+                                    .gesture(TapGesture().onEnded {
+                                        if !isSelecting, item.asin != nil {
+                                            selectedItem = item
                                         }
-                                }
+                                    }, including: isSelecting ? .subviews : .all)
                             }
                         }
+                        .id(historyListIdentity)
                         .listStyle(.plain)
                         // isSelecting@Stateをこの階層のeditMode環境値へ明示的に反映する(自前トグルのため)。
                         // Listの複数選択チェックマークUIはこの環境値がactiveのときのみ表示される。

@@ -1,5 +1,12 @@
 # セッション引き継ぎ(2026-09-09 更新)
 
+## 2026-09-10 iOS16履歴の表示取り違え対策（実機確認待ち）
+
+- iPhone8 Plus/iOS16.7.11で別商品をスキャンしても履歴行の商品名・価格・タップ先が最初の商品になり、スクロールで再表示された行は正しくなるとの報告。他の新しいiPhoneでは正常。
+- ProductsTabViewにiOS16限定のList identityを追加。先頭の履歴UUIDが変わった時だけListを再生成し、古い可視セル/タップ処理の再利用を避ける。iOS17以降は一定identity。各行のID/selection tagを明示し、行の選択モード分岐を統一。選択中は詳細用TapGestureを無効にする。
+- 新規追加や先頭削除の際はiOS16のスクロール位置が先頭へ戻る。検索・選択状態はList外なので保持。同一履歴の価格更新はListを再生成しない。
+- 実際のStore/Modelsで異なる12商品のUUID・順序・商品名/価格・ディスク再読込を確認。初回テストは日時の小数秒欠落との比較で失敗し、秒単位日時にして成功。最終generic Simulatorビルド成功。iOS16実機での表示改善は未確認。ビルド番号変更・アップロードはしていない。
+
 ## 2026-09-10 TestFlight購入503の追調査
 
 - TestFlight build10購入/復元で確認待ち。実機再試行ログは `/api/billing/verify`503、DO内部の`subscription_api / Sandbox`失敗（HTTP status/apiErrorなし）→apple_unavailable。入力署名/OCSPは通過しており、以前のOCSP失敗とは別。
