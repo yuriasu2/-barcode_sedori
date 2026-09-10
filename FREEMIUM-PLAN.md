@@ -3,23 +3,34 @@
 > **⚠️ この文書の「プラン別制限」は 2026-07-31 に置き換えられました。**
 > 現行仕様は [`docs/superpowers/specs/2026-07-31-freemium-v2-limits-design.md`](docs/superpowers/specs/2026-07-31-freemium-v2-limits-design.md)（無料枠ユニットモデル）を参照してください。
 > 本文書に出てくる「日次100件」「`FREE_DEVICE_DAILY_LIMIT`（150件）」「グラフはPro限定」は**すべて廃止済み**です。
-> また「既存ユーザー」に関する記述（162行目付近）も誤りで、本アプリは未公開・利用者ゼロです。
-> 制限以外の記述（StoreKit基盤・AdMob・公開前TODO）は引き続き有効です。
+> また「既存ユーザー」に関する記述（162行目付近）は公開前の記述です。本アプリは2026-09-10時点で公開済みです。
+> 制限以外の記述（StoreKit基盤・AdMob・公開後の未完了課題）は引き続き有効です。
 
-作成: 2026-07-14 / 最終更新: 2026-07-15 / ステータス: **Phase 1〜2 完了・Phase 3 一部完了（レシート検証は公開準備時）**
+作成: 2026-07-14 / 最終更新: 2026-09-10 / ステータス: **Phase 1〜2 完了・Phase 3（課金検証/デバイス制限）完了**
 
-## 実装状況（2026-07-15 時点・サーバー82テスト/iOSビルド 検証済み）
+## 審査通過後に完了した対応（2026-09-10時点）
+
+- [x] Guideline 5.6対応: Amazon連携を条件にしたPro無料体験を廃止し、StoreKitの導入オファーへ移行。
+- [x] Amazon連携画面の手動トークン表示用`textarea`を削除。
+- [x] App Store Server APIによる購入・復元のサーバー検証を実装し、本番Workerへ反映。TestFlight Sandboxの購入からPro反映まで確認。
+- [x] SP-API本番OAuthをPublished版へ切替。`version=beta`の環境変数切替と、LWAトークン交換の`redirect_uri`完全一致を実装・テスト。
+- [x] `ASWebAuthenticationSession`によるiOS側のAmazon認可受け取りをコード実装。
+- [x] AdMobを本番広告へ切替。広告枠は実際の幅を使うアンカー アダプティブバナーに変更。
+
+※`ASWebAuthenticationSession`を含む新しいiOSコードは公開済みビルド9へは未反映。新ビルドの配信とAmazon第三者セラーによる本番OAuth通し確認は残課題。
+
+## 実装状況（2026-09-10 時点・サーバー/iOS実機で検証済み）
 
 - **Phase 1: 完了** — サーバーゲート(X-App-Plan) / StoreKit2基盤+ペイウォール / クライアントゲート（OCRロック・無料5秒/Pro1秒クールダウン・日次100件・オファーぼかしダミー+鍵・グラフロック）。「あと◯秒」オーバーレイも実装済み。StoreKit基盤は実機で購入→Pro反映を確認済み。
-- **Phase 2: 完了** — AdMobバナー広告。※企画から変更: バナーは**320x100固定**（アダプティブではない）、無料のグラフ枠は**ぼかしダミーグラフを廃止**し「鍵+Pro案内 + 広告バナー」構成。ATT/PrivacyInfo/SKAdNetwork(2件)対応済み。
-- **Phase 3: 一部完了**
+- **Phase 2: 完了** — AdMobバナー広告。バナーは広告枠の実幅を使う**アンカー アダプティブバナー**で、無料のグラフ枠は**ぼかしダミーグラフを廃止**し「鍵+Pro案内 + 広告バナー」構成。ATT/PrivacyInfo/SKAdNetwork(2件)対応済み。
+- **Phase 3: 完了**
   - ✅ **デバイス単位のサーバー側レート制限**（X-Device-Id、無料の /api/search を日次バックストップ。既定150件=クライアント100の上・env FREE_DEVICE_DAILY_LIMIT）。
-  - ⏳ **App Store Server API によるレシート検証は未着手**（App Store Connect のアプリ・サブスク商品登録＋実トランザクションが前提のため、公開準備フェーズで実施）。
+  - ✅ **App Store Server API によるレシート検証** — 実装・本番Worker反映・通知V2設定・TestFlight Sandbox購入によるPro反映確認まで完了（2026-09-10）。
   - ⏳ **端末証明（App Attest）は未着手・将来実装予定**（詳細は下記「4.2c 端末証明（App Attest）— 将来実装予定」参照）。
   - ⏳ **アカウント（ログイン）は未着手・将来実装予定**（詳細は下記「4.2d アカウント（ログイン）— 将来実装予定」参照）。
 - **共有コスト削減**: ✅ Keepa経路の検索/オファー結果を **30分キャッシュ**に延長（`KEEPA_CACHE_TTL_MS`）。SP-API経路はBYOのため既定5分のまま。
 
-### 公開前 必須TODO（2026-08-14時点で更新。完了したものは取り消し線）
+### 公開準備・公開後の確認事項（2026-09-10時点。完了したものは取り消し線）
 
 - ~~サーバー `.env` から `LWA_REFRESH_TOKEN` を外す~~ → 本番はCloudflare Workersのため`.env`自体がデプロイされない。代わりに`wrangler secret list`でSecretに登録されていないことを確認する運用に変更（詳細は4.2の該当箇所）。
 - ~~バンドルID `com.example.barcodesedori` → 本番ID~~ `jp.sellira.sellerlens` に変更済み（2026-08-14）。
@@ -28,9 +39,9 @@
 - ~~試験用の手動SP-APIキー入力欄を削除~~ 対応済み（`SecureField`は現在Keepa BYOキー欄のみで、これは意図通り）。
 - **PostHog**: APIキー設定済み。プライバシーポリシーへの記載、App Store Connectのプライバシー表示申告は**未対応のまま**（下記参照）。
 - **プライバシーポリシーのページを `https://sellira.jp/privacy/` に公開する**（別リポジトリ sellira-site）。ページ自体は存在確認済み（2026-08-13）だが、**本番デプロイ済みかは未確認**。課金画面から直接リンクしており、未公開だと審査に落ちる。
-- **App Store アプリIDを `SettingsView.swift` の `AppStoreReviewConfig.appId` に設定する**（現在は空文字）。**App Store Connectでのアプリ登録が前提**。空の間は設定タブの「レビューを書く」行が非表示のまま公開されてしまう。
+- ~~App Store アプリIDを `SettingsView.swift` の `AppStoreReviewConfig.appId` に設定する~~ → `6801570852`を設定済み（2026-08-14）。
 - ~~SP-API refresh token を UserDefaults → Keychain へ移行~~ 対応済み。**あわせて出品者ID(sellerId)もKeychainへ移行済み**（2026-08-14。再インストールで連携が壊れるバグの修正。SESSION-HANDOFF.md参照）。
-- （公開前・偽装対策・未対応）自己申告 X-App-Plan を廃し、App Store Server API レシート検証を導入。
+- ~~自己申告 `X-App-Plan` を廃し、App Store Server API レシート検証を導入~~ → 実装・本番反映済み。TestFlight Sandboxで購入からPro反映まで実機確認済み（2026-09-10）。
 - **App Store Connectのプライバシー申告（Webフォーム）を提出時に記入する**。`PrivacyInfo.xcprivacy`はアプリ自身のコード分のみでよい（AdMob/PostHog等SDK分は各SDKが自前で申告済みのためマニフェストへの追記は不要）が、**Webフォームの方はSDK分も含めて申告する必要がある**。AdMobの申告内容はGoogleが公開: <https://developers.google.com/admob/ios/privacy/data-disclosure>。詳細はSESSION-HANDOFF.mdの「マニフェストとApp Store Connectのプライバシー申告の使い分け」参照。
 - **無認証で公開されているデモ用エンドポイント2本**（`/api/keepa-throttle-demo/seed` `/probe`）にIPレート制限を追加済み（2026-08-14）。エンドポイント自体は本番検証用に維持する判断（削除しない）。
 - リワード広告のSSVコールバックURL（`https://api.sellira.jp/api/admob/ssv`）をAdMobコンソールで設定する（ユーザー作業・未対応）。
@@ -71,7 +82,7 @@
 
 - **月額サブスクリプション（StoreKit 2 / 自動更新）**。買い切りは提供しない。
   - 理由: SP-API/Keepaの利用コストが毎月発生するため、買い切りだとヘビーユーザーが恒常的な赤字要因になる。
-- **価格: ¥1,980/月**。**無料トライアル: 3日間**（導入オファー）。
+- **価格: ¥1,980/月**。**無料トライアル: 7日間**（導入オファー）。
 - 必須実装: 購入 / 復元（Restore Purchases）/ 期限切れ検知 / ペイウォール画面。
 
 ## 4. アーキテクチャ方針
@@ -85,7 +96,7 @@
 
 クライアント側の出し分けだけでは改ざん・直叩きで回避可能。段階的にサーバーでも制限する。ゲートは**ソース依存**（SP-APIは各自の枠なので開放、Keepaは共有コストなので制限）。
 
-**2026-09-09更新:** App Store Server APIによる検証をコード実装済み。本番未反映。新コードは自己申告ヘッダーを信用せず、署名付きAPI資格と匿名セッションを検証する。以下のPhase 1記述は公開中の旧実装。設定・公開前確認は [運用手順](docs/BILLING-OPERATIONS.md) を参照。
+**2026-09-10更新:** App Store Server APIによる検証をコード実装し、本番Workerへ反映済み。新コードは自己申告ヘッダーを信用せず、署名付きAPI資格と匿名セッションを検証する。TestFlight Sandboxで購入・復元からPro反映まで実機確認済み。設定・運用手順は [運用手順](docs/BILLING-OPERATIONS.md) を参照。
 
 - アプリはリクエストに `X-App-Plan: free|pro` を付与（Phase 1: 自己申告）。
 - サーバーの無料プラン動作:
@@ -97,10 +108,10 @@
 
 ### 4.2b SP-API認証情報（BYO / OAuth）の保存方針
 
-> Pro購入のサーバー検証は別途 [App Store Server API実装企画書](APP-STORE-SERVER-VERIFICATION-PLAN.md) に集約（2026-09-09コード実装、本番反映待ち）。匿名復元、通知、旧ビルドへの影響を含む。
+> Pro購入のサーバー検証は別途 [App Store Server API実装企画書](APP-STORE-SERVER-VERIFICATION-PLAN.md) に集約（2026-09-10本番反映・TestFlight実機確認済み）。匿名復元、通知、旧ビルドへの影響を含む。
 
 - 利用者は自分のセラーアカウントを **OAuth（LWA）で接続**し、取得した refresh token をアプリが保持、リクエストヘッダー `X-Spapi-Refresh-Token` で送る（clientId/clientSecret は開発者アプリ共通=サーバー .env）。→ 現行実装済み。
-- **公開前に、試験用の「手動SP-APIキー入力欄」は削除**し、接続導線はOAuthのみにする。
+- ~~公開前に、試験用の「手動SP-APIキー入力欄」は削除~~ → 接続導線はOAuthのみへ変更済み。
 
 #### 保存方式は2段階で考える
 
@@ -195,9 +206,9 @@
 
 **着手判断の目安**: 実際に不審なトラフィック増加が観測された、または公開後にDO/KV等の日次使用量が実測でFreeプラン上限に近づいてきたとき。それ以前は優先度低（他の未解決課題の方が公開への影響が大きい）。
 
-### 4.2f SP-API認可の受け渡しをカスタムURLスキームから置き換える — 将来実装予定
+### 4.2f SP-API認可の受け渡しをカスタムURLスキームから置き換える — iOSコード実装済み
 
-**2026-09-09 更新（ユーザー指定範囲）**: iOSの認可開始を `ASWebAuthenticationSession` に変更。認可結果はそのセッションの完了ハンドラだけで受信し、通常の `onOpenURL` からのトークン保存は廃止した。キャンセル・不正な応答時は既存の連携情報を変更しない。新ビルドの配信が必要で、公開済みビルド9には未反映。実機でのAmazon認可完了・キャンセル確認は未実施。
+**2026-09-10 更新（ユーザー指定範囲）**: iOSの認可開始を `ASWebAuthenticationSession` に変更済み。認可結果はそのセッションの完了ハンドラだけで受信し、通常の `onOpenURL` からのトークン保存は廃止した。キャンセル・不正な応答時は既存の連携情報を変更しない。コード実装は完了しているが、新ビルドの配信が必要で、公開済みビルド9には未反映。実機でのAmazon認可完了・キャンセル確認は未実施。
 
 同日、Amazon Selling Partner Appstore掲載承認後のサーバー切替も完了。Published版を認可するため本番URLから`version=beta`を除去し、Draft試験時だけ`SPAPI_AUTH_VERSION=beta`で再付与できる。初回LWAトークン交換には、Amazon登録値と完全一致する`LWA_REDIRECT_URI=https://api.sellira.jp/oauth/callback`を送信する。本番Workerへデプロイし、認可開始URLの転送先に`version`がないことまで確認済み。第三者セラーによる通し確認は未実施。
 
@@ -297,9 +308,9 @@ barcodesedori://spapi-auth?refresh_token=<平文>&selling_partner_id=...
   4. テスト（サーバー）+ 実機確認 → リリース
 - **Phase 2（広告）**
   5. AdMob 導入（ATT・プライバシーマニフェスト・審査申告）、グラフ枠へバナー表示
-- **Phase 3（不正対策強化）**
-  6. App Store Server API によるサーバー側レシート検証（自己申告ヘッダー廃止）
-  7. サーバー側のデバイス単位レート制限（日次上限のバックストップ）
+- **Phase 3（不正対策強化）完了**
+  6. ~~App Store Server API によるサーバー側レシート検証（自己申告ヘッダー廃止）~~ 実装・本番反映・TestFlight実機確認済み
+  7. ~~サーバー側のデバイス単位レート制限（日次上限のバックストップ）~~ 実装済み
 
 ## 7. リスク・注意
 
@@ -311,7 +322,7 @@ barcodesedori://spapi-auth?refresh_token=<平文>&selling_partner_id=...
 
 ## 8. 決定事項（2026-07-14 確定）
 
-1. 価格: **¥1,980/月**、トライアル: **3日間**
+1. 価格: **¥1,980/月**、トライアル: **7日間**
 2. 日次スキャン上限: **入れる。無料100件/日**（Proは無制限）
 3. **SP-API接続時（BYO）は無料でもオファー一覧を実表示**（第1段階同梱＝追加コストなし、各自の枠）。**Keepaのみ（未接続）の無料は非表示**（鍵＋ぼかしダミー、実取得なし＝トークン消費ゼロ）
 4. **SP-APIはOAuth(BYO)接続**。公開時に試験用の手動キー入力欄は削除。refresh token の Keychain 移行は推奨（非ブロッカー、開発者判断）
