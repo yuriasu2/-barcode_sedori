@@ -2,7 +2,7 @@
 
 ## 2026-09-10 iOS16履歴の表示取り違え対策（実機改善・比較確認済み）
 
-- iPhone8 Plus/iOS16.7.11で別商品をスキャンしても履歴行の商品名・価格・タップ先が最初の商品になり、スクロールで再表示された行は正しくなるとの報告。他の新しいiPhoneでは正常。
+- iPhone8 Plus/iOS16.7.11で別商品をスキャンしても履歴行の商品名・価格・タップ先が最初の商品になり、スクロールで再表示された行は正しくなるとの報告。ユーザー確認ではiPhone 17 Pro Max/iOS26.6.1の修正前コードは正常。
 - ProductsTabViewにiOS16限定のList identityを追加。先頭の履歴UUIDが変わった時だけListを再生成し、古い可視セル/タップ処理の再利用を避ける。iOS17以降は一定identity。各行のID/selection tagを明示し、行の選択モード分岐を統一。選択中は詳細用TapGestureを無効にする。
 - 新規追加や先頭削除の際はiOS16のスクロール位置が先頭へ戻る。検索・選択状態はList外なので保持。同一履歴の価格更新はListを再生成しない。
 - 実際のStore/Modelsで異なる12商品のUUID・順序・商品名/価格・ディスク再読込を確認。初回テストは日時の小数秒欠落との比較で失敗し、秒単位日時にして成功。最終generic Simulatorビルド成功。その後ユーザーがiOS16実機で表示改善を確認。ビルド番号変更・アップロードはしていない。
@@ -12,7 +12,9 @@
 - 独立した検証アプリ `HistoryProbe` をiPhone8 Plus/iOS16.7.11へ起動。ソース・ログは `/tmp/sellerlens-history-probe`（一時ファイルであり永続保存保証なし）。実アプリの履歴ファイルやAPIを使わず、メモリ内の異なるUUID・番号の商品を別タブから先頭追加する。
 - ユーザーが「Add product → History」を繰り返し、次を報告：修正前=Product 1のまま、行ID/tagのみ追加=Product 1のまま、行の選択条件分岐のみ除去=Product 1のまま、先頭UUIDでListを再生成=Product 1→2→3へ変化。
 - この再現条件では、行ID明示と条件分岐除去は単独では不十分で、Listのidentity変更が表示改善に有効。APIや履歴ファイルの保存は再現に必要ない。既存ForEachは元からUUIDで識別されており「IDが無いことが原因」と説明しない。
-- 正確なSwiftUI内部の原因、OS16固有であること、他OSで発生しないことまでは未確定。検証アプリの詳細画面・価格表示の比較は未確認。ユーザー報告による手動確認で、自動UIテスト成功とは記載しない。
+- iPhone8 Plusで起動した検証アプリのXcodeコンソールには `SwiftUI/UICollectionViewListCoordinator.swift:293` の「List failed to visit cell content, returning an empty cell. please file a bug report.」が出ていた。List内部のセル訪問・再利用経路で問題が起きていることを示すが、Appleの既知不具合番号までは確認できていない。
+- 現時点の最も強い因果説明は、iOS16のSwiftUI Listが別タブで配列先頭へ挿入された更新を差分適用する際、可視セルの内容とタップ先を正しく差し替えないこと。Listのidentityを先頭UUIDで変更すると全体再構築され、症状が消える。iOS16固有の内部実装差分である可能性は高いが、OSバージョンだけが原因と断定せず、iPhone17 Pro Maxでは再現しないという比較結果までを確定事実とする。
+- 検証アプリの詳細画面・価格表示の比較は未確認。ユーザー報告による手動確認で、自動UIテスト成功とは記載しない。
 - Xcode自動UIテストは開始前に `Logic Testing Unavailable` で停止。独立DerivedDataで署名付きbuild-for-testingは成功したが、test-without-buildingでも同じ開始エラー。Xcode通常Runから実機起動し手動比較へ切り替えた。
 - 本番コードの追加変更、ビルド番号変更、アップロードは行っていない。既存のiOS16限定再生成対策を維持。先頭追加/削除時のスクロール位置リセットという制約も維持。
 
