@@ -16,8 +16,11 @@
 - [x] SP-API本番OAuthをPublished版へ切替。`version=beta`の環境変数切替と、LWAトークン交換の`redirect_uri`完全一致を実装・テスト。
 - [x] `ASWebAuthenticationSession`によるiOS側のAmazon認可受け取りをコード実装。
 - [x] AdMobを本番広告へ切替。広告枠は実際の幅を使うアンカー アダプティブバナーに変更。
+- [x] プライバシーポリシーを現行仕様に更新し、App Store Connectのプライバシー申告も更新。
+- [x] `app-ads.txt`のAdMob確認と、リワード広告のSSVコールバック設定・動作確認を完了。
+- [x] 第三者Amazonセラーによる本番OAuthの通し確認を完了。
 
-※`ASWebAuthenticationSession`を含む新しいiOSコードは公開済みビルド9へは未反映。新ビルドの配信とAmazon第三者セラーによる本番OAuth通し確認は残課題。
+※`ASWebAuthenticationSession`を含む新しいiOSコードは公開済みビルド9へは未反映のため、新ビルドの配信は残課題。第三者Amazonセラーによる本番OAuthの通し確認は完了。
 
 ## 実装状況（2026-09-10 時点・サーバー/iOS実機で検証済み）
 
@@ -37,14 +40,14 @@
 - ~~AdMob を本番IDへ差し替え~~ アプリ側（`GADApplicationIdentifier`）・サーバー側KVとも本番IDを設定済み。App Store公開後の2026-09-09にKVも全5枠を本番IDへ切り替えた（`version:10`）。本番IDと切り替え履歴はSESSION-HANDOFF.mdの「AdMob本番IDと切り替え運用」に記録済み。
 - ~~PrivacyInfo の TrackingDomains 記載~~ 実測して記載済み（2026-08-14）。**ただし`PrivacyInfo.xcprivacy`が長期間アプリバンドルに含まれていない不具合があり、この記載も含めて何も効いていなかった**。`project.yml`の`sources:`への個別ファイル指定で修正済み。SESSION-HANDOFF.mdの「プライバシーマニフェスト」参照。
 - ~~試験用の手動SP-APIキー入力欄を削除~~ 対応済み（`SecureField`は現在Keepa BYOキー欄のみで、これは意図通り）。
-- **PostHog**: APIキー設定済み。プライバシーポリシーへの記載、App Store Connectのプライバシー表示申告は**未対応のまま**（下記参照）。
-- **プライバシーポリシーのページを `https://sellira.jp/privacy/` に公開する**（別リポジトリ sellira-site）。ページ自体は存在確認済み（2026-08-13）だが、**本番デプロイ済みかは未確認**。課金画面から直接リンクしており、未公開だと審査に落ちる。
+- ~~**PostHog**: APIキー設定済み。プライバシーポリシーへの記載、App Store Connectのプライバシー表示申告は未対応のまま~~ → **完了**。現行仕様に合わせて両方を更新済み（2026-09-10）。
+- ~~**プライバシーポリシーのページを `https://sellira.jp/privacy/` に公開する**~~ → **完了**。本番ページの内容を現行仕様に更新済み（2026-09-10）。
 - ~~App Store アプリIDを `SettingsView.swift` の `AppStoreReviewConfig.appId` に設定する~~ → `6801570852`を設定済み（2026-08-14）。
 - ~~SP-API refresh token を UserDefaults → Keychain へ移行~~ 対応済み。**あわせて出品者ID(sellerId)もKeychainへ移行済み**（2026-08-14。再インストールで連携が壊れるバグの修正。SESSION-HANDOFF.md参照）。
 - ~~自己申告 `X-App-Plan` を廃し、App Store Server API レシート検証を導入~~ → 実装・本番反映済み。TestFlight Sandboxで購入からPro反映まで実機確認済み（2026-09-10）。
-- **App Store Connectのプライバシー申告（Webフォーム）を提出時に記入する**。`PrivacyInfo.xcprivacy`はアプリ自身のコード分のみでよい（AdMob/PostHog等SDK分は各SDKが自前で申告済みのためマニフェストへの追記は不要）が、**Webフォームの方はSDK分も含めて申告する必要がある**。AdMobの申告内容はGoogleが公開: <https://developers.google.com/admob/ios/privacy/data-disclosure>。詳細はSESSION-HANDOFF.mdの「マニフェストとApp Store Connectのプライバシー申告の使い分け」参照。
+- ~~**App Store Connectのプライバシー申告（Webフォーム）を提出時に記入する**~~ → **完了**。AdMob/PostHog等の第三者SDKを含む現行のデータ取扱いを反映済み（2026-09-10）。AdMobの申告内容はGoogleが公開: <https://developers.google.com/admob/ios/privacy/data-disclosure>。
 - **無認証で公開されているデモ用エンドポイント2本**（`/api/keepa-throttle-demo/seed` `/probe`）にIPレート制限を追加済み（2026-08-14）。エンドポイント自体は本番検証用に維持する判断（削除しない）。
-- リワード広告のSSVコールバックURL（`https://api.sellira.jp/api/admob/ssv`）をAdMobコンソールで設定する（ユーザー作業・未対応）。
+- ~~リワード広告のSSVコールバックURL（`https://api.sellira.jp/api/admob/ssv`）をAdMobコンソールで設定する（ユーザー作業・未対応）~~ → **完了**。app-ads.txtの確認、SSV設定、リワード付与の動作確認まで完了（2026-09-10）。
 - **忘れずに: Xcodeでアーカイブ（配布用ビルド）を作る際は必ずReleaseビルド構成にすること。** DEBUG限定の開発者向け機能（`EntitlementStore`のPro強制フラグ、Keepaスロットルのデモ機能等）は`#if DEBUG`で確実に除外されるため、Release構成でアーカイブすれば混入の心配はない（Debug構成のままアーカイブしようとするとXcodeが警告する）。Xcode Organizerでの「Generate Privacy Report」もこのタイミングで確認する（Instrumentsの警告はAppleの既知バグで信頼できないため）。
 
 ## 1. 目的
@@ -210,7 +213,7 @@
 
 **2026-09-10 更新（ユーザー指定範囲）**: iOSの認可開始を `ASWebAuthenticationSession` に変更済み。認可結果はそのセッションの完了ハンドラだけで受信し、通常の `onOpenURL` からのトークン保存は廃止した。キャンセル・不正な応答時は既存の連携情報を変更しない。コード実装は完了しているが、新ビルドの配信が必要で、公開済みビルド9には未反映。実機でのAmazon認可完了・キャンセル確認は未実施。
 
-同日、Amazon Selling Partner Appstore掲載承認後のサーバー切替も完了。Published版を認可するため本番URLから`version=beta`を除去し、Draft試験時だけ`SPAPI_AUTH_VERSION=beta`で再付与できる。初回LWAトークン交換には、Amazon登録値と完全一致する`LWA_REDIRECT_URI=https://api.sellira.jp/oauth/callback`を送信する。本番Workerへデプロイし、認可開始URLの転送先に`version`がないことまで確認済み。第三者セラーによる通し確認は未実施。
+同日、Amazon Selling Partner Appstore掲載承認後のサーバー切替も完了。Published版を認可するため本番URLから`version=beta`を除去し、Draft試験時だけ`SPAPI_AUTH_VERSION=beta`で再付与できる。初回LWAトークン交換には、Amazon登録値と完全一致する`LWA_REDIRECT_URI=https://api.sellira.jp/oauth/callback`を送信する。本番Workerへデプロイし、認可開始URLの転送先に`version`がないことまで確認済み。**第三者セラーによる本番OAuthの通し確認も完了（2026-09-10）。**
 
 今回、Universal Links・短命交換コード・PKCEは実装しない。サーバーは従来どおりカスタムURLとHTMLにトークンを含めるため、この点は残る。Apple標準の認証セッションは開始元アプリへのコールバック配送を保護するが、正規アプリであることをサーバーへ証明する仕組みではない。短命コード＋PKCEも、それだけで正規アプリの証明にはならない。
 
