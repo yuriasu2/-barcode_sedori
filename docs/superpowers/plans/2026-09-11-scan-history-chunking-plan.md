@@ -61,4 +61,4 @@
 - [x] Build the iOS target for an iOS 16 simulator with code signing disabled; do not launch the simulator.
 - [x] Run `git diff --check` and inspect the final diff for legacy-file access.
 - [x] Update `FREEMIUM-PLAN.md` section 4.2g from planned to implemented, including the no-migration decision and final paths.
-- [ ] Commit the implementation and push `main` to `origin`.
+- [x] Commit the implementation and push `main` to `origin`.
