@@ -1,5 +1,12 @@
 # セッション引き継ぎ(2026-09-09 更新)
 
+## 2026-09-10 TestFlight購入503の追調査
+
+- TestFlight build10購入/復元で確認待ち。実機再試行ログは `/api/billing/verify`503、DO内部の`subscription_api / Sandbox`失敗（HTTP status/apiErrorなし）→apple_unavailable。入力署名/OCSPは通過しており、以前のOCSP失敗とは別。
+- 本番session発行は200。元の.p8と既知のIDでApple Sandbox APIへのローカル認証成功。元の本番秘密値は読み戻せないため不正形式と断定はしていない。
+- 3設定のsecret bulkはexit1。続いて `APPLE_IAP_PRIVATE_KEY` だけを検証済み.p8からsecret putし成功。他のIDは既存のplain_text設定を維持。購入/セッションキーの再生成はしていない。
+- ユーザーにTestFlightの「購入を復元」を再度依頼済み。再ビルド不要。**更新後の実取引成功は未確認**。ログのsubscription_api失敗が消えたか、verify200になるかを確認すること。
+
 ## 2026-09-10 本番購入検証反映・ビルド10準備
 
 - **アップロード完了:** `/tmp/SellerLens-1.0.1-10-fixed.xcarchive` の1.0.1/build10をApp Store Connectへアップロード成功（xcodebuild export exit0 / EXPORT SUCCEEDED）。GoogleMobileAds・UserMessagingPlatformのdSYM不足警告あり。バイナリのアップロードは成功。App Store Connect APIでビルド10のprocessingState=VALIDを確認。TestFlightの実機確認は別途必要。審査には提出していない。
