@@ -5,7 +5,7 @@
 - TestFlight build10購入/復元で確認待ち。実機再試行ログは `/api/billing/verify`503、DO内部の`subscription_api / Sandbox`失敗（HTTP status/apiErrorなし）→apple_unavailable。入力署名/OCSPは通過しており、以前のOCSP失敗とは別。
 - 本番session発行は200。元の.p8と既知のIDでApple Sandbox APIへのローカル認証成功。元の本番秘密値は読み戻せないため不正形式と断定はしていない。
 - 3設定のsecret bulkはexit1。続いて `APPLE_IAP_PRIVATE_KEY` だけを検証済み.p8からsecret putし成功。他のIDは既存のplain_text設定を維持。購入/セッションキーの再生成はしていない。
-- ユーザーにTestFlightの「購入を復元」を再度依頼済み。再ビルド不要。**更新後の実取引成功は未確認**。ログのsubscription_api失敗が消えたか、verify200になるかを確認すること。
+- 更新後のログで購入検証verify200を複数確認、subscription_api失敗は出ていない。秘密鍵再登録でサーバー検証の503は解消。TestFlight画面でProが反映したかはユーザー回答待ち。再ビルド不要。
 
 ## 2026-09-10 本番購入検証反映・ビルド10準備
 
