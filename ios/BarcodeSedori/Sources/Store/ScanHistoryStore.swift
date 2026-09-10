@@ -1,90 +1,142 @@
 import Foundation
 import Combine
 
-/// 「商品」タブに表示するスキャン履歴をファイル(Documents配下のJSON)に永続化する。
+/// 「商品」タブに表示するスキャン履歴を100件単位のチャンクへ永続化するストア。
+///
+/// 旧形式のDocuments/scan_history.jsonはアップデート後も残るが、ここからは一切読まない。
+/// 新形式はHistoryChunkStorageが管理するDocuments/scan_history/だけを使用する。
 final class ScanHistoryStore: ObservableObject {
     static let shared = ScanHistoryStore()
 
-    /// 保持する最大件数。超えたぶんは古い順(配列の末尾側)に削除する。
-    ///
-    /// この上限の主目的は保存コストの頭打ちにある。add()は1件追加のたびにsave()を呼び、
-    /// 全件をエンコードしてファイル全体を書き直すため、件数に比例して重くなる。
-    /// 実機での実測値: 1件=0.4KB/3.4ms、5,000件=2,487KB/39.8ms。上限が無いとこれが
-    /// 際限なく伸びる(FREEMIUM-PLAN.md 4.2g)。
-    ///
-    /// 1日100件スキャンする使い方で約50日ぶんに相当する。
+    /// 保持する最大件数。超えたぶんは最も古いチャンクから削除する。
     static let maxItems = 5000
 
+    /// 履歴画面に現在ロードされているページだけを公開する。
     @Published private(set) var items: [ScanHistoryItem] = []
+    @Published private(set) var totalCount = 0
+    @Published private(set) var hasMore = false
+    @Published private(set) var isLoadingMore = false
 
-    private let fileURL: URL
-    private let encoder: JSONEncoder
-    private let decoder: JSONDecoder
+    private let storage: HistoryChunkStorage
+    private var nextCursor: HistoryChunkStorage.Cursor?
 
     init(fileManager: FileManager = .default) {
         let documents = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first
-        self.fileURL = (documents ?? fileManager.temporaryDirectory).appendingPathComponent("scan_history.json")
-
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        self.encoder = encoder
-
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        self.decoder = decoder
-
-        load()
+            ?? fileManager.temporaryDirectory
+        let directoryURL = documents.appendingPathComponent("scan_history", isDirectory: true)
+        self.storage = HistoryChunkStorage(
+            directoryURL: directoryURL,
+            maxItems: Self.maxItems,
+            fileManager: fileManager
+        )
+        loadInitialPage()
     }
 
+    /// 新しい履歴を先頭へ追加し、一覧を最新ページから読み直す。
     func add(_ item: ScanHistoryItem) {
-        items.insert(item, at: 0)
-        trimToMaxItems()
-        save()
+        do {
+            try storage.append(item)
+            loadInitialPage()
+        } catch {
+            reportStorageError("add", error)
+        }
     }
 
-    /// 上限を超えたぶんを古い順に捨てる。itemsは新しいものを先頭へinsertしているため、
-    /// 末尾側が古い。
-    private func trimToMaxItems() {
-        guard items.count > Self.maxItems else { return }
-        items.removeLast(items.count - Self.maxItems)
-    }
-
-    /// 指定したidの履歴エントリを更新する(見つからなければ何もしない)。
-    /// 検索タブで/api/search応答にオファーが同梱されていた場合、
-    /// 該当履歴エントリにOffersResultを追記保存するために使用する。
+    /// 履歴を更新する。現在のページ外にあるレコードもチャンクを走査して更新する。
     func update(id: UUID, transform: (inout ScanHistoryItem) -> Void) {
-        guard let index = items.firstIndex(where: { $0.id == id }) else { return }
-        var updated = items[index]
-        transform(&updated)
-        items[index] = updated
-        save()
+        do {
+            if try storage.update(id: id, transform: transform) {
+                loadInitialPage()
+            }
+        } catch {
+            reportStorageError("update", error)
+        }
     }
 
+    /// 新形式の履歴を全削除する。旧scan_history.jsonは削除しない。
     func clear() {
-        items.removeAll()
-        save()
+        do {
+            try storage.clear()
+            items = []
+            totalCount = 0
+            hasMore = false
+            nextCursor = nil
+        } catch {
+            reportStorageError("clear", error)
+        }
     }
 
-    /// 商品タブの選択モードでの一括削除用。
+    /// 商品タブの選択モードでの一括削除用。未ロードの古いチャンクも対象にする。
     func remove(ids: Set<UUID>) {
         guard !ids.isEmpty else { return }
-        items.removeAll { ids.contains($0.id) }
-        save()
+        do {
+            _ = try storage.remove(ids: ids)
+            loadInitialPage()
+        } catch {
+            reportStorageError("remove", error)
+        }
+    }
+
+    /// 商品タブが最後の表示行へ到達したとき、次の古いページを追加する。
+    @discardableResult
+    func loadMore() -> Bool {
+        guard !isLoadingMore, let nextCursor else { return false }
+        isLoadingMore = true
+        defer { isLoadingMore = false }
+
+        do {
+            let page = try storage.loadPage(limit: HistoryChunkStorage.chunkSize, after: nextCursor)
+            items.append(contentsOf: page.items)
+            totalCount = page.totalCount
+            self.nextCursor = page.nextCursor
+            hasMore = page.nextCursor != nil
+            return !page.items.isEmpty
+        } catch {
+            reportStorageError("loadMore", error)
+            return false
+        }
+    }
+
+    /// 検索を新形式の全チャンクへ実行する。JSONの読み込みはメインスレッド外で行う。
+    func search(query: String) async -> [ScanHistoryItem] {
+        let directoryURL = storage.directoryURL
+        let maxItems = Self.maxItems
+        return await Task.detached(priority: .userInitiated) {
+            let storage = HistoryChunkStorage(directoryURL: directoryURL, maxItems: maxItems)
+            return (try? storage.search(query: query)) ?? []
+        }.value
+    }
+
+    /// 検索解除時に一覧を最新ページへ戻す。
+    func resetToNewestPage() {
+        loadInitialPage()
+    }
+
+    private func loadInitialPage() {
+        do {
+            let page = try storage.loadPage(limit: HistoryChunkStorage.chunkSize)
+            items = page.items
+            totalCount = page.totalCount
+            nextCursor = page.nextCursor
+            hasMore = page.nextCursor != nil
+        } catch {
+            items = []
+            totalCount = 0
+            nextCursor = nil
+            hasMore = false
+            reportStorageError("load", error)
+        }
+    }
+
+    private func reportStorageError(_ operation: String, _ error: Error) {
+        #if DEBUG
+        print("[ScanHistoryStore] \(operation) failed: \(error.localizedDescription)")
+        #endif
     }
 
     #if DEBUG
-    /// 開発ビルド専用: 履歴をダミーデータで埋める。件数が増えたときの起動時デコード・
-    /// スクロール・そして最大の関心事である「1スキャンあたりの保存コスト」を実機で
-    /// 測るために用意している(FREEMIUM-PLAN.md 4.2g)。
-    ///
-    /// add()を件数ぶん呼ぶとsave()も件数ぶん走り、書き込み量がO(n^2)になって現実的な
-    /// 時間で終わらない。ここではまとめて挿入し、保存は最後の1回だけにする。
-    ///
-    /// 生成する値は実データと同じ「形」にすることを優先している(桁数・文字数・URLの長さ)。
-    /// ファイルサイズはこれらの長さでほぼ決まるため、中身がランダムでも測定結果は変わらない。
-    /// ただしASINだけはGraphArchive側のダミーファイル名と揃えてある(下記参照)。
-    /// offersResultはnil(Keepa経路相当)。SP-API連携時はここに出品者一覧が入るぶん更に大きくなる。
-    /// @return 生成から保存完了までにかかった秒数。
+    /// 開発ビルド専用: 新形式の履歴をダミーデータで埋める。
+    /// 生成したダミーは既存の新形式履歴より新しいものとして扱う。
     @discardableResult
     func seedDummyItems(count: Int) -> TimeInterval {
         let startedAt = Date()
@@ -94,17 +146,10 @@ final class ScanHistoryStore: ObservableObject {
 
         for index in 0..<count {
             let isbn = Bool.random()
-            // JAN/ISBNと同じ13桁。実データと桁数を揃える。
             let code = (isbn ? "978" : "4") + String((0..<(isbn ? 10 : 12)).map { _ in "0123456789".randomElement()! })
-            // ASINだけはランダムにしない。GraphArchive.seedDummyFiles()が同じ規則
-            // (DUMMY+5桁)でファイルを作るため、両方を生成すれば履歴の詳細画面で
-            // ダミーのグラフが実際に表示され、永続化の動作を目視で確認できる。
-            // 実在のASINと同じ10文字なので、ファイルサイズの測定には影響しない。
             let asin = String(format: "DUMMY%05d", index)
-            // 実際の商品タイトルに近い長さ(20〜40文字程度)で切り出す。
             let titleLength = Int.random(in: 20...40)
             let title = String(titleSource.prefix(titleLength))
-            // Amazonの商品画像URLと同じくらいの長さにする。
             let imageUrl = "https://images-na.ssl-images-amazon.com/images/I/" +
                 String((0..<11).map { _ in "0123456789abcdefghijklmnopqrstuvwxyz".randomElement()! }) + "._SL500_.jpg"
 
@@ -130,7 +175,6 @@ final class ScanHistoryStore: ObservableObject {
                 offers: nil,
                 profitInputs: ProfitInputs(
                     listPrice: Int.random(in: 500...12_000),
-                    // 商品詳細の出品者数フォールバックを確認できるよう実データ相当の値を入れる。
                     sellerCounts: ProfitInputs.ConditionCounts(
                         new: Int.random(in: 1...40),
                         used: Int.random(in: 1...60)
@@ -140,7 +184,6 @@ final class ScanHistoryStore: ObservableObject {
                 quota: nil,
                 keepaDebug: nil
             )
-            // 過去60日ぶんに散らす(日付での絞り込みも試せるようにするため)。
             let scannedAt = Date().addingTimeInterval(-Double(index) * 60 * 60 * 24 * 60 / Double(max(count, 1)))
             generated.append(
                 ScanHistoryItem(
@@ -153,36 +196,14 @@ final class ScanHistoryStore: ObservableObject {
             )
         }
 
-        items.insert(contentsOf: generated, at: 0)
-        save()
+        do {
+            let existing = (try? storage.allItems()) ?? []
+            try storage.replace(withNewestFirst: generated + existing)
+            loadInitialPage()
+        } catch {
+            reportStorageError("seedDummyItems", error)
+        }
         return Date().timeIntervalSince(startedAt)
     }
     #endif
-
-    private func load() {
-        guard let data = try? Data(contentsOf: fileURL) else { return }
-        if let decoded = try? decoder.decode([ScanHistoryItem].self, from: data) {
-            items = decoded
-            // 上限を導入する前に保存されたファイルや、開発用のダミー生成で上限を超えている
-            // 場合に備えて読み込み時にも切り詰める(次の保存で実ファイルへ反映される)。
-            trimToMaxItems()
-        }
-    }
-
-    private func save() {
-        #if DEBUG
-        // 書き込みコストの実測用。add()は1件追加のたびにこのsave()を呼び、全件を
-        // エンコードしてファイル全体を書き直すため、件数に比例して重くなる
-        // (FREEMIUM-PLAN.md 4.2g)。シミュレータはMacのSSDで動き速すぎて実態が出ないので、
-        // 判断は必ず実機のログで行うこと。
-        let startedAt = Date()
-        #endif
-        guard let data = try? encoder.encode(items) else { return }
-        try? data.write(to: fileURL, options: .atomic)
-        #if DEBUG
-        let elapsedMs = Date().timeIntervalSince(startedAt) * 1000
-        print(String(format: "[ScanHistoryStore] save: %d件 / %.1f KB / %.1f ms",
-                     items.count, Double(data.count) / 1024, elapsedMs))
-        #endif
-    }
 }

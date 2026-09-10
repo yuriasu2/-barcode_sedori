@@ -209,7 +209,7 @@ final class SettingsViewModel: ObservableObject {
         let elapsed = ScanHistoryStore.shared.seedDummyItems(count: count)
         historySeedResultText = String(
             format: "%d件生成しました(合計%d件 / %.2f秒)",
-            count, ScanHistoryStore.shared.items.count, elapsed
+            count, ScanHistoryStore.shared.totalCount, elapsed
         )
     }
 

@@ -1,6 +1,8 @@
 import Foundation
 
 /// 価格推移グラフ(GraphData)をASINごとの個別ファイルとして永続化する。
+/// 新しい履歴形式との混在を避けるため、旧`graphs`ディレクトリは読まず、
+/// `graphs-v2`だけを使用する。
 ///
 /// 【なぜ必要か】
 /// 商品タブ(履歴)からの詳細表示はグラフをメモリキャッシュ
@@ -38,7 +40,7 @@ enum GraphArchive {
     private static var index: Set<String> = []
     private static var indexLoaded = false
 
-    private static let directoryName = "graphs"
+    private static let directoryName = "graphs-v2"
 
     private static var directoryURL: URL? {
         guard let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {

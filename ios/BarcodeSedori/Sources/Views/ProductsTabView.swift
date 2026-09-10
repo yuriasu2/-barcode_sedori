@@ -17,46 +17,37 @@ struct ProductsTabView: View {
     @State private var selectedIds = Set<UUID>()
     /// ヘッダーの検索BOXに入力中のクエリ(タイトル・JAN・日付「M/d」に部分一致)。
     @State private var searchQuery = ""
+    /// 検索時だけ全チャンクから取得した結果。通常表示はhistoryStore.itemsのページを使う。
+    @State private var searchResults: [ScanHistoryItem] = []
+    @State private var isSearching = false
     @State private var showDeleteConfirm = false
     @State private var addResult: AddToPurchaseResult?
 
-    /// 検索フィルタでの日付一致判定用(M/d形式)。行表示のdateFormatter(M/d HH:mm)とは別に用意する。
-    private static let searchDateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "ja_JP")
-        formatter.dateFormat = "M/d"
-        return formatter
-    }()
-
-    /// 検索クエリに一致する履歴だけを残す(タイトル・JAN・日付「M/d」の部分一致・大文字小文字無視)。
-    /// クエリが空なら全件。選択・全選択・削除・仕入れへの追加もこの表示中の集合だけを対象にする。
-    private var filteredItems: [ScanHistoryItem] {
+    /// 現在表示する履歴。空の検索時は最新ページから読み込んだ一覧、
+    /// 検索時は全チャンクを走査した結果を使う。
+    private var displayedItems: [ScanHistoryItem] {
         let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return historyStore.items }
-        let lowerQuery = query.lowercased()
-        return historyStore.items.filter { item in
-            if let title = item.title, title.lowercased().contains(lowerQuery) {
-                return true
-            }
-            let jan = item.isbn13 ?? item.scannedCode
-            if jan.lowercased().contains(lowerQuery) {
-                return true
-            }
-            let dateText = Self.searchDateFormatter.string(from: item.scannedAt)
-            return dateText.contains(query)
-        }
+        return query.isEmpty ? historyStore.items : searchResults
     }
 
     var body: some View {
         NavigationView {
             Group {
-                if historyStore.items.isEmpty {
+                if historyStore.items.isEmpty && searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     emptyState
                 } else {
                     VStack(spacing: 0) {
                         header
 
-                        historyList
+                        if isSearching {
+                            ProgressView("検索中…")
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        } else if !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                    && displayedItems.isEmpty {
+                            noSearchResults
+                        } else {
+                            historyList
+                        }
                     }
                 }
             }
@@ -104,6 +95,24 @@ struct ProductsTabView: View {
         .sheet(isPresented: $showPaywall) {
             PaywallView()
         }
+        .task(id: searchQuery) {
+            let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !query.isEmpty else {
+                searchResults = []
+                isSearching = false
+                historyStore.resetToNewestPage()
+                return
+            }
+
+            isSearching = true
+            let results = await historyStore.search(query: query)
+            guard !Task.isCancelled,
+                  searchQuery.trimmingCharacters(in: .whitespacesAndNewlines) == query else {
+                return
+            }
+            searchResults = results
+            isSearching = false
+        }
     }
 
     /// 履歴行のタップ処理。選択モードでは選択状態を手動で切り替え、通常モードでは詳細を開く。
@@ -122,7 +131,7 @@ struct ProductsTabView: View {
     /// iOS 16のListで画面外から先頭へ追加した履歴のセル内容が更新されないため、
     /// 履歴一覧はListのセル再利用経路を使わずLazyVStackで遅延表示する。
     private var historyList: some View {
-        let items = filteredItems
+        let items = displayedItems
         let lastItemID = items.last?.id
 
         return ScrollView {
@@ -143,6 +152,11 @@ struct ProductsTabView: View {
                     .padding(.horizontal, isSelecting ? 12 : 0)
                     .contentShape(Rectangle())
                     .onTapGesture { handleRowTap(item) }
+                    .onAppear {
+                        guard searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                              item.id == lastItemID else { return }
+                        _ = historyStore.loadMore()
+                    }
 
                     if item.id != lastItemID {
                         Divider()
@@ -166,7 +180,7 @@ struct ProductsTabView: View {
     private var searchRow: some View {
         HStack(spacing: 8) {
             searchField
-            if !filteredItems.isEmpty {
+            if !displayedItems.isEmpty {
                 Button("選択") {
                     isSelecting = true
                 }
@@ -208,11 +222,11 @@ struct ProductsTabView: View {
             }
             .foregroundColor(.blue)
 
-            Button(selectedIds.count == filteredItems.count ? "全解除" : "すべて選択") {
-                if selectedIds.count == filteredItems.count {
+            Button(selectedIds.count == displayedItems.count ? "全解除" : "すべて選択") {
+                if selectedIds.count == displayedItems.count {
                     selectedIds.removeAll()
                 } else {
-                    selectedIds = Set(filteredItems.map(\.id))
+                    selectedIds = Set(displayedItems.map(\.id))
                 }
             }
             .foregroundColor(.blue)
@@ -256,7 +270,7 @@ struct ProductsTabView: View {
     /// 選択中の履歴を仕入れリストへ追加する。ASINが無い項目・既に同じASINが仕入れリストに
     /// 登録済みの項目はスキップする。終了後はアラートで件数を知らせ、選択モードを終了する。
     private func addSelectedToPurchaseList() {
-        let targets = filteredItems.filter { selectedIds.contains($0.id) }
+        let targets = displayedItems.filter { selectedIds.contains($0.id) }
         var addedCount = 0
         var skippedCount = 0
         for item in targets {
@@ -313,6 +327,17 @@ struct ProductsTabView: View {
             Text("スキャン履歴はまだありません")
                 .foregroundColor(.secondary)
         }
+    }
+
+    private var noSearchResults: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 40))
+                .foregroundColor(.secondary)
+            Text("検索結果がありません")
+                .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
