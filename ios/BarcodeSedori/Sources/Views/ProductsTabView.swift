@@ -11,9 +11,8 @@ struct ProductsTabView: View {
     /// 非Proが仕入れへの一括追加(鍵バッジ付き)をタップしたときに表示するペイウォール。
     @State private var showPaywall = false
 
-    // 注意: @Environment(\.editMode)はList(selection:)の実際の編集状態と同期しない事象を確認したため
-    // (EditButtonの見た目・Listの選択UIは変化するのに環境値の読み取りがfalseのままになる)、
-    // 選択モードは自前の@Stateで管理し、Listへは.environment(\.editMode:)で明示的に反映する。
+    // 選択モードは自前の@Stateで管理する。履歴一覧はListの選択機能に依存せず、
+    // 行タップでselectedIdsを更新する。
     @State private var isSelecting = false
     @State private var selectedIds = Set<UUID>()
     /// ヘッダーの検索BOXに入力中のクエリ(タイトル・JAN・日付「M/d」に部分一致)。
@@ -48,14 +47,6 @@ struct ProductsTabView: View {
         }
     }
 
-    /// iOS 16では別タブで先頭に履歴を追加すると、Listの可視セルに以前の
-    /// 内容とタップ先が残る場合がある。先頭の履歴が変わった時だけListを再生成する。
-    /// 検索・選択状態はListの外に保持し、同じ履歴の価格更新では再生成しない。
-    private var historyListIdentity: UUID? {
-        if #available(iOS 17, *) { return nil }
-        return historyStore.items.first?.id
-    }
-
     var body: some View {
         NavigationView {
             Group {
@@ -65,24 +56,7 @@ struct ProductsTabView: View {
                     VStack(spacing: 0) {
                         header
 
-                        List(selection: $selectedIds) {
-                            ForEach(filteredItems) { item in
-                                HistoryRow(item: item)
-                                    .id(item.id)
-                                    .tag(item.id)
-                                    .contentShape(Rectangle())
-                                    .gesture(TapGesture().onEnded {
-                                        if !isSelecting, item.asin != nil {
-                                            selectedItem = item
-                                        }
-                                    }, including: isSelecting ? .subviews : .all)
-                            }
-                        }
-                        .id(historyListIdentity)
-                        .listStyle(.plain)
-                        // isSelecting@Stateをこの階層のeditMode環境値へ明示的に反映する(自前トグルのため)。
-                        // Listの複数選択チェックマークUIはこの環境値がactiveのときのみ表示される。
-                        .environment(\.editMode, .constant(isSelecting ? .active : .inactive))
+                        historyList
                     }
                 }
             }
@@ -129,6 +103,53 @@ struct ProductsTabView: View {
         }
         .sheet(isPresented: $showPaywall) {
             PaywallView()
+        }
+    }
+
+    /// 履歴行のタップ処理。選択モードでは選択状態を手動で切り替え、通常モードでは詳細を開く。
+    private func handleRowTap(_ item: ScanHistoryItem) {
+        if isSelecting {
+            if selectedIds.contains(item.id) {
+                selectedIds.remove(item.id)
+            } else {
+                selectedIds.insert(item.id)
+            }
+        } else if item.asin != nil {
+            selectedItem = item
+        }
+    }
+
+    /// iOS 16のListで画面外から先頭へ追加した履歴のセル内容が更新されないため、
+    /// 履歴一覧はListのセル再利用経路を使わずLazyVStackで遅延表示する。
+    private var historyList: some View {
+        let items = filteredItems
+        let lastItemID = items.last?.id
+
+        return ScrollView {
+            LazyVStack(spacing: 0) {
+                ForEach(items) { item in
+                    HStack(spacing: 8) {
+                        if isSelecting {
+                            Image(systemName: selectedIds.contains(item.id)
+                                  ? "checkmark.circle.fill"
+                                  : "circle")
+                                .font(.title3)
+                                .foregroundColor(selectedIds.contains(item.id) ? .blue : .secondary)
+                                .frame(width: 24)
+                        }
+
+                        HistoryRow(item: item)
+                    }
+                    .padding(.horizontal, isSelecting ? 12 : 0)
+                    .contentShape(Rectangle())
+                    .onTapGesture { handleRowTap(item) }
+
+                    if item.id != lastItemID {
+                        Divider()
+                            .padding(.leading, isSelecting ? 40 : 0)
+                    }
+                }
+            }
         }
     }
 

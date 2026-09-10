@@ -1,4 +1,13 @@
-# セッション引き継ぎ(2026-09-09 更新)
+# セッション引き継ぎ(2026-09-10 更新)
+
+## 2026-09-10 iOS16履歴一覧をScrollViewへ移行
+
+- iPhone 8 Plus/iOS16.7.11で、別タブから先頭へ追加した新しい履歴が最初の商品の表示・詳細遷移を再利用する問題を修正。
+- `ios/BarcodeSedori/Sources/Views/ProductsTabView.swift`の履歴一覧を`List`から`ScrollView`＋`LazyVStack`へ変更し、`List`のセル再利用経路を使わないようにした。
+- `List(selection:)`を使わず、選択モードの行タップとチェックマークを自前で管理する。検索、詳細遷移、一括削除、仕入れリストへの追加、5,000件上限は維持。
+- 5,000件の検索時に区切り線判定のためフィルタ配列を各行で再計算しないよう、一覧内で一度だけ取得する。
+- iOS Simulator Debugビルド、iOS実機SDK Debugビルド、OAuth callbackテスト、BillingClientテストが成功。iPhone 8 Plusの検証アプリでは`ScrollView`＋`LazyVStack`で表示取り違えが解消することをユーザーが確認済み。
+- 本番アプリのiPhone 8 Plusへのインストール確認、ビルド番号変更、App Store Connectへのアップロードは未実施。
 
 ## 2026-09-10 iOS16履歴の表示取り違え対策（実機改善・比較確認済み）
 
