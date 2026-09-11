@@ -156,6 +156,25 @@ final class BillingClient {
         let debugForcePro = false
         #endif
         if cachedPro && !debugForcePro {
+            #if os(iOS)
+            // StoreKit may not expose a just-completed Sandbox purchase through
+            // currentEntitlements immediately. Retry with the latest verified
+            // transaction before reporting a pending synchronization state.
+            if let latest = await Transaction.latest(for: EntitlementStore.proProductID),
+               case .verified(let transaction) = latest,
+               transaction.productID == EntitlementStore.proProductID,
+               transaction.revocationDate == nil {
+                do {
+                    let serverPro = try await synchronize(latest.jwsRepresentation)
+                    guard serverPro, let value = load(), let token = value.accessToken else {
+                        throw Pending()
+                    }
+                    return ["Authorization": "Bearer " + token, "X-Billing-Session": value.session]
+                } catch {
+                    throw Pending()
+                }
+            }
+            #endif
             throw Pending()
         }
         return [:]
