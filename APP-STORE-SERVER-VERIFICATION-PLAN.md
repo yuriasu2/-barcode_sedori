@@ -7,7 +7,7 @@
 - ユーザー承認により実装。自己申告Proはまだいないため案内・観測モードは不要との指示を反映し、旧ヘッダーを信用する切替設定は設けていない。
 - Apple公式Nodeライブラリ3.1.0をリクエスト内で初期化し、Workers上の証明書チェーン、改ざん、別アプリ・別環境拒否、API JWT署名を確認。
 - 新しいBillingDO、匿名セッション、15分の署名付き利用資格、購入検証・更新・V2通知、iOSの購入/復元/前面復帰同期を実装。
-- App IDは6801570852、Family SharingとGrace Periodは無効（App Store Connect APIで確認）。Sandboxは全体100検索/グラフ要求/UTC日で提供し、共有Keepa費用を制限する。
+- App IDは6801570852、Family SharingとGrace Periodは無効（App Store Connect APIで確認）。Sandboxの検証済み購読はProductionと同じPro利用資格として扱う。
 - In-App Purchaseキー未設定。実際のSandbox購入・復元、Apple API照会権限、オンライン証明書確認、V2通知の配送、本番デプロイ、新iOSビルドの配布は未完了。
 - 本番反映手順・保持期間・制限は [運用手順](docs/BILLING-OPERATIONS.md) を参照。実機確認まで本番へデプロイしない。
 

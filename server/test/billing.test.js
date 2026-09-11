@@ -96,6 +96,27 @@ test('session mismatch and a copied plan header cannot authorize Pro', async () 
   assert.equal(res.code, 401);
   assert.equal(service.isPro(valid), false);
 });
+test('Sandbox Pro requests do not consume a shared search/graph limiter', async () => {
+  const now = Date.now();
+  const headers = {
+    authorization: `Bearer ${issue('access', { sid: 'sandbox-session', environment: 'Sandbox', originalTransactionId: 'sandbox-purchase' }, now + 600000)}`,
+    'x-billing-session': issue('session', { sid: 'sandbox-session' }, now + 600000),
+  };
+  let calls = 0;
+  const previousBinding = globalThis.__billingDO;
+  globalThis.__billingDO = {
+    idFromName: name => { calls++; throw new Error(`unexpected billing limiter call: ${name}`); },
+    get: () => { throw new Error('unexpected billing limiter call'); },
+  };
+  const res = { status(code) { this.code = code; return this; }, json(body) { this.body = body; } };
+  try {
+    assert.equal(await service.authorize({ url: 'https://test/api/search', headers }, res), true);
+    assert.equal(service.isPro(headers), true);
+    assert.equal(calls, 0);
+  } finally {
+    globalThis.__billingDO = previousBinding;
+  }
+});
 test('billing request size is bounded before handler/Apple work even without Content-Length', async () => {
   const { MiniRouter } = require('../src/miniRouter');
   const router = new MiniRouter(); let called = false;

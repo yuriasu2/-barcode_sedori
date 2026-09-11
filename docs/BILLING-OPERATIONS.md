@@ -61,7 +61,7 @@ App Store ConnectのProduction/Sandbox通知URLは `https://api.sellira.jp/api/a
 Apple障害中は検証済み状態だけを最終照会から最大24時間再利用。ただし既知の購読期限を超えず、新規未検証・取消済み・通知再確認待ちには適用しない。
 
 IP単位20回/分、セッション単位10回/分、本文64KiBの上限。DO障害時は購入・利用資格を発行しない。
-TestFlight/審査のSandboxも署名検証する。Sandboxの検索・グラフ要求は全体で100回/UTC日（キャッシュ読出し要求も含む）に制限し、Production購読と別予算にする。既存Keepaスロットルも有効。Xcodeローカル署名とDEBUGのPro強制は本番APIの購入証明にならない。
+TestFlight/審査のSandboxも署名検証し、検証済みのSandbox購読はProduction購読と同じPro利用資格として扱う。購入検証・更新APIには既存のIP単位およびセッション単位のレート制限があり、検索・グラフの共有100回/UTC日のSandbox予算は設けない。Xcodeローカル署名とDEBUGのPro強制は本番APIの購入証明にならない。
 
 ## 鍵更新・通知漏れ・復旧
 

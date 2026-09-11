@@ -37,10 +37,6 @@ async function authorize(req, res) {
   if (!req.headers.authorization) return true;
   try {
     const c = claims(req.headers);
-    if (c.environment === 'Sandbox' && /\/api\/(search|graph|graph-data)(\?|$)/.test(req.url)) {
-      // TestFlight/review: separate aggregate budget, cannot drain an unlimited shared Keepa pool.
-      await limit('sandbox-shared-resources', 100, true);
-    }
     verifiedRequests.set(req.headers, { pro: true, environment: c.environment });
     return true;
   } catch (e) { sendError(res, e, 401); return false; }

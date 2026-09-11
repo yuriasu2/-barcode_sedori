@@ -96,7 +96,7 @@
 - Apple公式ライブラリ3.1.0をリクエスト内で初期化（トップレベルimportではjsrsasignの乱数初期化がWorkers制約で失敗する）。Apple Root CA G3を固定信頼アンカーに使用。本番はオンライン証明書確認を有効化。
 - iOS `BillingClient` がセッションとAPI資格をKeychainに保存。購入時appAccountTokenを渡し、購入/復元/起動/前面復帰でJWSを同期。未同期は確認待ち表示。GETの401だけ1回再送し、出品POSTは再送しない。
 - App Store Connect API: App ID6801570852、商品APPROVED、Family Sharing無効、Grace PeriodはProduction/Sandboxとも無効を確認。
-- 制限: API資格15分、Apple障害時は既知期限内かつ最終照会から24時間まで。Sandbox検索/グラフは全体100要求/UTC日。購読終了後90日でDO削除。匿名復元の購入JWSコピー耐性には限界がある。
+- 制限: API資格15分、Apple障害時は既知期限内かつ最終照会から24時間まで。購読終了後90日でDO削除。匿名復元の購入JWSコピー耐性には限界がある。Sandboxの検証済みProには検索・グラフの共有100要求/UTC日制限を設けない。
 - 検証: サーバー429件成功、iOS同期クライアント単体（セッション共通化/キャッシュ/障害/取消/保存失敗）成功、generic iOS Simulator向けDebugビルド成功。シミュレーターは起動せず。既存のSwift 6移行/非推奨警告は残る。
 - Workersローカル実行でチェーン/改ざん/未信頼ルート/別アプリ/別環境/API JWTの6項目成功。実サーバーでヘルス、自己申告Proでも無料枠になること、未設定購入APIが503になることを確認。dry-run成功、構成図のSVG書出し成功。
 - **未完了:** App内課金キーの所在をユーザーへ質問済み・未回答。Apple実Sandbox購入/復元・API権限・OCSPネットワーク・通知配送は未検証。新Worker未デプロイ、iOSビルド番号/配布は未変更。
