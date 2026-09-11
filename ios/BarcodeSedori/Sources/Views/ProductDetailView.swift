@@ -104,6 +104,16 @@ struct ProductDetailView: View {
             .padding(.vertical, 12)
         }
         .background(Color(.systemGroupedBackground))
+        // ProductsTabViewの固定広告は遷移先のNavigationViewでは安全領域として
+        // 反映されないことがあるため、無料ユーザーの詳細画面にも広告分の余白を確保する。
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if !entitlements.isPro {
+                Color.clear
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 50)
+                    .accessibilityHidden(true)
+            }
+        }
         .navigationTitle("商品詳細")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(item: $purchaseFormDraft) { draft in
