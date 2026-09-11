@@ -523,7 +523,7 @@ private struct HistoryRow: View {
 private struct HistoryRankMiniChart: View {
     let asin: String
     @State private var segments: [[CGPoint]] = []
-    @State private var isVisible = false
+    @State private var reloadToken = 0
 
     var body: some View {
         Canvas { context, size in
@@ -541,17 +541,17 @@ private struct HistoryRankMiniChart: View {
         .frame(width: 50, height: 24)
         .accessibilityLabel("直近1年間の保存済みランキング推移")
         .accessibilityHidden(segments.isEmpty)
-        .onAppear { isVisible = true }
-        .onDisappear {
-            isVisible = false
-            segments = []
+        .onReceive(
+            NotificationCenter.default.publisher(for: GraphArchive.didStoreNotification)
+        ) { notification in
+            guard notification.userInfo?[GraphArchive.storedASINUserInfoKey] as? String == asin else { return }
+            reloadToken &+= 1
         }
-        .task(id: isVisible) {
-            guard isVisible else { return }
+        .task(id: reloadToken) {
             let end = Date()
             let start = Calendar.current.date(byAdding: .year, value: -1, to: end) ?? end
             let rows = await GraphArchive.yearlyRank(for: asin, endingAt: end)
-            guard !Task.isCancelled, isVisible else { return }
+            guard !Task.isCancelled else { return }
             let values = rows.filter { $0[1] > 0 }.map { $0[1] }
             guard let low = values.min(), let high = values.max() else { return }
             let duration = max(1, end.timeIntervalSince(start))

@@ -21,6 +21,11 @@ import Foundation
 /// 一方でiCloudバックアップからは除外する。取り直せるデータであり、利用者のバックアップ容量を
 /// 圧迫させる理由が無いため。
 enum GraphArchive {
+    /// グラフファイルの保存完了を一覧などへ通知する。履歴行が先に表示された場合も、
+    /// 保存後にミニグラフを再読み込みできるようにする。
+    static let didStoreNotification = Notification.Name("GraphArchive.didStore")
+    static let storedASINUserInfoKey = "asin"
+
     /// 保持する最大ファイル数。1件あたり実測30〜60KB程度のため、5,000件で概ね150〜300MB。
     /// 検索履歴の上限(ScanHistoryStore.maxItems)と揃えてあり、履歴に残っている商品は
     /// グラフも残っている状態になる。超過分は更新日時の古い順に削除する。
@@ -71,6 +76,14 @@ enum GraphArchive {
         return ensureDirectory()?.appendingPathComponent("\(asin).json")
     }
 
+    /// 一覧用の非同期読み込みに使うURL。ディレクトリ作成や一覧走査は行わない。
+    /// `yearlyRank`の呼び出し元はメインスレッド上で動くため、古い端末での同期I/Oを避ける。
+    private static func existingFileURL(for asin: String) -> URL? {
+        guard !asin.isEmpty, !asin.contains("/"), !asin.contains("."),
+              let directoryURL else { return nil }
+        return directoryURL.appendingPathComponent("\(asin).json")
+    }
+
     /// 起動時に一度だけ、保存済みASINの索引をディレクトリ一覧から作る。
     static func loadIndexIfNeeded() {
         guard !indexLoaded else { return }
@@ -105,7 +118,9 @@ enum GraphArchive {
     /// 一覧用。索引は呼び出し元で参照し、読み込み・デコードだけをバックグラウンドへ移す。
     /// 価格系列は保持せず、直近1年のランキングだけを返す。通信・キャッシュ更新は行わない。
     static func yearlyRank(for asin: String, endingAt end: Date) async -> [[Double]] {
-        guard hasData(for: asin), let url = fileURL(for: asin) else { return [] }
+        // hasData()は初回に最大5,000ファイルのディレクトリ走査を行うため、ここでは呼ばない。
+        // ファイルの存在確認と読み込みはreader内で行い、メインスレッドを塞がない。
+        guard let url = existingFileURL(for: asin) else { return [] }
         let start = Calendar.current.date(byAdding: .year, value: -1, to: end) ?? end
         let reader = Task.detached(priority: .utility) { () -> [[Double]] in
             guard !Task.isCancelled,
@@ -133,6 +148,11 @@ enum GraphArchive {
             loadIndexIfNeeded()
             index.insert(asin)
             pruneIfNeeded()
+            NotificationCenter.default.post(
+                name: didStoreNotification,
+                object: nil,
+                userInfo: [storedASINUserInfoKey: asin]
+            )
         } catch {
             // 保存できなくても表示自体は続けられるため、失敗は無視する(次回また保存を試みる)。
         }
