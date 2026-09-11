@@ -102,6 +102,28 @@ enum GraphArchive {
         return decoded
     }
 
+    /// 一覧用。索引は呼び出し元で参照し、読み込み・デコードだけをバックグラウンドへ移す。
+    /// 価格系列は保持せず、直近1年のランキングだけを返す。通信・キャッシュ更新は行わない。
+    static func yearlyRank(for asin: String, endingAt end: Date) async -> [[Double]] {
+        guard hasData(for: asin), let url = fileURL(for: asin) else { return [] }
+        let start = Calendar.current.date(byAdding: .year, value: -1, to: end) ?? end
+        let reader = Task.detached(priority: .utility) { () -> [[Double]] in
+            guard !Task.isCancelled,
+                  let raw = try? Data(contentsOf: url),
+                  let graph = try? JSONDecoder().decode(GraphData.self, from: raw) else { return [] }
+            return graph.series.rank.filter {
+                $0.count >= 2 && $0[0].isFinite && $0[1].isFinite
+                    && $0[0] >= start.timeIntervalSince1970
+                    && $0[0] <= end.timeIntervalSince1970
+            }
+        }
+        return await withTaskCancellationHandler(operation: {
+            await reader.value
+        }, onCancel: {
+            reader.cancel()
+        })
+    }
+
     /// グラフを保存する。既存があれば上書きする。
     static func store(_ data: GraphData, for asin: String) {
         guard let url = fileURL(for: asin) else { return }

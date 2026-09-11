@@ -431,24 +431,32 @@ private struct HistoryRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            AsyncImage(url: item.imageUrl.flatMap(URL.init(string:))) { phase in
-                switch phase {
-                case .success(let image):
-                    image.resizable().aspectRatio(contentMode: .fit)
-                case .failure:
-                    Image(systemName: "photo")
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .foregroundColor(.secondary)
-                case .empty:
-                    ProgressView()
-                @unknown default:
-                    Color.clear
+            VStack(spacing: 4) {
+                AsyncImage(url: item.imageUrl.flatMap(URL.init(string:))) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image.resizable().aspectRatio(contentMode: .fit)
+                    case .failure:
+                        Image(systemName: "photo")
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .foregroundColor(.secondary)
+                    case .empty:
+                        ProgressView()
+                    @unknown default:
+                        Color.clear
+                    }
+                }
+                .frame(width: 50, height: 50)
+                .background(Color(.secondarySystemBackground))
+                .cornerRadius(6)
+
+                if let asin = item.asin {
+                    HistoryRankMiniChart(asin: asin)
+                        .id(item.id)
                 }
             }
-            .frame(width: 50, height: 50)
-            .background(Color(.secondarySystemBackground))
-            .cornerRadius(6)
+            .frame(width: 50)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(item.title ?? item.scannedCode)
@@ -508,5 +516,59 @@ private struct HistoryRow: View {
                 ? RoundedRectangle(cornerRadius: 10).stroke(Color.green, lineWidth: 3)
                 : nil
         )
+    }
+}
+
+/// 一覧では軸や数値を省き、保存済みランキングの形だけを示す。
+private struct HistoryRankMiniChart: View {
+    let asin: String
+    @State private var segments: [[CGPoint]] = []
+    @State private var isVisible = false
+
+    var body: some View {
+        Canvas { context, size in
+            var path = Path()
+            for segment in segments {
+                for (index, point) in segment.enumerated() {
+                    let position = CGPoint(x: 1 + point.x * (size.width - 2),
+                                           y: 1 + point.y * (size.height - 2))
+                    if index == 0 { path.move(to: position) }
+                    else { path.addLine(to: position) }
+                }
+            }
+            context.stroke(path, with: .color(.green), lineWidth: 1)
+        }
+        .frame(width: 50, height: 24)
+        .accessibilityLabel("直近1年間の保存済みランキング推移")
+        .accessibilityHidden(segments.isEmpty)
+        .onAppear { isVisible = true }
+        .onDisappear {
+            isVisible = false
+            segments = []
+        }
+        .task(id: isVisible) {
+            guard isVisible else { return }
+            let end = Date()
+            let start = Calendar.current.date(byAdding: .year, value: -1, to: end) ?? end
+            let rows = await GraphArchive.yearlyRank(for: asin, endingAt: end)
+            guard !Task.isCancelled, isVisible else { return }
+            let values = rows.filter { $0[1] > 0 }.map { $0[1] }
+            guard let low = values.min(), let high = values.max() else { return }
+            let duration = max(1, end.timeIntervalSince(start))
+            var result: [[CGPoint]] = []
+            var current: [CGPoint] = []
+            for row in rows {
+                guard row[1] > 0 else {
+                    if current.count > 1 { result.append(current) }
+                    current = []
+                    continue
+                }
+                // 詳細画面と同じく、順位の数値が大きいほど上に描く。
+                current.append(CGPoint(x: (row[0] - start.timeIntervalSince1970) / duration,
+                                       y: high == low ? 0.5 : 1 - (row[1] - low) / (high - low)))
+            }
+            if current.count > 1 { result.append(current) }
+            segments = result
+        }
     }
 }
