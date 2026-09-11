@@ -39,8 +39,6 @@ enum GraphRange: Int, CaseIterable, Identifiable {
 /// リスト表示をやめ、最新1件のスキャン結果カード+オファーパネル+Keepaグラフの単一状態に置き換える。
 @MainActor
 final class SearchTabViewModel: ObservableObject {
-    static let quotaFallbackMessage = "本日の無料スキャン上限に達しました。Proにアップグレードすると無制限に使えます。"
-
     @Published var scanMode: ScanMode = .barcode
 
     /// 最新のスキャン/検索結果(/api/search)
@@ -99,14 +97,6 @@ final class SearchTabViewModel: ObservableObject {
     init(apiClient: APIClient = .shared, historyStore: ScanHistoryStore = .shared) {
         self.apiClient = apiClient
         self.historyStore = historyStore
-    }
-
-    /// 購入前に表示した無料枠エラーだけを、Pro化した時点で消す。
-    /// ネットワークエラーなど別の失敗表示は購入操作だけでは隠さない。
-    func clearQuotaFallbackAfterProActivation() {
-        guard lastSearchQuotaExceeded || searchErrorMessage == Self.quotaFallbackMessage else { return }
-        searchErrorMessage = nil
-        lastSearchQuotaExceeded = false
     }
 
     /// 新品の出品者数。offersResult(SP-API経路)にあればそれを優先し、
@@ -215,7 +205,7 @@ final class SearchTabViewModel: ObservableObject {
             } else if case APIClientError.httpError(let status, _) = error, status == 429 {
                 // quota_exceeded形式でない429(旧サーバー互換)のフォールバック。
                 // こちらはquotaを受け取れずオーバーレイが自動では出ないため、文言で案内する。
-                searchErrorMessage = Self.quotaFallbackMessage
+                searchErrorMessage = "本日の無料スキャン上限に達しました。Proにアップグレードすると無制限に使えます。"
                 lastSearchQuotaExceeded = true
                 Analytics.shared.capture(.searchFailed(reason: .network))
             } else {
@@ -390,13 +380,6 @@ struct SearchTabView: View {
             .onChange(of: isQuotaExhausted) { exhausted in
                 if exhausted && viewModel.scanMode == .ocr {
                     viewModel.scanMode = .barcode
-                }
-            }
-            // 購入前の429表示が画面に残っていても、Pro化した時点で無料枠の案内を消す。
-            // 次の検索が429になった場合はsearch()が新しいエラーとして表示する。
-            .onChange(of: entitlements.isPro) { isPro in
-                if isPro {
-                    viewModel.clearQuotaFallbackAfterProActivation()
                 }
             }
             // 残りが少なくなった時点で広告を先読みしておく。枠切れオーバーレイが出てから

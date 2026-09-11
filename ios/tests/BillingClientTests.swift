@@ -19,7 +19,6 @@ final class SettingsStore {
 @MainActor final class EntitlementStore {
     static let shared = EntitlementStore()
     static let proProductID = "jp.sellira.sellerlens.pro.monthly"
-    static let isProCachedKey = "settings.isProCached"
     func serverSynchronizationCompleted() {}
 }
 final class BillingProtocol: URLProtocol {
@@ -74,12 +73,8 @@ final class BillingProtocol: URLProtocol {
             refreshCalls += 1
             return (200, ["pro": false, "accessToken": NSNull(), "refreshToken": "refresh", "expiresAt": 0])
         }
-        do {
-            _ = try await client.authorization(force: true)
-            fatalError("missing server access must remain pending instead of falling back to anonymous API access")
-        } catch is BillingClient.Pending {
-            precondition(refreshCalls == 1, "revocation must remove API access without retrying repeatedly")
-        }
+        let revoked = try await client.authorization(force: true)
+        precondition(revoked.isEmpty && refreshCalls == 1, "revocation must remove API access")
         BillingProtocol.respond = { _ in (400, ["error": "invalid_purchase", "message": "SECRET-PURCHASE-DATA"]) }
         do { _ = try await client.synchronize("private-proof"); fatalError("invalid proof must fail") }
         catch {
@@ -96,21 +91,6 @@ final class BillingProtocol: URLProtocol {
         BillingProtocol.respond = { _ in (200, ["pro": true, "accessToken": "new", "refreshToken": "refresh", "expiresAt": 123]) }
         do { _ = try await client.synchronize("proof"); fatalError("Keychain failure must not acknowledge delivery") }
         catch is BillingClient.Pending {}
-
-        // A locally cached Pro state must never fall through to an anonymous
-        // request when StoreKit entitlement delivery is temporarily unavailable.
-        KeychainStore.values.removeAll()
-        UserDefaults.standard.set(true, forKey: EntitlementStore.isProCachedKey)
-        BillingProtocol.respond = { request in
-            precondition(request.url!.path == "/api/billing/session")
-            return (200, ["session": "cached-pro-session", "appAccountToken": uuid])
-        }
-        do {
-            _ = try await client.authorization()
-            fatalError("cached Pro must remain pending instead of falling back to anonymous access")
-        } catch is BillingClient.Pending {}
-        UserDefaults.standard.removeObject(forKey: EntitlementStore.isProCachedKey)
-
         print("BillingClient: session coalescing, synchronization, cached access, outage, revocation, persistence failure passed")
     }
 }

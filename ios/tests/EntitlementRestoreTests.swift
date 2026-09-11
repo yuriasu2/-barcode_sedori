@@ -17,14 +17,8 @@ struct Transaction {
     var productID: String { "jp.sellira.sellerlens.pro.monthly" }
     var revocationDate: Date? { nil }
     static var latestValue: Proof?
-    static var currentEntitlementsValue: Proof?
     static var finishes = 0
-    static var currentEntitlements: AsyncStream<Proof> {
-        AsyncStream { continuation in
-            if let currentEntitlementsValue { continuation.yield(currentEntitlementsValue) }
-            continuation.finish()
-        }
-    }
+    static var currentEntitlements: AsyncStream<Proof> { AsyncStream { $0.finish() } }
     static var updates: AsyncStream<Proof> { AsyncStream { $0.finish() } }
     static func latest(for product: String) async -> Proof? { latestValue }
     func finish() async { Self.finishes += 1 }
@@ -76,14 +70,6 @@ final class Analytics {
         precondition(restored && store.isPro && !store.isPurchaseSyncPending)
         precondition(store.restoreStatusMessage == "購入を復元しました。")
         precondition(billing.calls == 3 && Transaction.finishes == 2 && !store.restoreInProgress)
-
-        // StoreKitがactiveでも、サーバーがpro:falseを返した場合はPro状態を
-        // キャッシュし続けず、次のAPIリクエストを無料扱いにしない。
-        Transaction.currentEntitlementsValue = .verified(Transaction())
-        billing.result = .success(false)
-        await store.refreshEntitlements()
-        precondition(!store.isPro && !store.isPurchaseSyncPending)
-        precondition(billing.calls == 4 && Transaction.finishes == 3)
         print("Entitlement restore: missing, unverified, outage, expired and active purchase cases passed")
     }
 }

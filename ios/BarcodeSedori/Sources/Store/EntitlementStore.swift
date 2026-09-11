@@ -173,11 +173,7 @@ final class EntitlementStore: ObservableObject {
             if transaction.productID == Self.proProductID, transaction.revocationDate == nil {
                 active = true
                 do {
-                    let serverPro = try await BillingClient.shared.synchronize(result.jwsRepresentation)
-                    // StoreKitの購入状態だけでPro表示を確定すると、サーバー検証が
-                    // pro:falseの直後にAPIだけ無料扱いになる。サーバーが返した資格と
-                    // UI/APIのPro状態を同じ結果へ揃える。
-                    active = serverPro
+                    _ = try await BillingClient.shared.synchronize(result.jwsRepresentation)
                     await transaction.finish()
                 } catch {
                     pending = true
@@ -205,16 +201,12 @@ final class EntitlementStore: ObservableObject {
             switch result {
             case .success(let verification):
                 if case .verified(let transaction) = verification {
-                    let transactionActive = transaction.revocationDate == nil
+                    setIsPro(transaction.revocationDate == nil)
                     do {
                         let serverPro = try await BillingClient.shared.synchronize(verification.jwsRepresentation)
-                        setIsPro(transactionActive && serverPro)
                         await transaction.finish()
                         isPurchaseSyncPending = !serverPro
                     } catch {
-                        // StoreKit購入は成立しているためPro表示は維持するが、
-                        // サーバー同期が終わるまでAPIはBillingClient側で保留にする。
-                        setIsPro(transactionActive)
                         // Remains unfinished in StoreKit and retries on launch/updates/API use.
                         isPurchaseSyncPending = true
                         purchaseSyncErrorMessage = (error as? BillingClient.Pending)?.localizedDescription

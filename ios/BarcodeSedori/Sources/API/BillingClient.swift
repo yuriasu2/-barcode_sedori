@@ -122,10 +122,7 @@ final class BillingClient {
                 if let token = result.accessToken {
                     return ["Authorization": "Bearer " + token, "X-Billing-Session": value.session]
                 }
-                // StoreKit may still report an active purchase while the server has
-                // revoked/expired access. Never continue anonymously: API routes would
-                // otherwise treat this paid user as free and apply the daily quota.
-                throw Pending()
+                return [:]
             } catch {
                 // A revoked/expired session can be rebuilt using Apple's verified proof.
                 if load() != nil { throw Pending() }
@@ -136,46 +133,12 @@ final class BillingClient {
                   transaction.productID == EntitlementStore.proProductID,
                   transaction.revocationDate == nil else { continue }
             do {
-                let serverPro = try await synchronize(result.jwsRepresentation)
-                guard serverPro else { throw Pending() }
+                _ = try await synchronize(result.jwsRepresentation)
                 if let value = load(), let token = value.accessToken {
                     return ["Authorization": "Bearer " + token, "X-Billing-Session": value.session]
                 }
-                throw Pending()
+                return [:]
             } catch { throw Pending() }
-        }
-        // EntitlementStore mirrors the StoreKit state into UserDefaults so this
-        // non-UI request path can distinguish a genuine free user from a paid
-        // user whose server credential is temporarily unavailable. Never send a
-        // paid user to the anonymous API path: the server would correctly apply
-        // the free daily quota to that request.
-        let cachedPro = UserDefaults.standard.bool(forKey: EntitlementStore.isProCachedKey)
-        #if DEBUG
-        let debugForcePro = UserDefaults.standard.bool(forKey: EntitlementStore.debugForceProKey)
-        #else
-        let debugForcePro = false
-        #endif
-        if cachedPro && !debugForcePro {
-            #if os(iOS)
-            // StoreKit may not expose a just-completed Sandbox purchase through
-            // currentEntitlements immediately. Retry with the latest verified
-            // transaction before reporting a pending synchronization state.
-            if let latest = await Transaction.latest(for: EntitlementStore.proProductID),
-               case .verified(let transaction) = latest,
-               transaction.productID == EntitlementStore.proProductID,
-               transaction.revocationDate == nil {
-                do {
-                    let serverPro = try await synchronize(latest.jwsRepresentation)
-                    guard serverPro, let value = load(), let token = value.accessToken else {
-                        throw Pending()
-                    }
-                    return ["Authorization": "Bearer " + token, "X-Billing-Session": value.session]
-                } catch {
-                    throw Pending()
-                }
-            }
-            #endif
-            throw Pending()
         }
         return [:]
     }
