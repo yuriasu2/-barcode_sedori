@@ -144,6 +144,20 @@ final class BillingClient {
                 throw Pending()
             } catch { throw Pending() }
         }
+        // EntitlementStore mirrors the StoreKit state into UserDefaults so this
+        // non-UI request path can distinguish a genuine free user from a paid
+        // user whose server credential is temporarily unavailable. Never send a
+        // paid user to the anonymous API path: the server would correctly apply
+        // the free daily quota to that request.
+        let cachedPro = UserDefaults.standard.bool(forKey: EntitlementStore.isProCachedKey)
+        #if DEBUG
+        let debugForcePro = UserDefaults.standard.bool(forKey: EntitlementStore.debugForceProKey)
+        #else
+        let debugForcePro = false
+        #endif
+        if cachedPro && !debugForcePro {
+            throw Pending()
+        }
         return [:]
     }
 }
