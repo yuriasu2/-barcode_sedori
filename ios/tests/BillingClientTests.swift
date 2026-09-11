@@ -73,8 +73,12 @@ final class BillingProtocol: URLProtocol {
             refreshCalls += 1
             return (200, ["pro": false, "accessToken": NSNull(), "refreshToken": "refresh", "expiresAt": 0])
         }
-        let revoked = try await client.authorization(force: true)
-        precondition(revoked.isEmpty && refreshCalls == 1, "revocation must remove API access")
+        do {
+            _ = try await client.authorization(force: true)
+            fatalError("missing server access must remain pending instead of falling back to anonymous API access")
+        } catch is BillingClient.Pending {
+            precondition(refreshCalls == 1, "revocation must remove API access without retrying repeatedly")
+        }
         BillingProtocol.respond = { _ in (400, ["error": "invalid_purchase", "message": "SECRET-PURCHASE-DATA"]) }
         do { _ = try await client.synchronize("private-proof"); fatalError("invalid proof must fail") }
         catch {

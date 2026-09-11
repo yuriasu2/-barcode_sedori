@@ -122,7 +122,10 @@ final class BillingClient {
                 if let token = result.accessToken {
                     return ["Authorization": "Bearer " + token, "X-Billing-Session": value.session]
                 }
-                return [:]
+                // StoreKit may still report an active purchase while the server has
+                // revoked/expired access. Never continue anonymously: API routes would
+                // otherwise treat this paid user as free and apply the daily quota.
+                throw Pending()
             } catch {
                 // A revoked/expired session can be rebuilt using Apple's verified proof.
                 if load() != nil { throw Pending() }
@@ -133,11 +136,12 @@ final class BillingClient {
                   transaction.productID == EntitlementStore.proProductID,
                   transaction.revocationDate == nil else { continue }
             do {
-                _ = try await synchronize(result.jwsRepresentation)
+                let serverPro = try await synchronize(result.jwsRepresentation)
+                guard serverPro else { throw Pending() }
                 if let value = load(), let token = value.accessToken {
                     return ["Authorization": "Bearer " + token, "X-Billing-Session": value.session]
                 }
-                return [:]
+                throw Pending()
             } catch { throw Pending() }
         }
         return [:]
