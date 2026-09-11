@@ -527,11 +527,44 @@ private struct HistoryRankMiniChart: View {
 
     var body: some View {
         Canvas { context, size in
+            // 詳細グラフと同じく、データ線の背面にグリッドを描く。
+            // 端末幅に合わせてCanvasが変わっても、外枠内に収まるようにする。
+            let plotRect = CGRect(
+                x: 0.5,
+                y: 0.5,
+                width: max(0, size.width - 1),
+                height: max(0, size.height - 1)
+            )
+            let gridColor = Color.secondary.opacity(0.55)
+
+            var border = Path()
+            border.addRect(plotRect)
+            context.stroke(border, with: .color(gridColor), lineWidth: 0.8)
+
+            // 水平線は順位の変化を見やすくするため、上下の間を3分割する。
+            for fraction in [CGFloat(1.0 / 3.0), CGFloat(2.0 / 3.0)] {
+                let y = plotRect.minY + plotRect.height * fraction
+                var path = Path()
+                path.move(to: CGPoint(x: plotRect.minX, y: y))
+                path.addLine(to: CGPoint(x: plotRect.maxX, y: y))
+                context.stroke(path, with: .color(gridColor), lineWidth: 0.6)
+            }
+
+            // 垂直線は時間の区切りを示す。点線にしてデータ線との識別性を保つ。
+            let dottedStyle = StrokeStyle(lineWidth: 0.6, dash: [2, 2])
+            for fraction in [CGFloat(1.0 / 3.0), CGFloat(2.0 / 3.0)] {
+                let x = plotRect.minX + plotRect.width * fraction
+                var path = Path()
+                path.move(to: CGPoint(x: x, y: plotRect.minY))
+                path.addLine(to: CGPoint(x: x, y: plotRect.maxY))
+                context.stroke(path, with: .color(gridColor), style: dottedStyle)
+            }
+
             var path = Path()
             for segment in segments {
                 for (index, point) in segment.enumerated() {
-                    let position = CGPoint(x: 1 + point.x * (size.width - 2),
-                                           y: 1 + point.y * (size.height - 2))
+                    let position = CGPoint(x: plotRect.minX + point.x * plotRect.width,
+                                           y: plotRect.minY + point.y * plotRect.height)
                     if index == 0 { path.move(to: position) }
                     else { path.addLine(to: position) }
                 }
