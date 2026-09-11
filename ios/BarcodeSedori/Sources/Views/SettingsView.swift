@@ -1,6 +1,5 @@
 import SwiftUI
 import UIKit
-import AppTrackingTransparency
 
 @MainActor
 final class SettingsViewModel: ObservableObject {
@@ -246,16 +245,11 @@ private enum SupportConfig {
 struct SettingsView: View {
     @StateObject private var viewModel = SettingsViewModel()
     @ObservedObject private var entitlements = EntitlementStore.shared
-    @ObservedObject private var attPrompt = AttPromptController.shared
     /// 設定値の唯一の真実。OAuthコールバックでの更新を画面に反映させるため直接監視する。
     @ObservedObject private var settings = SettingsStore.shared
     @State private var showPaywall = false
     /// 検索履歴の全削除の確認アラート。取り消せない操作なので必ず確認を挟む。
     @State private var showHistoryDeleteConfirm = false
-    /// トラッキング許可の現在状態。ATTのダイアログやiOS設定から戻ったときに
-    /// 表示を更新するため、@Stateに持って画面復帰のたびに読み直す。
-    @State private var attStatus = ATTrackingManager.trackingAuthorizationStatus
-    @Environment(\.scenePhase) private var scenePhase
     /// アプリ内ブラウザ(SafariView)で開く対象。お問い合わせフォームをアプリ内で開くために使う。
     @State private var browserTarget: BrowserTarget?
     #if DEBUG
@@ -319,39 +313,6 @@ struct SettingsView: View {
                 searchSection
 
                 listingSection
-
-                // 広告のトラッキング許可(ATT)。通常はスキャン4回で事前説明→システムダイアログの
-                // 順に出るが、それとは別に、いつでも自分で開ける導線をここに置く。
-                // 事前説明で「あとで」を2回選ぶと通常フローでは二度と出せなくなるため、
-                // 後から許可したくなった利用者の唯一の手段になる。
-                Section("広告") {
-                    Button {
-                        if attPrompt.canRequestSystemPrompt {
-                            attPrompt.requestFromSettings { status in
-                                attStatus = status
-                            }
-                        } else {
-                            // 一度回答するとOSが記憶し、アプリ内から再要求できない。
-                            // 変更手段はiOSの設定アプリしかないのでそちらへ送る。
-                            openAppSettings()
-                        }
-                    } label: {
-                        HStack {
-                            Text("広告のトラッキング設定")
-                                .foregroundColor(.primary)
-                            Spacer()
-                            Text(attStatusText)
-                                .foregroundColor(.secondary)
-                            Image(systemName: "chevron.right")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-
-                    Text("無料プランでは広告を表示します。トラッキングを許可すると、お客様の興味に合った広告が表示されます。許可しなくても本アプリはすべての機能をご利用いただけます(広告が興味に合わせたものでなくなるだけです)。")
-                        .font(.footnote)
-                        .foregroundColor(.secondary)
-                }
 
                 Section("サポート") {
                     Button {
@@ -539,13 +500,6 @@ struct SettingsView: View {
             .sheet(item: $browserTarget) { target in
                 SafariView(url: target.url)
             }
-            // ATTのシステムダイアログやiOSの設定アプリから戻ったときに状態表示を更新する。
-            // ATTrackingManagerの状態は@Publishedではないため、復帰の都度読み直す必要がある。
-            .onChange(of: scenePhase) { newPhase in
-                if newPhase == .active {
-                    attStatus = ATTrackingManager.trackingAuthorizationStatus
-                }
-            }
         }
         .navigationViewStyle(.stack)
     }
@@ -730,23 +684,6 @@ struct SettingsView: View {
     /// 「お知らせ」ボタンから、お知らせ一覧ページを開く。中身はWebサイト側で管理するため
     /// アプリ側に自前画面は作らず、お問い合わせフォームと同じくSafariView(アプリ内ブラウザ)で開く。
     /// お問い合わせと違い診断情報のクエリは不要(単純にURLを開くだけ)。
-    /// 「広告のトラッキング設定」行の右側に出す現在状態。
-    private var attStatusText: String {
-        switch attStatus {
-        case .authorized: return "許可"
-        case .denied: return "許可しない"
-        case .restricted: return "制限中"
-        case .notDetermined: return "未設定"
-        @unknown default: return "未設定"
-        }
-    }
-
-    /// iOSの設定アプリの本アプリのページを開く(ATTを一度回答した後の変更手段)。
-    private func openAppSettings() {
-        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
-        UIApplication.shared.open(url)
-    }
-
     private func openNoticesPage() {
         guard let url = URL(string: SupportConfig.noticesURL) else { return }
         browserTarget = BrowserTarget(url: url)
