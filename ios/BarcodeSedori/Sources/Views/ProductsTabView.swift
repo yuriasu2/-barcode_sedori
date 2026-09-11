@@ -524,9 +524,11 @@ private struct HistoryRankMiniChart: View {
     let asin: String
     @State private var segments: [[CGPoint]] = []
     @State private var reloadToken = 0
+    @State private var isLoading = true
 
     var body: some View {
         Canvas { context, size in
+            guard !segments.isEmpty else { return }
             // 詳細グラフと同じく、データ線の背面にグリッドを描く。
             // 端末幅に合わせてCanvasが変わっても、外枠内に収まるようにする。
             let plotRect = CGRect(
@@ -541,8 +543,9 @@ private struct HistoryRankMiniChart: View {
             border.addRect(plotRect)
             context.stroke(border, with: .color(gridColor), lineWidth: 0.8)
 
-            // 水平線は順位の変化を見やすくするため、上下の間を3分割する。
-            for fraction in [CGFloat(1.0 / 3.0), CGFloat(2.0 / 3.0)] {
+            // 参考画像に合わせ、外枠の内側に横線4本を配置する。
+            for index in 1...4 {
+                let fraction = CGFloat(index) / 5
                 let y = plotRect.minY + plotRect.height * fraction
                 var path = Path()
                 path.move(to: CGPoint(x: plotRect.minX, y: y))
@@ -552,7 +555,8 @@ private struct HistoryRankMiniChart: View {
 
             // 垂直線は時間の区切りを示す。点線にしてデータ線との識別性を保つ。
             let dottedStyle = StrokeStyle(lineWidth: 0.6, dash: [2, 2])
-            for fraction in [CGFloat(1.0 / 3.0), CGFloat(2.0 / 3.0)] {
+            for index in 1...4 {
+                let fraction = CGFloat(index) / 5
                 let x = plotRect.minX + plotRect.width * fraction
                 var path = Path()
                 path.move(to: CGPoint(x: x, y: plotRect.minY))
@@ -571,9 +575,20 @@ private struct HistoryRankMiniChart: View {
             }
             context.stroke(path, with: .color(.green), lineWidth: 1)
         }
-        .frame(width: 50, height: 24)
-        .accessibilityLabel("直近1年間の保存済みランキング推移")
-        .accessibilityHidden(segments.isEmpty)
+        .frame(width: 50, height: 31.2)
+        .overlay {
+            if segments.isEmpty {
+                Text(isLoading ? "読込中" : "未取得")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color(.secondarySystemBackground))
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(segments.isEmpty
+            ? (isLoading ? "ランキンググラフを読み込み中" : "ランキンググラフ未取得")
+            : "直近1年間の保存済みランキング推移")
         .onReceive(
             NotificationCenter.default.publisher(for: GraphArchive.didStoreNotification)
         ) { notification in
@@ -581,12 +596,17 @@ private struct HistoryRankMiniChart: View {
             reloadToken &+= 1
         }
         .task(id: reloadToken) {
+            isLoading = true
             let end = Date()
             let start = Calendar.current.date(byAdding: .year, value: -1, to: end) ?? end
             let rows = await GraphArchive.yearlyRank(for: asin, endingAt: end)
             guard !Task.isCancelled else { return }
             let values = rows.filter { $0[1] > 0 }.map { $0[1] }
-            guard let low = values.min(), let high = values.max() else { return }
+            guard let low = values.min(), let high = values.max() else {
+                segments = []
+                isLoading = false
+                return
+            }
             let duration = max(1, end.timeIntervalSince(start))
             var result: [[CGPoint]] = []
             var current: [CGPoint] = []
@@ -602,6 +622,7 @@ private struct HistoryRankMiniChart: View {
             }
             if current.count > 1 { result.append(current) }
             segments = result
+            isLoading = false
         }
     }
 }
