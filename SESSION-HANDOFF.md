@@ -1,4 +1,47 @@
-# セッション引き継ぎ(2026-09-10 更新)
+# セッション引き継ぎ(2026-10-03 更新)
+
+## まず読む: 現在の状態(2026-10-03)
+
+**新しいセッションはこの節から読むこと。** 以下の日付付きの節は新しい順の作業記録で、
+「## 現在の状態(2026-08-21)」以降は初回審査中の古い記録(当時の前提で書かれている)。
+
+- **公開中**: App Store上で 1.0(build9) と **1.0.1(build13)** がともに `READY_FOR_SALE`。
+  1.0.1 は購入のサーバー検証・履歴の分割保存・履歴のランキングミニグラフ等を含む最新版。
+  `node tools/appstore-connect/status.mjs` で確認できる(2026-10-03に実行・確認済み)。
+- **審査中のもの・提出待ちのもの: 無し。** 次のバージョンは未着手。
+- **本番サーバー**: 購入検証(BillingDO等)は2026-09-10に本番反映済み。Sandbox Proの
+  共有100要求/日制限を外した `977d988` も本番反映済み(2026-10-03ユーザー確認)。
+- **未確認で残っているもの**: 解約後の残期間・返金・失効を実機で通した確認のみ
+  (`APP-STORE-SERVER-VERIFICATION-PLAN.md` 冒頭の「現在の状態」参照)。急ぎではない。
+
+### このMacの作業環境の注意(2026-10-03時点)
+
+- **App Store Connect API**: 旧鍵(9SL9GMT794)と設定がディレクトリごと消えていたため、
+  2026-10-03にApp Managerのチームキーを再発行して再設定済み。
+  鍵 `~/.appstoreconnect/private_keys/AuthKey_2DP4YV6M68.p8` / 設定 `~/.config/appstore-connect/config.json`
+  (defaultAppId=6801570852)。`status.mjs` が動かなければまずこの2つの存在を確認する。
+  `~/Downloads/セラーレンズ課金キー.p8` は**App内課金キー(App Store Server API用)で別物**。
+  App Store Connect APIには使えない。
+- **wrangler はログインしていない**。デプロイやログ確認には `cd server && npx wrangler login`
+  (ブラウザ認証が要るのでユーザーに実行してもらう)。
+- **Xcode がインストールされていない**(Command Line Toolsのみ)。`xcodebuild` は使えず、
+  iOSのビルド確認は `swiftc -parse` による構文チェックまでしかできない。
+- サーバーテストは434件すべて成功(2026-10-03)。
+
+### 2026-10-03 のセッションで行ったこと
+
+- Codexによる2026-09-08〜09-11の更新(40コミット)を確認・把握した。主な内容は下の各節にある
+  (購入のサーバー検証、Amazon連携の`ASWebAuthenticationSession`化、履歴の分割保存、
+  履歴一覧の`ScrollView`化、AdMobアダプティブバナー、履歴のランキングミニグラフ等)。
+- App Store Connect APIの認証を再設定(上記)。
+- `AttPromptController` から未使用の `requestFromSettings` 等を削除。設定画面のATT導線は
+  2026-09-11に**ユーザーの意図的な判断で削除済み**(「あとで」を2回選ぶとアプリ内からATTを
+  出す手段は無く、iOSの設定アプリで変更する)。iOSビルドは未実施(Xcode無し・構文チェックのみ)。
+  次にXcodeのある環境でビルドするとき一度確認すること。
+- `APP-STORE-SERVER-VERIFICATION-PLAN.md` の状態表示を「本番反映済み・公開中」に更新。
+- 未追跡だった `AGENTS.md`(CLAUDE.mdと完全に同一内容)をユーザー指示で削除。
+- コミットは毎回 `git push origin main` 済み(CLAUDE.mdのルール)。未追跡は `.claude/settings.local.json` のみ。
+
 
 ## 2026-09-11 履歴のランキングミニグラフ・ビルド13
 
@@ -121,7 +164,7 @@
 - OAuth単体17件、サーバー全417件、Wrangler dry-run成功。残件は第三者セラーによる本番OAuthの通し確認。
 
 アプリ名: **セラーレンズ**(旧アマレンズ、さらに前は「バーコードせどり」)。
-Amazonセラー向けの仕入れリサーチiPhoneアプリ。**App Storeへ初回申請中**。
+Amazonセラー向けの仕入れリサーチiPhoneアプリ。**App Store公開中(2026-10-03時点で1.0.1が最新)**。
 
 ## 関連リポジトリ
 
