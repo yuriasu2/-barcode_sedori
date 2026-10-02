@@ -39,6 +39,10 @@ final class AttPromptController: ObservableObject {
         /// 出せなくなる上、事前説明自体をしつこく出すのはユーザー体験を損ない、
         /// App Storeガイドライン(過度な許可要求の繰り返し)上も好ましくないため、
         /// 控えめに2回で打ち止めにする。
+        ///
+        /// 上限に達した後、アプリ内からATTを出す手段は無い(設定画面にあった
+        /// 「広告のトラッキング設定」導線は2026-09-11に意図的に削除した)。
+        /// 利用者が後から変える場合はiOSの設定アプリ(プライバシーとセキュリティ→トラッキング)で行う。
         static let maxPostponeCount = 2
         /// 「あとで」を選んだ直後にすぐ次のスキャンで再表示すると煩わしいため、
         /// 前回表示時のscanCountからこの回数分スキャンするまでは再表示しない。
@@ -82,42 +86,6 @@ final class AttPromptController: ObservableObject {
 
         defaults.set(scanCount, forKey: Keys.lastPrimerShownScanCount)
         isShowingPrimer = true
-    }
-
-    // MARK: - 設定画面からの明示的な操作
-
-    /// 現在のトラッキング許可状態。設定画面の状態表示と分岐に使う。
-    var authorizationStatus: ATTrackingManager.AuthorizationStatus {
-        ATTrackingManager.trackingAuthorizationStatus
-    }
-
-    /// まだ一度も回答していない(システムダイアログを出せる)か。
-    /// falseの場合、ATTはOSが記憶しているためアプリ内から再要求できず、
-    /// 変更するにはiOSの設定アプリへ誘導するしかない。
-    var canRequestSystemPrompt: Bool {
-        authorizationStatus == .notDetermined
-    }
-
-    /// 設定画面の導線から明示的にシステムダイアログを要求する。
-    ///
-    /// 通常フロー(スキャン4回)と違い事前説明(AttPrimerDialog)は挟まない。利用者が自分で
-    /// 「広告のトラッキング設定」を開いている時点で意思表示は済んでおり、説明は設定画面の
-    /// 説明文が担うため。
-    ///
-    /// この導線を設けている理由は2つ:
-    /// 1. 事前説明で「あとで」を2回選ぶと通常フローでは二度と出せなくなり、利用者が
-    ///    後から許可したくなっても手段が無くなる。
-    /// 2. スキャン4回という条件は、App Storeの審査担当者が短時間で到達しにくい
-    ///    (実際に2026-08-31のGuideline 2.1却下はこれが原因だった)。確実に到達できる
-    ///    経路を用意しておく。
-    /// @param completion 回答後の状態。呼び出し側が表示を更新するために使う。
-    ///   ATTのシステムダイアログは必ずしもシーンを非アクティブにしないため、
-    ///   scenePhaseの変化だけに頼ると状態表示が更新されないことがある。
-    func requestFromSettings(completion: @escaping (ATTrackingManager.AuthorizationStatus) -> Void = { _ in }) {
-        guard canRequestSystemPrompt else { return }
-        ATTrackingManager.requestTrackingAuthorization { status in
-            Task { @MainActor in completion(status) }
-        }
     }
 
     // MARK: - 事前説明ダイアログからの操作
