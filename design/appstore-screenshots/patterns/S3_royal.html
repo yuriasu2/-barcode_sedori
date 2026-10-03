@@ -1,0 +1,47 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1242px;height:2688px;overflow:hidden}
+body{background:#4169E1;background-image:radial-gradient(rgba(255,255,255,.09) 2.2px,transparent 2.8px);background-size:24px 24px;position:relative;font-family:"Hiragino Sans";color:#fff}
+.kicker{position:absolute;left:60px;top:150px;font:800 62px "Hiragino Sans";letter-spacing:.04em;background:#111;color:#FFD200;padding:12px 26px 16px}
+.lead{position:absolute;left:84px;top:322px;font:800 70px "Hiragino Sans";letter-spacing:.02em}
+.lead b{border-bottom:10px solid #FFD200}
+h1{position:absolute;left:76px;top:440px;font-family:"Toppan Bunkyu Midashi Gothic";font-weight:800;line-height:1.1;letter-spacing:-.01em}
+h1 .l1{display:block;font-size:150px}
+h1 .l2{display:block;font-size:150px;color:#FFD200}
+.burst{position:absolute;right:16px;top:10px;width:330px;height:330px;transform:rotate(12deg)}
+.burst div{position:absolute;inset:0;background:#E60012}
+.burst span{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;font-family:"Toppan Bunkyu Midashi Gothic";font-weight:800;font-size:50px;line-height:1.1;text-align:center}
+.burst span b{font-size:54px}
+.band{position:absolute;left:-40px;right:-40px;top:840px;background:#111;color:#fff;transform:rotate(-3deg);padding:26px 0 30px;text-align:center;font:800 54px "Hiragino Sans";letter-spacing:.03em}
+.band em{font-style:normal;color:#FFD200}
+.note{position:absolute;font-family:"Klee";font-weight:600;font-size:60px;line-height:1.25;color:#FFD200}
+.arrow{position:absolute;width:110px;height:110px}
+.kicker{font-size:58px}
+.band{font-size:48px}
+.graph{position:absolute;left:46px;top:1030px;width:1150px;transform:rotate(-2deg);filter:drop-shadow(14px 20px 0 rgba(0,20,80,.35))}
+.n1{left:60px;top:1910px;transform:rotate(-4deg);font-size:54px}
+.n2{left:700px;top:1925px;transform:rotate(4deg);font-size:54px}
+.a1{left:300px;top:1840px;transform:rotate(-20deg)}
+.a2{left:960px;top:1850px;transform:scaleX(-1) rotate(-20deg)}
+.tag{position:absolute;left:70px;right:70px;height:220px;background:#fff;color:#111;border:7px solid #111;border-radius:18px;display:flex;align-items:center;padding-left:150px;box-shadow:14px 18px 0 rgba(0,20,80,.35)}
+.tag:before{content:"";position:absolute;left:52px;top:50%;width:50px;height:50px;margin-top:-25px;border-radius:50%;border:7px solid #111;background:#4169E1}
+.tag div{font:800 48px "Hiragino Sans";line-height:1.35}
+.tag b{display:block;font-family:"Toppan Bunkyu Midashi Gothic";font-weight:800;font-size:78px;color:#E60012}
+.t1{top:2160px;transform:rotate(-1.5deg)}
+.t2{top:2420px;transform:rotate(1.5deg)}
+</style></head><body>
+<div class="kicker">価格・ランキング・出品者数</div>
+<div class="lead"><b>売れ行き</b>がひと目でわかる</div>
+<h1><span class="l1">推移を</span><span class="l2">グラフで表示</span></h1>
+<div class="burst"><div id="star"></div><span>全期間<b>対応</b></span></div>
+<div class="band"><em>売れ行き</em>がわかるから<em>仕入れ判断</em>の材料に！</div>
+<img class="graph" src="../graph_card_noframe.png">
+<div class="note n1">緑の線(ランキング)で<br>売れ行きチェック！</div>
+<div class="note n2">出品者数で<br>ライバルの増減も！</div>
+<div class="tag t1"><div>価格の動きで<b>相場の推移を確認</b></div></div>
+<div class="tag t2"><div>1ヶ月・3ヶ月・1年・全期間を<b>切り替えて表示</b></div></div>
+<script>
+const n=22,pts=[];for(let i=0;i<n*2;i++){const r=i%2?38:50,a=Math.PI*i/n;pts.push(`${50+r*Math.cos(a)}% ${50+r*Math.sin(a)}%`)}
+document.getElementById('star').style.clipPath=`polygon(${pts.join(',')})`;
+</script>
+</body></html>
