@@ -24,7 +24,7 @@
   App Store Connect APIには使えない。
 - **wrangler はログインしていない**。デプロイやログ確認には `cd server && npx wrangler login`
   (ブラウザ認証が要るのでユーザーに実行してもらう)。
-- Xcode 27 は導入済み(2026-10-03)。`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` を付けて xcodebuild を使う。
+- Xcode 27 導入済み・`xcode-select` 切替済み(2026-10-03)。`xcodebuild` がそのまま使える。
 - サーバーテストは434件すべて成功(2026-10-03)。
 
 ### 2026-10-03 ASO調査と1.0.2の準備(未ビルド・未提出)
@@ -38,8 +38,7 @@
 - バージョンを **1.0.2 / build14** に変更。`ja.lproj` 単体を sources に指定するとただのフォルダ参照になり
   バンドルに入らなかったため、`Resources` フォルダごと(`.gitkeep`除外)指定に変更。generic Simulatorビルドで
   `ja.lproj/InfoPlist.strings`・`PrivacyInfo.xcprivacy` 同梱、`CFBundleDevelopmentRegion=ja` を確認済み。実機未確認。
-- Xcode 27導入済み。ただし `xcode-select` はCommand Line Toolsのまま(変更にsudoが要る)。
-  `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` を付ければ xcodebuild が動く。xcodegen 2.46.0 をbrewで導入。
+- Xcode 27導入済み・`xcode-select` もXcodeへ切替済み(2026-10-03)。xcodegen 2.46.0 をbrewで導入。
 - 1.0.1のプロモーションテキストが空(1.0にはあった)。審査不要で設定可能、未対応。
 - タイトル/サブタイトル/キーワードの変更は1.0.2提出時に行う予定(未決定)。キーワード欄の
   「せどり」「Amazon」「リサーチ」はタイトル等と重複している。
