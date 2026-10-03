@@ -1,0 +1,52 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1242px;height:2688px;overflow:hidden}
+body{background:#4169E1;background-image:radial-gradient(rgba(255,255,255,.09) 2.2px,transparent 2.8px);background-size:24px 24px;position:relative;font-family:"Hiragino Sans";color:#fff}
+.kicker{position:absolute;left:60px;top:150px;font:800 60px "Hiragino Sans";letter-spacing:.04em;background:#111;color:#FFD200;padding:12px 26px 16px}
+.lead{position:absolute;left:70px;top:322px;font:800 66px "Hiragino Sans"}
+.lead b{border-bottom:10px solid #FFD200}
+h1{position:absolute;left:64px;top:430px;font-family:"Toppan Bunkyu Midashi Gothic";font-weight:800;line-height:1.1}
+h1 .l1{display:block;font-size:146px}
+h1 .l2{display:block;font-size:146px;color:#FFD200}
+.burst{position:absolute;right:16px;top:8px;width:310px;height:310px;transform:rotate(12deg)}
+.burst div{position:absolute;inset:0;background:#E60012}
+.burst span{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;font-family:"Toppan Bunkyu Midashi Gothic";font-weight:800;font-size:40px;line-height:1.15;text-align:center}
+.burst span b{font-size:60px}
+.band{position:absolute;left:-40px;right:-40px;top:820px;background:#111;transform:rotate(-3deg);padding:24px 0 28px;text-align:center;font:800 46px "Hiragino Sans"}
+.band em{font-style:normal;color:#FFD200}
+.wrap{position:absolute;left:24px;top:1010px;width:700px;height:1527px;transform:rotate(-2deg)}
+.wrap img{width:700px;display:block;filter:drop-shadow(16px 22px 0 rgba(0,20,80,.35))}
+.ring{position:absolute;left:52px;width:596px;border:7px solid #FFD200;border-radius:18px}
+.num{position:absolute;width:66px;height:66px;border-radius:50%;background:#FFD200;color:#111;border:5px solid #111;display:flex;align-items:center;justify-content:center;font:900 40px "Hiragino Sans"}
+.wrap .num{left:14px}
+.r1{top:486px;height:84px}.r2{top:712px;height:248px}.r3{top:966px;height:176px}.r4{top:1147px;height:74px}
+.b1{top:494px}.b2{top:720px}.b3{top:974px}.b4{top:1132px}
+.card{position:absolute;left:752px;width:466px;background:#fff;color:#111;border:7px solid #111;border-radius:20px;padding:24px 22px 24px 96px;box-shadow:12px 16px 0 rgba(0,20,80,.35)}
+.card .num{left:16px;top:22px}
+.card h3{font-family:"Toppan Bunkyu Midashi Gothic";font-weight:800;font-size:52px;line-height:1.15;color:#E60012}
+.card p{margin-top:8px;font:800 34px "Hiragino Sans";line-height:1.4}
+.c1{top:1060px;transform:rotate(1.5deg)}
+.c2{top:1400px;transform:rotate(-1.5deg)}
+.c3{top:1740px;transform:rotate(1.5deg)}
+.c4{top:2080px;transform:rotate(-1.5deg)}
+.note{position:absolute;left:770px;top:2380px;font-family:"Klee";font-weight:600;font-size:60px;line-height:1.25;color:#FFD200;transform:rotate(-5deg)}
+</style></head><body>
+<div class="kicker">仕入れフォームに登録</div>
+<div class="lead"><b>価格・SKU・説明文</b>を自動入力</div>
+<h1><span class="l1">数秒で</span><span class="l2">仕入れ登録</span></h1>
+<div class="burst"><div id="star"></div><span>粗利益も<b>即計算</b></span></div>
+<div class="band"><em>配送料・手数料</em>を引いた<em>粗利益</em>がひと目でわかる</div>
+<div class="wrap">
+ <img src="../phone_form_real.png">
+ <div class="ring r1"></div><div class="ring r2"></div><div class="ring r3"></div><div class="ring r4"></div>
+ <div class="num b1">1</div><div class="num b2">2</div><div class="num b3">3</div><div class="num b4">4</div>
+</div>
+<div class="card c1"><div class="num">1</div><h3>出品価格</h3><p>最安値を<br>自動で入力</p></div>
+<div class="card c2"><div class="num">2</div><h3>粗利益</h3><p>配送料・手数料を<br>引いて自動計算</p></div>
+<div class="card c3"><div class="num">3</div><h3>商品説明文</h3><p>コンディション別の<br>テンプレートを入力</p></div>
+<div class="card c4"><div class="num">4</div><h3>SKU</h3><p>自動で割り当て</p></div>
+<div class="note">入力の手間<br>ほぼゼロ！</div>
+<script>
+const n=22,pts=[];for(let i=0;i<n*2;i++){const r=i%2?38:50,a=Math.PI*i/n;pts.push(`${50+r*Math.cos(a)}% ${50+r*Math.sin(a)}%`)}
+document.getElementById('star').style.clipPath=`polygon(${pts.join(',')})`;
+</script></body></html>
