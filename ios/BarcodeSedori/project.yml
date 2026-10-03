@@ -37,18 +37,16 @@ targets:
       # Asset Catalog(アプリアイコン)。XcodeGenでは resources ではなく sources に
       # 指定しないとビルドフェーズに入らず、Assets.car が生成されない。
       - path: Assets.xcassets
-      # PrivacyInfo.xcprivacy(プライバシーマニフェスト)も同様の問題があり、
-      # resources: に Resources フォルダごと指定してもCopy Bundle Resourcesフェーズに
-      # 追加されず、アプリバンドル直下に含まれない(XcodeGen 2.45.4で確認)。
-      # sources: にファイルを個別指定することで確実にバンドル直下へコピーされる。
-      # Resources フォルダごと sources に入れると .gitkeep もバンドルに混入するため、
-      # ファイル単位で指定している。
-      - path: Resources/PrivacyInfo.xcprivacy
-      # 日本語ローカライズ(InfoPlist.strings)。バイナリがjaのローカライズを持たないと
-      # App Storeの言語表示が日本語にならない。resources:指定だとCopy Bundle Resourcesに
-      # 入らない問題があるため、PrivacyInfoと同様にsources:へ個別指定する
-      # (.lproj は XcodeGen がローカライズ済みvariant groupとして扱う想定。未検証)。
-      - path: Resources/ja.lproj
+      # Resources フォルダ(PrivacyInfo.xcprivacy と ja.lproj)。
+      # 経緯: resources: 指定では Copy Bundle Resources に入らなかった(XcodeGen 2.45.4)ため、
+      # 以前は PrivacyInfo.xcprivacy を sources: にファイル単位で指定していた。
+      # ja.lproj をフォルダ単体で sources: に指定すると、ローカライズ(variant group)ではなく
+      # ただのフォルダ参照になり Resources フェーズに入らない(XcodeGen 2.46.0で確認)。
+      # 親フォルダごと指定すると .lproj がローカライズとして扱われるため、Resources ごと指定し、
+      # バンドルへの混入を避けたい .gitkeep だけ除外する。
+      - path: Resources
+        excludes:
+          - "**/.gitkeep"
     dependencies:
       - package: GoogleMobileAds
       - package: PostHog

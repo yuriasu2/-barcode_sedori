@@ -24,8 +24,7 @@
   App Store Connect APIには使えない。
 - **wrangler はログインしていない**。デプロイやログ確認には `cd server && npx wrangler login`
   (ブラウザ認証が要るのでユーザーに実行してもらう)。
-- **Xcode がインストールされていない**(Command Line Toolsのみ)。`xcodebuild` は使えず、
-  iOSのビルド確認は `swiftc -parse` による構文チェックまでしかできない。
+- Xcode 27 は導入済み(2026-10-03)。`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` を付けて xcodebuild を使う。
 - サーバーテストは434件すべて成功(2026-10-03)。
 
 ### 2026-10-03 ASO調査と1.0.2の準備(未ビルド・未提出)
@@ -36,8 +35,11 @@
   → `project.yml` に `developmentLanguage: ja`・`CFBundleLocalizations: [ja]`・`Resources/ja.lproj/InfoPlist.strings` を追加。
 - レビュー依頼が無料ユーザーに一度も出ない条件だった(仕入れ追加/一括出品はPro限定)。
   → 検索10回・利用2日のみに緩和、無料枠切れ時は起動トリガーで依頼しない。テスト `ios/tests/ReviewPromptPolicyTests.swift`。
-- バージョンを **1.0.2 / build14** に変更。**Xcodeのある環境で `xcodegen generate` 後、
-  Copy Bundle Resourcesに `InfoPlist.strings (ja)` が入っているか、developmentRegionがjaかを必ず確認**(未検証)。
+- バージョンを **1.0.2 / build14** に変更。`ja.lproj` 単体を sources に指定するとただのフォルダ参照になり
+  バンドルに入らなかったため、`Resources` フォルダごと(`.gitkeep`除外)指定に変更。generic Simulatorビルドで
+  `ja.lproj/InfoPlist.strings`・`PrivacyInfo.xcprivacy` 同梱、`CFBundleDevelopmentRegion=ja` を確認済み。実機未確認。
+- Xcode 27導入済み。ただし `xcode-select` はCommand Line Toolsのまま(変更にsudoが要る)。
+  `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` を付ければ xcodebuild が動く。xcodegen 2.46.0 をbrewで導入。
 - 1.0.1のプロモーションテキストが空(1.0にはあった)。審査不要で設定可能、未対応。
 - タイトル/サブタイトル/キーワードの変更は1.0.2提出時に行う予定(未決定)。キーワード欄の
   「せどり」「Amazon」「リサーチ」はタイトル等と重複している。
