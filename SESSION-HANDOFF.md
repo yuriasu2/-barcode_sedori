@@ -39,6 +39,13 @@
   バンドルに入らなかったため、`Resources` フォルダごと(`.gitkeep`除外)指定に変更。generic Simulatorビルドで
   `ja.lproj/InfoPlist.strings`・`PrivacyInfo.xcprivacy` 同梱、`CFBundleDevelopmentRegion=ja` を確認済み。実機未確認。
 - Xcode 27導入済み・`xcode-select` もXcodeへ切替済み(2026-10-03)。xcodegen 2.46.0 をbrewで導入。
+- **1.0.2/build14 を2026-10-03にApp Store Connectへアップロード済み**(EXPORT SUCCEEDED。審査未提出)。
+  このMacはXcodeにApple ID未ログイン・証明書なしのため、App Store Connect APIキーで署名した:
+  `xcodebuild ... -allowProvisioningUpdates -authenticationKeyPath <p8> -authenticationKeyID <id> -authenticationKeyIssuerID <issuer> archive`
+  → `-exportArchive`(method=app-store-connect, destination=upload)。キー値は `~/.config/appstore-connect/config.json`。
+  zshでは変数の単語分割がされないため、キー情報は `read A B C <<< ...` で分けて渡す。
+  GoogleMobileAds/UMPのdSYM不足警告は従来どおり(アップロード自体は成功)。
+- 検索タブ・履歴タブの検索欄に、入力中だけ「キャンセル」を表示(`e978f51`)。
 - 1.0.1のプロモーションテキストが空(1.0にはあった)。審査不要で設定可能、未対応。
 - タイトル/サブタイトル/キーワードの変更は1.0.2提出時に行う予定(未決定)。キーワード欄の
   「せどり」「Amazon」「リサーチ」はタイトル等と重複している。
