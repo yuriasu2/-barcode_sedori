@@ -298,6 +298,8 @@ struct SearchTabView: View {
     @ObservedObject private var settings = SettingsStore.shared
     @State private var selectedResult: SearchResult?
     @State private var searchBarText: String = ""
+    /// 検索バーの入力中かどうか。入力中だけ「キャンセル」ボタンを出し、キーボードを閉じられるようにする。
+    @FocusState private var isSearchBarFocused: Bool
     @State private var showsInvalidCodeAlert = false
     /// フリーミアム: 各ゲート(オファー等)から提示するペイウォール。
     @State private var showPaywall = false
@@ -859,22 +861,41 @@ struct SearchTabView: View {
     // MARK: - 検索バー
 
     private var searchBar: some View {
-        HStack {
-            Image(systemName: "magnifyingglass")
-                .foregroundColor(.secondary)
-            TextField("ISBN、JANコードで検索", text: $searchBarText)
-                .textFieldStyle(.plain)
-                // 数字レイアウトで開く。numberPadだとReturnキーが無く onSubmit で検索できなくなり、
-                // ISBN-10のチェック文字"X"も打てなくなるため numbersAndPunctuation を使う。
-                .keyboardType(.numbersAndPunctuation)
-                .onSubmit {
-                    submitSearchBarText()
+        HStack(spacing: 8) {
+            HStack {
+                Image(systemName: "magnifyingglass")
+                    .foregroundColor(.secondary)
+                TextField("ISBN、JANコードで検索", text: $searchBarText)
+                    .textFieldStyle(.plain)
+                    // 数字レイアウトで開く。numberPadだとReturnキーが無く onSubmit で検索できなくなり、
+                    // ISBN-10のチェック文字"X"も打てなくなるため numbersAndPunctuation を使う。
+                    .keyboardType(.numbersAndPunctuation)
+                    .focused($isSearchBarFocused)
+                    .onSubmit {
+                        submitSearchBarText()
+                    }
+                    .submitLabel(.search)
+            }
+            .padding(8)
+            .background(Color(.secondarySystemBackground))
+            .cornerRadius(10)
+            // 入力欄側を縮ませ、キャンセルボタンが画面外へはみ出さないようにする。
+            .frame(maxWidth: .infinity)
+
+            // 標準の検索バー(UISearchBar)と同じく、入力中だけ右側にキャンセルを出す。
+            // TextFieldにはキーボードを閉じる手段が無く、検索せずにスキャンへ戻れなかったため。
+            if isSearchBarFocused {
+                Button("キャンセル") {
+                    searchBarText = ""
+                    isSearchBarFocused = false
                 }
-                .submitLabel(.search)
+                .fixedSize()
+                .layoutPriority(1)
+                .padding(.trailing, 8)
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
         }
-        .padding(8)
-        .background(Color(.secondarySystemBackground))
-        .cornerRadius(10)
+        .animation(.easeInOut(duration: 0.2), value: isSearchBarFocused)
     }
 
     /// 数字のみ13桁ならそのままコード検索(/api/search)。10桁はISBN-10として検証し、

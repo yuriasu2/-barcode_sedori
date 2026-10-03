@@ -17,6 +17,8 @@ struct ProductsTabView: View {
     @State private var selectedIds = Set<UUID>()
     /// ヘッダーの検索BOXに入力中のクエリ(タイトル・JAN・日付「M/d」に部分一致)。
     @State private var searchQuery = ""
+    /// 検索欄の入力中かどうか。入力中だけ「キャンセル」ボタンを出し、キーボードを閉じられるようにする。
+    @FocusState private var isSearchFieldFocused: Bool
     /// 検索時だけ全チャンクから取得した結果。通常表示はhistoryStore.itemsのページを使う。
     @State private var searchResults: [ScanHistoryItem] = []
     @State private var isSearching = false
@@ -180,7 +182,8 @@ struct ProductsTabView: View {
     private var searchRow: some View {
         HStack(spacing: 8) {
             searchField
-            if !displayedItems.isEmpty {
+            // 入力中はキャンセルを出すため「選択」は隠す(標準の検索バーと同じく右側を1ボタンにする)。
+            if !displayedItems.isEmpty && !isSearchFieldFocused {
                 Button("選択") {
                     isSelecting = true
                 }
@@ -192,23 +195,41 @@ struct ProductsTabView: View {
     }
 
     private var searchField: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass")
-                .foregroundColor(.secondary)
-            TextField("タイトル、月/日、JANで検索", text: $searchQuery)
-            if !searchQuery.isEmpty {
-                Button {
-                    searchQuery = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundColor(.secondary)
+        HStack(spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundColor(.secondary)
+                TextField("タイトル、月/日、JANで検索", text: $searchQuery)
+                    .focused($isSearchFieldFocused)
+                if !searchQuery.isEmpty {
+                    Button {
+                        searchQuery = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundColor(.secondary)
+                    }
                 }
             }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(Color(.secondarySystemBackground))
+            .cornerRadius(10)
+            // 入力欄側を縮ませ、キャンセルボタンが画面外へはみ出さないようにする。
+            .frame(maxWidth: .infinity)
+
+            // 検索タブの検索バーと同じく、入力中だけ右側にキャンセルを出す
+            // (×ボタンは文字を消すだけでキーボードを閉じられないため)。
+            if isSearchFieldFocused {
+                Button("キャンセル") {
+                    searchQuery = ""
+                    isSearchFieldFocused = false
+                }
+                .fixedSize()
+                .layoutPriority(1)
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(Color(.secondarySystemBackground))
-        .cornerRadius(10)
+        .animation(.easeInOut(duration: 0.2), value: isSearchFieldFocused)
     }
 
     /// 選択モードのオプション行。戻る+すべて選択を左、アクション(削除・仕入れに追加)を右に置く。
