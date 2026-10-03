@@ -4,6 +4,9 @@ options:
   deploymentTarget:
     iOS: "16.0"
   createIntermediateGroups: true
+  # 開発言語を日本語にする。未指定だとen扱いになり、App Storeの言語表示がENになり、
+  # iOS標準UI(権限ダイアログのボタン等)も英語になっていたため。
+  developmentLanguage: ja
 
 packages:
   GoogleMobileAds:
@@ -41,6 +44,11 @@ targets:
       # Resources フォルダごと sources に入れると .gitkeep もバンドルに混入するため、
       # ファイル単位で指定している。
       - path: Resources/PrivacyInfo.xcprivacy
+      # 日本語ローカライズ(InfoPlist.strings)。バイナリがjaのローカライズを持たないと
+      # App Storeの言語表示が日本語にならない。resources:指定だとCopy Bundle Resourcesに
+      # 入らない問題があるため、PrivacyInfoと同様にsources:へ個別指定する
+      # (.lproj は XcodeGen がローカライズ済みvariant groupとして扱う想定。未検証)。
+      - path: Resources/ja.lproj
     dependencies:
       - package: GoogleMobileAds
       - package: PostHog
@@ -51,6 +59,9 @@ targets:
         # 権限ダイアログ(カメラ・トラッキング許可等)はCFBundleNameを表示するため、
         # 既定のターゲット名(BarcodeSedori)ではなくアプリ名に揃える。
         CFBundleName: セラーレンズ
+        # jaのローカライズを持つことをバイナリに明示する(App Storeの言語表示用)。
+        CFBundleLocalizations:
+          - ja
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         UILaunchScreen: {}
@@ -128,8 +139,8 @@ targets:
         # App Store Connectへのアップロードが弾かれる(90474)。ターゲット側に明示すること。
         TARGETED_DEVICE_FAMILY: "1"
         PRODUCT_BUNDLE_IDENTIFIER: jp.sellira.sellerlens
-        MARKETING_VERSION: "1.0.1"
-        CURRENT_PROJECT_VERSION: "13"
+        MARKETING_VERSION: "1.0.2"
+        CURRENT_PROJECT_VERSION: "14"
         # Resources/Assets.xcassets の AppIcon を使う
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
 

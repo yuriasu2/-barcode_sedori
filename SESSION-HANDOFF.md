@@ -28,6 +28,24 @@
   iOSのビルド確認は `swiftc -parse` による構文チェックまでしかできない。
 - サーバーテストは434件すべて成功(2026-10-03)。
 
+### 2026-10-03 ASO調査と1.0.2の準備(未ビルド・未提出)
+
+- DL21件・「せどり」検索に出ない件を調査。iTunes Search API(近似)では「せどり」単独は圏外、
+  「せどり 本」3位・「せどり バーコード」2位・「相場リサーチ」1位。評価0件。詳細はこのセッションの会話参照。
+- ストアの言語がENの原因: プロジェクトが `developmentRegion = en` で ja.lproj が無かった。
+  → `project.yml` に `developmentLanguage: ja`・`CFBundleLocalizations: [ja]`・`Resources/ja.lproj/InfoPlist.strings` を追加。
+- レビュー依頼が無料ユーザーに一度も出ない条件だった(仕入れ追加/一括出品はPro限定)。
+  → 検索10回・利用2日のみに緩和、無料枠切れ時は起動トリガーで依頼しない。テスト `ios/tests/ReviewPromptPolicyTests.swift`。
+- バージョンを **1.0.2 / build14** に変更。**Xcodeのある環境で `xcodegen generate` 後、
+  Copy Bundle Resourcesに `InfoPlist.strings (ja)` が入っているか、developmentRegionがjaかを必ず確認**(未検証)。
+- 1.0.1のプロモーションテキストが空(1.0にはあった)。審査不要で設定可能、未対応。
+- タイトル/サブタイトル/キーワードの変更は1.0.2提出時に行う予定(未決定)。キーワード欄の
+  「せどり」「Amazon」「リサーチ」はタイトル等と重複している。
+- App Store Connect Analytics Reports APIのリクエストを作成済み(ONE_TIME_SNAPSHOT `d0366633-d0a6-427a-a2b8-3c772e6fd5ee`、
+  ONGOING `8545adbd-428c-484d-babc-e58e4ef960a4`)。生成に1〜2日。`/v1/analyticsReportRequests/{id}/reports` → instances で取得。
+  注意: `node tools/appstore-connect/asc.mjs` のCLI実行はパスに日本語があると無反応になる(import.meta.url比較の不一致)。
+  スクリプトから `import { asc }` して使う。
+
 ### 2026-10-03 のセッションで行ったこと
 
 - Codexによる2026-09-08〜09-11の更新(40コミット)を確認・把握した。主な内容は下の各節にある

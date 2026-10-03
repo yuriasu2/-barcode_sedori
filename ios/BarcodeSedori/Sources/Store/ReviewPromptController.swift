@@ -8,6 +8,10 @@ import Foundation
 /// 非推奨化を避けられる、Appleが推奨する経路のため)。このクラスはUserDefaultsのカウンタを
 /// 読み書きし、「今、依頼してよいか」を判定するだけ。
 ///
+/// 利用バーは「検索回数 + 起動日数」だけにしている。仕入れ追加・一括出品はPro限定機能で、
+/// それを条件に含めると無料ユーザーが一度も依頼されないため。一括出品成功は依頼の「瞬間(トリガー)」
+/// としてのみ使う。
+///
 /// 重要な制約: アプリはレビューダイアログが実際に画面へ出たかどうかを検知できない
 /// (最終的に出すかどうかはシステム側の裁量で、iOS側が既にAppleの回数上限に達していれば
 /// 何も表示せず無音で終わる)。そのため「出した」ではなく「依頼した(requestReview()を呼んだ)」
@@ -40,13 +44,12 @@ final class ReviewPromptController {
     /// チューニング対象のポリシー定数。値を変えるときはここだけを見ればよいようにまとめる。
     private enum Policy {
         /// 利用バー: 累計検索回数。
-        static let minSearchCount = 50
+        /// 旧条件(50回+仕入れ追加/一括出品)は、仕入れ追加・一括出品がPro限定で無料枠も1日5回のため
+        /// 無料ユーザーが一度も依頼されなかった。検索と起動日数だけで、1日5回の無料枠でも
+        /// 2日目に届く値(5回/日 x 2日 = 10回)にしている。
+        static let minSearchCount = 10
         /// 利用バー: 起動した日数(のべ日数ではなく異なる暦日の数)。
-        static let minActiveDayCount = 3
-        /// 利用バー: 仕入れリストへの累計追加件数(こちらかbulkListingSuccessCountのどちらかを満たせばよい)。
-        static let minPurchaseAddCount = 5
-        /// 利用バー: 一括出品が全件成功した累計回数(こちらかpurchaseAddCountのどちらかを満たせばよい)。
-        static let minBulkListingSuccessCount = 1
+        static let minActiveDayCount = 2
         /// 直近のネガティブイベント(エラー・枠枯渇・ペイウォール・リワード広告)から
         /// この秒数以内は依頼しない。5分。
         static let negativeEventCooldownSeconds: TimeInterval = 5 * 60
@@ -145,12 +148,9 @@ final class ReviewPromptController {
         // 1. 利用バー: ある程度アプリを使い込んでいることが確認できて初めて依頼する。
         let searchCount = defaults.integer(forKey: Keys.searchCount)
         let activeDayCount = defaults.integer(forKey: Keys.activeDayCount)
-        let purchaseAddCount = defaults.integer(forKey: Keys.purchaseAddCount)
-        let bulkListingSuccessCount = defaults.integer(forKey: Keys.bulkListingSuccessCount)
+        // 仕入れ追加・一括出品はPro限定のため利用バーには含めない(カウンタ自体は記録だけ続ける)。
         guard searchCount >= Policy.minSearchCount,
-              activeDayCount >= Policy.minActiveDayCount,
-              (purchaseAddCount >= Policy.minPurchaseAddCount
-                || bulkListingSuccessCount >= Policy.minBulkListingSuccessCount)
+              activeDayCount >= Policy.minActiveDayCount
         else {
             return false
         }

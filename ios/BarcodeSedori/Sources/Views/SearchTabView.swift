@@ -477,6 +477,9 @@ struct SearchTabView: View {
         guard ReviewPromptController.shared.shouldCheckLaunchTrigger() else { return }
         try? await Task.sleep(nanoseconds: 2_500_000_000)
         guard !viewModel.isSearching, viewModel.latestResult == nil else { return }
+        // 無料枠を使い切った直後は不満が溜まっていて低評価になりやすい。判定の前に弾くことで
+        // consumeEligibility(依頼済みの記録)を消費せず、次回以降に持ち越せる。
+        guard !isQuotaExhausted else { return }
         guard ReviewPromptController.shared.consumeEligibility(trigger: .launch) else { return }
         requestReview()
     }

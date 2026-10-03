@@ -1,0 +1,4 @@
+"CFBundleDisplayName" = "セラーレンズ";
+"CFBundleName" = "セラーレンズ";
+"NSCameraUsageDescription" = "バーコードをスキャンして商品を検索するためにカメラを使用します。";
+"NSUserTrackingUsageDescription" = "あなたに関係のある広告を表示するために使用します。無関係な広告が減り、アプリを無料で使い続けられます。";
