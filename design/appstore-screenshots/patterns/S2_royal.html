@@ -1,0 +1,50 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1242px;height:2688px;overflow:hidden}
+body{background:#4169E1;background-image:radial-gradient(rgba(255,255,255,.09) 2.2px,transparent 2.8px);background-size:24px 24px;position:relative;font-family:"Hiragino Sans";color:#fff}
+.kicker{position:absolute;left:60px;top:150px;font:800 62px "Hiragino Sans";letter-spacing:.04em;background:#111;color:#FFD200;padding:12px 26px 16px}
+.lead{position:absolute;left:84px;top:322px;font:800 70px "Hiragino Sans";letter-spacing:.02em}
+.lead b{border-bottom:10px solid #FFD200}
+h1{position:absolute;left:76px;top:440px;font-family:"Toppan Bunkyu Midashi Gothic";font-weight:800;line-height:1.1;letter-spacing:-.01em}
+h1 .l1{display:block;font-size:150px}
+h1 .l2{display:block;font-size:150px;color:#FFD200}
+.burst{position:absolute;right:16px;top:10px;width:330px;height:330px;transform:rotate(12deg)}
+.burst div{position:absolute;inset:0;background:#E60012}
+.burst span{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;font-family:"Toppan Bunkyu Midashi Gothic";font-weight:800;font-size:50px;line-height:1.1;text-align:center}
+.burst span b{font-size:54px}
+.band{position:absolute;left:-40px;right:-40px;top:840px;background:#111;color:#fff;transform:rotate(-3deg);padding:26px 0 30px;text-align:center;font:800 54px "Hiragino Sans";letter-spacing:.03em}
+.band em{font-style:normal;color:#FFD200}
+.card{position:absolute;width:560px;filter:drop-shadow(14px 20px 0 rgba(0,20,80,.35))}
+.c1{left:36px;top:1080px;transform:rotate(-3deg)}
+.c2{left:644px;top:1110px;transform:rotate(3deg)}
+.note{position:absolute;font-family:"Klee";font-weight:600;font-size:60px;line-height:1.25;color:#FFD200}
+.n1{left:70px;top:1760px;transform:rotate(-6deg)}
+.n2{left:690px;top:1770px;transform:rotate(5deg)}
+.arrow{position:absolute;width:110px;height:110px}
+.a1{left:250px;top:1600px;transform:rotate(-20deg)}
+.a2{left:930px;top:1620px;transform:scaleX(-1) rotate(-20deg)}
+.tag{position:absolute;left:70px;right:70px;height:250px;background:#fff;color:#111;border:7px solid #111;border-radius:18px;display:flex;align-items:center;padding-left:150px;box-shadow:14px 18px 0 rgba(0,20,80,.35)}
+.tag:before{content:"";position:absolute;left:52px;top:50%;width:50px;height:50px;margin-top:-25px;border-radius:50%;border:7px solid #111;background:#4169E1}
+.tag div{font:800 52px "Hiragino Sans";line-height:1.35}
+.tag b{display:block;font-family:"Toppan Bunkyu Midashi Gothic";font-weight:800;font-size:86px;color:#E60012}
+.t1{top:2000px;transform:rotate(-1.5deg)}
+.t2{top:2320px;transform:rotate(1.5deg)}
+</style></head><body>
+<div class="kicker">Amazon連携するだけで</div>
+<div class="lead"><b>新品・中古</b>の出品価格を</div>
+<h1><span class="l1">一覧で</span><span class="l2">高速表示</span></h1>
+<div class="burst"><div id="star"></div><span>待ち時間<b>ほぼゼロ</b></span></div>
+<div class="band"><em>高速スキャン</em>で仕入れを<em>効率化！</em></div>
+<img class="card c1" src="../card_new.png">
+<img class="card c2" src="../card_used.png">
+<svg class="arrow a1" viewBox="0 0 150 150"><path d="M20 140 C 40 80, 80 40, 130 20" stroke="#FFD200" stroke-width="9" fill="none" stroke-linecap="round"/><path d="M95 14 L132 19 L120 54" stroke="#FFD200" stroke-width="9" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<svg class="arrow a2" viewBox="0 0 150 150"><path d="M20 140 C 40 80, 80 40, 130 20" stroke="#FFD200" stroke-width="9" fill="none" stroke-linecap="round"/><path d="M95 14 L132 19 L120 54" stroke="#FFD200" stroke-width="9" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<div class="note n1">販売元Amazonも<br>わかる！</div>
+<div class="note n2">状態別に<br>見られる！</div>
+<div class="tag t1"><div>出品者数の表示で<b>競合分析</b></div></div>
+<div class="tag t2"><div>送料込みの価格表示で<b>実質価格が一目瞭然</b></div></div>
+<script>
+const n=22,pts=[];for(let i=0;i<n*2;i++){const r=i%2?38:50,a=Math.PI*i/n;pts.push(`${50+r*Math.cos(a)}% ${50+r*Math.sin(a)}%`)}
+document.getElementById('star').style.clipPath=`polygon(${pts.join(',')})`;
+</script>
+</body></html>
