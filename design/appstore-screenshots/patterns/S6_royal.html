@@ -1,0 +1,36 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1242px;height:2688px;overflow:hidden}
+body{background:#4169E1;background-image:radial-gradient(rgba(255,255,255,.09) 2.2px,transparent 2.8px);background-size:24px 24px;position:relative;font-family:"Hiragino Sans";color:#fff}
+.kicker{position:absolute;left:60px;top:150px;font:800 60px "Hiragino Sans";letter-spacing:.04em;background:#111;color:#FFD200;padding:12px 26px 16px}
+.lead{position:absolute;left:70px;top:322px;font:800 66px "Hiragino Sans"}
+.lead b{border-bottom:10px solid #FFD200}
+h1{position:absolute;left:64px;top:430px;font-family:"Toppan Bunkyu Midashi Gothic";font-weight:800;line-height:1.1}
+h1 .l1{display:block;font-size:146px}
+h1 .l2{display:block;font-size:146px;color:#FFD200}
+.burst{position:absolute;right:16px;top:8px;width:310px;height:310px;transform:rotate(12deg)}
+.burst div{position:absolute;inset:0;background:#E60012}
+.burst span{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;font-family:"Toppan Bunkyu Midashi Gothic";font-weight:800;font-size:36px;line-height:1.2;text-align:center}
+.burst span b{font-size:80px}
+.band{position:absolute;left:-40px;right:-40px;top:820px;background:#111;transform:rotate(-3deg);padding:24px 0 28px;text-align:center;font:800 50px "Hiragino Sans"}
+.band em{font-style:normal;color:#FFD200}
+.ocr{position:absolute;width:880px;border-radius:30px;border:8px solid #fff;filter:drop-shadow(14px 20px 0 rgba(0,20,80,.35))}
+.o1{left:36px;top:1010px;transform:rotate(-2deg)}
+.o2{left:326px;top:1830px;transform:rotate(2deg)}
+.note{position:absolute;font-family:"Klee";font-weight:600;font-size:56px;line-height:1.25;color:#FFD200}
+.n1{left:935px;top:1250px;transform:rotate(6deg)}
+.n2{left:40px;top:2080px;transform:rotate(-6deg)}
+</style></head><body>
+<div class="kicker">バーコードがなくても</div>
+<div class="lead"><b>JAN・ISBN</b>の印字を</div>
+<h1><span class="l1">OCR機能で</span><span class="l2">読み取り</span></h1>
+<div class="burst"><div id="star"></div><span>読めなくても<b>OK</b></span></div>
+<div class="band"><em>古本</em>や<em>バーコードなし</em>の商品も検索できる</div>
+<img class="ocr o1" src="../ocr_1.png">
+<img class="ocr o2" src="../ocr_2.png">
+<div class="note n1">13桁の<br>ISBNも<br>OK！</div>
+<div class="note n2">古い本の<br>10桁<br>ISBNも！</div>
+<script>
+const n=22,pts=[];for(let i=0;i<n*2;i++){const r=i%2?38:50,a=Math.PI*i/n;pts.push(`${50+r*Math.cos(a)}% ${50+r*Math.sin(a)}%`)}
+document.getElementById('star').style.clipPath=`polygon(${pts.join(',')})`;
+</script></body></html>
