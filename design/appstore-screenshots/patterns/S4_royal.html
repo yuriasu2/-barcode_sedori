@@ -1,0 +1,52 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1242px;height:2688px;overflow:hidden}
+body{background:#4169E1;background-image:radial-gradient(rgba(255,255,255,.09) 2.2px,transparent 2.8px);background-size:24px 24px;position:relative;font-family:"Hiragino Sans";color:#fff}
+.kicker{position:absolute;left:60px;top:150px;font:800 54px "Hiragino Sans";letter-spacing:.04em;background:#111;color:#FFD200;padding:12px 26px 16px}
+h1{position:absolute;left:70px;top:320px;font-family:"Toppan Bunkyu Midashi Gothic";font-weight:800;line-height:1.1;letter-spacing:-.01em}
+h1 .l1{display:block;font-size:122px}
+h1 .l2{display:block;font-size:150px;color:#FFD200}
+.burst{position:absolute;right:16px;top:6px;width:310px;height:310px;transform:rotate(12deg)}
+.burst div{position:absolute;inset:0;background:#E60012}
+.burst span{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;font-family:"Toppan Bunkyu Midashi Gothic";font-weight:800;font-size:44px;line-height:1.12;text-align:center}
+.burst span b{font-size:68px}
+.band{position:absolute;left:-40px;right:-40px;top:680px;background:#111;color:#fff;transform:rotate(-3deg);padding:24px 0 28px;text-align:center;font:800 50px "Hiragino Sans";letter-spacing:.03em}
+.band em{font-style:normal;color:#FFD200}
+.phone{position:absolute;left:-298px;top:820px;width:1098px;filter:drop-shadow(16px 22px 0 rgba(0,20,80,.35))}
+.ring{position:absolute;border:10px solid #FFD200;border-radius:24px;box-shadow:0 0 0 4px rgba(0,0,0,.15)}
+.r1{left:618px;top:1902px;width:134px;height:124px}
+.r2{left:238px;top:2050px;width:512px;height:106px}
+.card{position:absolute;left:836px;width:376px;background:#fff;color:#111;border:7px solid #111;border-radius:22px;padding:30px 24px 30px;text-align:center;box-shadow:12px 16px 0 rgba(0,20,80,.35)}
+.card .ic{width:110px;height:110px;border-radius:50%;margin:0 auto 18px;display:flex;align-items:center;justify-content:center;font:900 64px "Hiragino Sans";color:#fff}
+.card h3{font-family:"Toppan Bunkyu Midashi Gothic";font-weight:800;font-size:58px;line-height:1.2}
+.card p{margin-top:14px;font:700 34px "Hiragino Sans";line-height:1.5}
+.c1{top:920px;transform:rotate(2deg)}
+.c1 .ic{background:#F28C1B}.c1 h3{color:#E86A00}
+.c2{top:1420px;transform:rotate(-2deg)}
+.c2 .ic{background:#1F5FD6}.c2 h3{color:#1F5FD6}
+.note{position:absolute;left:876px;top:1900px;font-family:"Klee";font-weight:600;font-size:50px;line-height:1.3;color:#FFD200;transform:rotate(-4deg)}
+.chips{position:absolute;left:836px;top:2110px;width:390px;display:flex;flex-wrap:wrap;gap:14px 10px}
+.chips span{background:#fff;color:#111;border:5px solid #111;border-radius:999px;padding:8px 18px;font:800 30px "Hiragino Sans";white-space:nowrap}
+svg.over{position:absolute;inset:0;width:1242px;height:2688px;pointer-events:none}
+</style></head><body>
+<div class="kicker">Amazon出品制限もチェック</div>
+<h1><span class="l1">他サイトの相場も</span><span class="l2">ワンタップ</span></h1>
+<div class="burst"><div id="star"></div><span>8サイト<b>対応</b></span></div>
+<div class="band"><em>出品制限</em>の確認も、<em>相場チェック</em>も1画面で</div>
+<img class="phone" src="../phone.png">
+<div class="ring r1"></div><div class="ring r2"></div>
+<div class="card c1"><div class="ic">!</div><h3>出品制限</h3><p>制限の有無を<br>すぐ確認</p></div>
+<div class="card c2"><div class="ic">🔗</div><h3>リンク先を<br>自由に設定</h3><p>ボタンを押せば<br>相場をすぐ見られる</p></div>
+<div class="note">ボタンは<br>設定で選べる！</div>
+<div class="chips"><span>Amazon</span><span>メルカリ</span><span>楽天市場</span><span>ヤフオク</span><span>Yahoo!ショッピング</span><span>ラクマ</span><span>価格.com</span><span>Keepa</span></div>
+<svg class="over" viewBox="0 0 1242 2688">
+ <path d="M845 1300 C 775 1450, 775 1700, 760 1885" stroke="#FFD200" stroke-width="12" fill="none" stroke-linecap="round"/>
+ <path d="M728 1846 L760 1890 L800 1858" stroke="#FFD200" stroke-width="12" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+ <path d="M832 1810 C 795 1900, 785 1980, 768 2048" stroke="#FFD200" stroke-width="12" fill="none" stroke-linecap="round"/>
+ <path d="M740 2010 L768 2052 L812 2030" stroke="#FFD200" stroke-width="12" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
+<script>
+const n=22,pts=[];for(let i=0;i<n*2;i++){const r=i%2?38:50,a=Math.PI*i/n;pts.push(`${50+r*Math.cos(a)}% ${50+r*Math.sin(a)}%`)}
+document.getElementById('star').style.clipPath=`polygon(${pts.join(',')})`;
+</script>
+</body></html>
