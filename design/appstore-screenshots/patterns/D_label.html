@@ -1,0 +1,38 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1242px;height:2688px;overflow:hidden}
+body{background:#C99A5B;position:relative;font-family:"Hiragino Sans";color:#111}
+body:before{content:"";position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(90,55,15,.07) 0 3px,transparent 3px 11px),repeating-linear-gradient(90deg,rgba(255,240,210,.05) 0 1px,transparent 1px 5px)}
+.tape{position:absolute;left:-20px;right:-20px;top:1560px;height:150px;background:rgba(228,205,160,.75);box-shadow:inset 0 2px 0 rgba(255,255,255,.3);transform:rotate(-1deg)}
+.label{position:absolute;left:70px;right:70px;top:110px;background:#fff;border:7px solid #111;transform:rotate(-1.2deg);box-shadow:0 18px 30px rgba(70,40,5,.35)}
+.row{display:flex;border-bottom:5px solid #111}
+.row:last-child{border-bottom:0}
+.cell{flex:1;padding:22px 30px}
+.cell+.cell{border-left:5px solid #111}
+.lbl{font:800 30px "Hiragino Sans";letter-spacing:.14em}
+.val{font:800 54px "Hiragino Sans";margin-top:4px}
+.head{padding:34px 34px 30px;font-family:"Toppan Bunkyu Midashi Gothic";font-weight:800;font-size:118px;line-height:1.12}
+.head small{display:block;font:800 46px "Hiragino Sans";letter-spacing:.06em;margin-bottom:14px}
+.head small span{background:#111;color:#fff;padding:4px 16px}
+.bc{padding:26px 34px 18px;text-align:center}
+#bars{display:flex;height:140px;justify-content:center;overflow:hidden;width:100%}
+#bars i{display:block;height:100%;background:#111}
+.bc .num{font:600 40px "Osaka-Mono","Osaka",monospace;letter-spacing:.3em;margin-top:8px}
+.checks{display:grid;grid-template-columns:1fr 1fr;gap:10px 30px;padding:26px 34px;font:800 50px "Hiragino Sans"}
+.checks span:before{content:"✔";display:inline-block;width:58px;height:58px;border:5px solid #111;margin-right:16px;text-align:center;line-height:50px;font-size:44px;vertical-align:-6px}
+.phone{position:absolute;left:180px;top:1500px;width:880px;filter:drop-shadow(0 24px 30px rgba(60,35,5,.45))}
+.fragile{position:absolute;right:58px;top:1440px;transform:rotate(8deg);border:6px solid #C2271C;color:#C2271C;font:800 46px "Hiragino Sans";padding:8px 22px;letter-spacing:.1em;background:rgba(255,255,255,.12)}
+</style></head><body>
+<div class="label">
+ <div class="row"><div class="cell"><div class="lbl">FROM</div><div class="val">店頭の棚</div></div><div class="cell"><div class="lbl">TO</div><div class="val">Amazon</div></div></div>
+ <div class="row"><div class="head"><small><span>せどり</span> 仕入れ〜出品</small>スキャンから<br>出品まで、<br>これ1本。</div></div>
+ <div class="row"><div class="bc"><div id="bars"></div><div class="num">4974305220042</div></div></div>
+ <div class="row"><div class="checks"><span>相場</span><span>売れ行き</span><span>利益計算</span><span>一括出品</span></div></div>
+</div>
+<div class="tape"></div>
+<img class="phone" src="../phone.png">
+<div class="fragile">取扱注意：即決</div>
+<script>
+const b=document.getElementById('bars');let s=7;for(let i=0;i<54;i++){s=(s*9301+49297)%233280;const w=[4,6,9,13][s%4];const el=document.createElement('i');el.style.width=w+'px';el.style.marginRight=([4,7,10][(s>>3)%3])+'px';b.appendChild(el)}
+</script>
+</body></html>

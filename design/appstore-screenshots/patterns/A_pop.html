@@ -1,0 +1,29 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1242px;height:2688px;overflow:hidden}
+body{background:#FFD200;background-image:radial-gradient(rgba(0,0,0,.075) 2.2px,transparent 2.8px);background-size:24px 24px;position:relative;font-family:"Hiragino Sans";color:#111}
+.kicker{position:absolute;left:84px;top:150px;font:800 64px "Hiragino Sans";letter-spacing:.04em;background:#111;color:#FFD200;padding:10px 26px 14px}
+h1{position:absolute;left:78px;top:290px;font-family:"Toppan Bunkyu Midashi Gothic";font-weight:800;font-size:178px;line-height:1.12;letter-spacing:-.01em}
+h1 .red{color:#E60012}
+.burst{position:absolute;right:52px;top:70px;width:330px;height:330px;transform:rotate(12deg)}
+.burst div{position:absolute;inset:0;background:#E60012}
+.burst span{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;font-family:"Toppan Bunkyu Midashi Gothic";font-weight:800;font-size:64px;line-height:1.05;text-align:center}
+.burst span b{font-size:96px}
+.band{position:absolute;left:-40px;right:-40px;top:760px;background:#111;color:#fff;transform:rotate(-3deg);padding:26px 0 30px;text-align:center;font:800 62px "Hiragino Sans";letter-spacing:.06em}
+.band em{font-style:normal;color:#FFD200}
+.phone{position:absolute;left:250px;top:1000px;width:860px;transform:rotate(5deg);filter:drop-shadow(18px 26px 0 rgba(0,0,0,.18))}
+.note{position:absolute;left:46px;top:1270px;font-family:"Klee";font-weight:600;font-size:66px;line-height:1.25;color:#E60012;transform:rotate(-7deg)}
+.arrow{position:absolute;left:150px;top:1560px;width:150px;height:150px}
+</style></head><body>
+<div class="kicker">店頭せどり・本せどりに</div>
+<h1>ピッで、<br><span class="red">仕入れ判断</span>。</h1>
+<div class="burst"><div id="star"></div><span>せどり<b>専用</b></span></div>
+<div class="band"><em>Amazon相場</em> ／ 売れ行き ／ <em>利益</em></div>
+<img class="phone" src="../phone.png">
+<div class="note">ぜんぶ<br>1画面で<br>見える！</div>
+<svg class="arrow" viewBox="0 0 150 150"><path d="M20 10 C 40 80, 80 110, 135 120" stroke="#E60012" stroke-width="9" fill="none" stroke-linecap="round"/><path d="M105 95 L138 121 L100 138" stroke="#E60012" stroke-width="9" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<script>
+const n=22,pts=[];for(let i=0;i<n*2;i++){const r=i%2?38:50,a=Math.PI*i/n;pts.push(`${50+r*Math.cos(a)}% ${50+r*Math.sin(a)}%`)}
+document.getElementById('star').style.clipPath=`polygon(${pts.join(',')})`;
+</script>
+</body></html>

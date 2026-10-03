@@ -1,0 +1,33 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1242px;height:2688px;overflow:hidden}
+body{background:#4169E1;background-image:radial-gradient(rgba(255,255,255,.09) 2.2px,transparent 2.8px);background-size:24px 24px;position:relative;font-family:"Hiragino Sans";color:#fff}
+.kicker{position:absolute;left:78px;top:150px;font:800 56px "Hiragino Sans";letter-spacing:.04em;background:#111;color:#FFD200;padding:12px 26px 16px}
+.lead{position:absolute;left:84px;top:322px;font:800 70px "Hiragino Sans";letter-spacing:.02em}
+.lead b{border-bottom:10px solid #FFD200}
+h1{position:absolute;left:76px;top:440px;font-family:"Toppan Bunkyu Midashi Gothic";font-weight:800;line-height:1.1;letter-spacing:-.01em}
+h1 .l1{display:block;font-size:150px}
+h1 .l2{display:block;font-size:124px;color:#FFD200}
+.burst{position:absolute;right:34px;top:22px;width:285px;height:285px;transform:rotate(12deg)}
+.burst div{position:absolute;inset:0;background:#E60012}
+.burst span{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;font-family:"Toppan Bunkyu Midashi Gothic";font-weight:800;font-size:56px;line-height:1.05;text-align:center}
+.burst span b{font-size:82px}
+.band{position:absolute;left:-40px;right:-40px;top:810px;background:#111;color:#fff;transform:rotate(-3deg);padding:26px 0 30px;text-align:center;font:800 50px "Hiragino Sans";letter-spacing:.03em}
+.band em{font-style:normal;color:#FFD200}
+.phone{position:absolute;left:250px;top:1040px;width:860px;transform:rotate(5deg);filter:drop-shadow(18px 26px 0 rgba(0,20,80,.35))}
+.note{position:absolute;left:46px;top:1310px;font-family:"Klee";font-weight:600;font-size:66px;line-height:1.25;color:#FFD200;transform:rotate(-7deg)}
+.arrow{position:absolute;left:150px;top:1600px;width:150px;height:150px}
+</style></head><body>
+<div class="kicker">店舗せどり、本せどりに最適</div>
+<div class="lead"><b>バーコード</b>をカメラでスキャン</div>
+<h1><span class="l1">1画面で</span><span class="l2">仕入れ判断ができる</span></h1>
+<div class="burst"><div id="star"></div><span>せどり<b>専用</b></span></div>
+<div class="band"><em>Amazon</em>の価格一覧、<em>売れ行きグラフ</em>を見れる</div>
+<img class="phone" src="../phone.png">
+<div class="note">ぜんぶ<br>1画面で<br>見える！</div>
+<svg class="arrow" viewBox="0 0 150 150"><path d="M20 10 C 40 80, 80 110, 135 120" stroke="#FFD200" stroke-width="9" fill="none" stroke-linecap="round"/><path d="M105 95 L138 121 L100 138" stroke="#FFD200" stroke-width="9" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<script>
+const n=22,pts=[];for(let i=0;i<n*2;i++){const r=i%2?38:50,a=Math.PI*i/n;pts.push(`${50+r*Math.cos(a)}% ${50+r*Math.sin(a)}%`)}
+document.getElementById('star').style.clipPath=`polygon(${pts.join(',')})`;
+</script>
+</body></html>
