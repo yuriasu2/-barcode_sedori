@@ -49,15 +49,14 @@ final class EntitlementStore: ObservableObject {
     /// `error.localizedDescription` を含める。
     @Published private(set) var productLoadDiagnostic: String?
 
-    /// 「最初の7日間無料」のような無料体験の表示文言。
+    /// 無料体験の期間だけ(例: "7日間")。購入ボタンなど期間を文中に埋め込む表示用。
     /// 商品未取得・導入オファー未設定・この購入者が対象外のいずれかならnil(=何も出さない)。
-    /// 期間はApp Store Connect側の設定を正として読み取る(アプリ側に日数を焼き込まない。
-    /// ここを固定値にすると、後でオファーを14日に変えたときに表示だけ嘘になる)。
-    var introOfferText: String? {
+    /// 期間はApp Store Connect側の設定を正として読み取る(アプリ側に日数を焼き込まない)。
+    var introOfferPeriodText: String? {
         guard isEligibleForIntroOffer,
               let offer = product?.subscription?.introductoryOffer,
               offer.paymentMode == .freeTrial else { return nil }
-        return "最初の\(Self.periodText(offer.period))無料"
+        return Self.periodText(offer.period)
     }
 
     /// サブスク期間を日本語にする(1週間は「7日間」と読み替える。App Store Connectで

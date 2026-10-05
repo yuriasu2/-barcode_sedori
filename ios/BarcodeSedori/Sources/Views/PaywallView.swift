@@ -83,17 +83,11 @@ struct PaywallView: View {
 
                     VStack(spacing: 4) {
                         // 請求額を最も目立つ価格要素にする(App Review 3.1.2(c)で、無料体験を請求額より
-                        // 目立たせていたため却下された)。無料体験は請求額の下に、小さく従属的に表示する。
-                        // 期間・有無はApp Store Connect側の設定が正で、アプリには焼き込まない。
+                        // 目立たせていたため却下された)。無料体験はボタン内・ボタン下で、請求額より小さく表示する。
+                        // 価格はStoreKitのdisplayPrice(利用者のストアの国・通貨)をそのまま使う。
                         Text(priceText)
                             .font(.title2)
                             .fontWeight(.bold)
-                        if let introOfferText = entitlements.introOfferText {
-                            Text("\(introOfferText)。無料期間の終了後、\(priceText)で自動更新されます。いつでも解約できます。")
-                                .font(.footnote)
-                                .foregroundColor(.secondary)
-                                .multilineTextAlignment(.center)
-                        }
                     }
                     .frame(maxWidth: .infinity)
 
@@ -108,9 +102,17 @@ struct PaywallView: View {
                             if entitlements.purchaseInProgress {
                                 ProgressView().tint(.white)
                             } else {
-                                // 購入ボタンでも無料を強調しない(請求額より目立たせないため、文言を統一する)。
-                                Text("Proを始める")
-                                    .fontWeight(.bold)
+                                // 1行目に請求額を入れ、無料体験の行は1行目より小さくして従属させる。
+                                VStack(spacing: 2) {
+                                    Text("Proを始める　\(priceText)")
+                                        .font(.headline)
+                                    if let period = entitlements.introOfferPeriodText {
+                                        Text("\(period)無料でご利用できます。")
+                                            .font(.subheadline)
+                                    }
+                                }
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.7)
                             }
                             Spacer()
                         }
@@ -120,6 +122,14 @@ struct PaywallView: View {
                         .cornerRadius(12)
                     }
                     .disabled(entitlements.purchaseInProgress || entitlements.product == nil || entitlements.isPurchaseSyncPending)
+                    if let period = entitlements.introOfferPeriodText {
+                        // 無料体験中に解約すれば課金されないことを明示する(1行に収める)。
+                        Text("\(period)の無料体験中はいつでもキャンセルでき、料金は発生しません")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.6)
+                    }
                     if entitlements.isPurchaseSyncPending {
                         Text("購入状態を確認しています。再購入は不要です。「購入を復元」から再確認できます。")
                             .font(.footnote)
