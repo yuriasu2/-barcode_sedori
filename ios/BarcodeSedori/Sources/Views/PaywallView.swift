@@ -82,21 +82,17 @@ struct PaywallView: View {
                     .cornerRadius(12)
 
                     VStack(spacing: 4) {
-                        // 無料体験(StoreKitの導入オファー)が使えるなら価格より先に出す。
+                        // 請求額を最も目立つ価格要素にする(App Review 3.1.2(c)で、無料体験を請求額より
+                        // 目立たせていたため却下された)。無料体験は請求額の下に、小さく従属的に表示する。
                         // 期間・有無はApp Store Connect側の設定が正で、アプリには焼き込まない。
+                        Text(priceText)
+                            .font(.title2)
+                            .fontWeight(.bold)
                         if let introOfferText = entitlements.introOfferText {
-                            Text(introOfferText)
-                                .font(.title3)
-                                .fontWeight(.bold)
-                                .foregroundColor(.accentColor)
-                            Text("その後 \(priceText)。いつでも解約できます。")
+                            Text("\(introOfferText)。無料期間の終了後、\(priceText)で自動更新されます。いつでも解約できます。")
                                 .font(.footnote)
                                 .foregroundColor(.secondary)
                                 .multilineTextAlignment(.center)
-                        } else {
-                            Text(priceText)
-                                .font(.title3)
-                                .fontWeight(.semibold)
                         }
                     }
                     .frame(maxWidth: .infinity)
@@ -112,7 +108,8 @@ struct PaywallView: View {
                             if entitlements.purchaseInProgress {
                                 ProgressView().tint(.white)
                             } else {
-                                Text(entitlements.introOfferText == nil ? "Proを始める" : "無料で始める")
+                                // 購入ボタンでも無料を強調しない(請求額より目立たせないため、文言を統一する)。
+                                Text("Proを始める")
                                     .fontWeight(.bold)
                             }
                             Spacer()
