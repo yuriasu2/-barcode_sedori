@@ -1,0 +1,5 @@
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:393px;height:852px;overflow:hidden}
+body{font-family:"Hiragino Sans";position:relative}
+.sb{height:54px;display:flex;justify-content:space-between;align-items:center;padding:0 28px;font:600 16px -apple-system}
+.legal{font-size:10px;line-height:1.5}

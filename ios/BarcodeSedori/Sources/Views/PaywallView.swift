@@ -81,16 +81,6 @@ struct PaywallView: View {
                     .background(Color(.secondarySystemBackground))
                     .cornerRadius(12)
 
-                    VStack(spacing: 4) {
-                        // 請求額を最も目立つ価格要素にする(App Review 3.1.2(c)で、無料体験を請求額より
-                        // 目立たせていたため却下された)。無料体験はボタン内・ボタン下で、請求額より小さく表示する。
-                        // 価格はStoreKitのdisplayPrice(利用者のストアの国・通貨)をそのまま使う。
-                        Text(priceText)
-                            .font(.title2)
-                            .fontWeight(.bold)
-                    }
-                    .frame(maxWidth: .infinity)
-
                     Button {
                         Task {
                             let ok = await entitlements.purchase()
@@ -102,7 +92,9 @@ struct PaywallView: View {
                             if entitlements.purchaseInProgress {
                                 ProgressView().tint(.white)
                             } else {
-                                // 1行目に請求額を入れ、無料体験の行は1行目より小さくして従属させる。
+                                // 請求額を画面で最も目立つ価格要素にする(App Review 3.1.2(c)で、無料体験を請求額より
+                                // 目立たせていたため却下された)。1行目に請求額を入れ、無料体験の行は小さくして従属させる。
+                                // 価格はStoreKitのdisplayPrice(利用者のストアの国・通貨)をそのまま使う。
                                 VStack(spacing: 2) {
                                     Text("Proを始める　\(priceText)")
                                         .font(.headline)
