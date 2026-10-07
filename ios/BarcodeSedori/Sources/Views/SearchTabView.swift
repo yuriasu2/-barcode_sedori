@@ -327,7 +327,6 @@ struct SearchTabView: View {
     /// システムが自らの裁量で表示するかどうかを決める(必ず出るわけではない)。
     @Environment(\.requestReview) private var requestReview
     /// ATT(トラッキング許可)事前説明ダイアログの表示状態。
-    @ObservedObject private var attPrompt = AttPromptController.shared
     /// カメラへのアクセス許可状態。未許可時の案内オーバーレイの表示可否に使う。
     @ObservedObject private var cameraPermission = CameraPermissionStore.shared
     /// 設定アプリから戻ってきたときにカメラ許可状態を再取得するため監視する。
@@ -438,23 +437,6 @@ struct SearchTabView: View {
             }
         }
         .navigationViewStyle(.stack)
-        // ATT事前説明ダイアログ。告知ポップアップ(RootTabView/NoticePopupView)と同じ
-        // 「.overlay { if ... } + .transition(.opacity) + .animation(...)」の流儀に揃える。
-        .overlay {
-            if attPrompt.isShowingPrimer {
-                AttPrimerDialog(onProceed: { attPrompt.proceedToSystemPrompt() })
-                .transition(.opacity)
-            }
-        }
-        .animation(.easeInOut(duration: 0.2), value: attPrompt.isShowingPrimer)
-        // ATTの事前説明とレビュー依頼が同時に出ると最悪なので、事前説明が表示された瞬間に
-        // ネガティブイベントとして記録し、5分間はレビュー依頼を抑制する
-        // (NoticeStore.refresh()が告知ポップアップに対して行っているのと同じ手法)。
-        .onChange(of: attPrompt.isShowingPrimer) { isShowing in
-            if isShowing {
-                ReviewPromptController.shared.recordNegativeEvent()
-            }
-        }
         // レビュー依頼(起動トリガー)。無料/Keepa-BYOユーザーはSP-API連携が要る一括出品
         // トリガーに届かないため、この起動トリガーだけが唯一のレビュー依頼経路になる。
         .task {
