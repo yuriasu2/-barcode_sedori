@@ -4,11 +4,12 @@ import SwiftUI
 /// ListingConfirmDialogと同じ様式(CenteredDialogContainer)に揃える。
 struct AttPrimerDialog: View {
     let onProceed: () -> Void
-    let onPostpone: () -> Void
 
     var body: some View {
-        // 暗幕タップは「あとで」扱いにする(誤タップでシステムダイアログへ進んでしまわないように)。
-        CenteredDialogContainer(onBackgroundTap: onPostpone) {
+        // 事前説明を出したら必ずAppleのシステムダイアログ(ATT)へ進ませる。App Review(5.1.1)で
+        // 「あとで」で要求を先送りできる作りが、トラッキング許可へ誘導するものとして却下されたため、
+        // 閉じる・先送りする手段(「あとで」ボタン、暗幕タップ)は置かない。
+        CenteredDialogContainer(onBackgroundTap: {}) {
             Image(systemName: "hand.raised.fill")
                 .font(.system(size: 26, weight: .semibold))
                 .foregroundColor(.white)
@@ -47,14 +48,6 @@ struct AttPrimerDialog: View {
                         RoundedRectangle(cornerRadius: 12)
                             .fill(OffersPanelColors.newBlue)
                     )
-            }
-            .buttonStyle(.plain)
-
-            Button(action: onPostpone) {
-                Text("あとで")
-                    .foregroundColor(.secondary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
             }
             .buttonStyle(.plain)
         }

@@ -24,29 +24,15 @@ final class AttPromptController: ObservableObject {
     /// 用途が異なる(ATTは閾値4回でごく早期に判定したい)ため、共用せず専用キーを持つ。
     private enum Keys {
         static let scanCount = "att.scanCount"
-        /// 「あとで」を選んだ回数。
-        static let postponeCount = "att.postponeCount"
-        /// 直近に事前説明を表示した時点のscanCount。再表示までの間隔を測るために保持する。
-        static let lastPrimerShownScanCount = "att.lastPrimerShownScanCount"
     }
 
     /// チューニング対象のポリシー定数。値を変えるときはここだけを見ればよいようにまとめる。
     private enum Policy {
         /// 事前説明を出してよくなる最低スキャン成功回数。
         static let minScanCountToShow = 4
-        /// 「あとで」を選べる回数の上限。これを超えたら二度と出さない。
-        /// ATTはユーザーが一度でも拒否すると(システムダイアログ側で)アプリ内から二度と
-        /// 出せなくなる上、事前説明自体をしつこく出すのはユーザー体験を損ない、
-        /// App Storeガイドライン(過度な許可要求の繰り返し)上も好ましくないため、
-        /// 控えめに2回で打ち止めにする。
-        ///
-        /// 上限に達した後、アプリ内からATTを出す手段は無い(設定画面にあった
-        /// 「広告のトラッキング設定」導線は2026-09-11に意図的に削除した)。
-        /// 利用者が後から変える場合はiOSの設定アプリ(プライバシーとセキュリティ→トラッキング)で行う。
-        static let maxPostponeCount = 2
-        /// 「あとで」を選んだ直後にすぐ次のスキャンで再表示すると煩わしいため、
-        /// 前回表示時のscanCountからこの回数分スキャンするまでは再表示しない。
-        static let minScansBetweenPrimerShows = 4
+        // 事前説明には「あとで」を置かない(必ずATTへ進む)。App Review(5.1.1)で、事前説明から
+        // 要求を先送りできる作りがトラッキング許可への誘導とみなされ却下されたため(2026-10)。
+        // ATTを一度出せば状態がnotDetermined以外になり、以後この事前説明は出ない。
     }
 
     private let defaults: UserDefaults
@@ -75,16 +61,6 @@ final class AttPromptController: ObservableObject {
         let scanCount = defaults.integer(forKey: Keys.scanCount)
         guard scanCount >= Policy.minScanCountToShow else { return }
 
-        // 「あとで」の上限に達していたら出さない。
-        guard defaults.integer(forKey: Keys.postponeCount) < Policy.maxPostponeCount else { return }
-
-        // 前回表示からのスキャン間隔が十分空いていなければ出さない。
-        let lastShownScanCount = defaults.integer(forKey: Keys.lastPrimerShownScanCount)
-        if lastShownScanCount > 0, scanCount - lastShownScanCount < Policy.minScansBetweenPrimerShows {
-            return
-        }
-
-        defaults.set(scanCount, forKey: Keys.lastPrimerShownScanCount)
         isShowingPrimer = true
     }
 
@@ -95,11 +71,5 @@ final class AttPromptController: ObservableObject {
     func proceedToSystemPrompt() {
         isShowingPrimer = false
         ATTrackingManager.requestTrackingAuthorization { _ in }
-    }
-
-    /// 事前説明の「あとで」。ダイアログを閉じ、回数を記録する(上限に達したら以後表示しない)。
-    func postpone() {
-        isShowingPrimer = false
-        defaults.set(defaults.integer(forKey: Keys.postponeCount) + 1, forKey: Keys.postponeCount)
     }
 }

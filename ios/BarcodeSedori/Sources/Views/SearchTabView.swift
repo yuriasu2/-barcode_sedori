@@ -442,10 +442,7 @@ struct SearchTabView: View {
         // 「.overlay { if ... } + .transition(.opacity) + .animation(...)」の流儀に揃える。
         .overlay {
             if attPrompt.isShowingPrimer {
-                AttPrimerDialog(
-                    onProceed: { attPrompt.proceedToSystemPrompt() },
-                    onPostpone: { attPrompt.postpone() }
-                )
+                AttPrimerDialog(onProceed: { attPrompt.proceedToSystemPrompt() })
                 .transition(.opacity)
             }
         }
