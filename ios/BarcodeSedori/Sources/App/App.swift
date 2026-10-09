@@ -29,7 +29,11 @@ struct BarcodeSedoriApp: App {
             RootContainerView()
                 .environmentObject(entitlements)
                 .onChange(of: scenePhase) { phase in
-                    if phase == .active { Task { await entitlements.refreshEntitlements() } }
+                    if phase == .active {
+                        Task { await entitlements.refreshEntitlements() }
+                        // 初回起動時のATT要求(カメラ許可が決まっていれば出す。済みなら何もしない)。
+                        Task { await AttPromptController.shared.requestIfNeeded() }
+                    }
                 }
                 .task {
                     // 起動時にPro状態(StoreKit)を初期化・監視開始する。

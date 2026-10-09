@@ -1,60 +1,47 @@
 import Foundation
 import AppTrackingTransparency
+import AVFoundation
+import UIKit
 
 /// ATT(App Tracking Transparency)要求のタイミングを管理するコントローラ(シングルトン)。
 ///
-/// 起動直後にATTを求めると、アプリの価値を体験する前で拒否されやすい。しかもAppleのATT
-/// ダイアログは一度拒否されるとアプリ内から二度と出せない(OSが記憶する)ため、
-/// 「ユーザーがある程度アプリを使い、価値を感じ始めたタイミング」(検索成功4回目)まで遅らせる。
+/// 初回起動時(カメラ許可が決まった直後)にAppleのATTダイアログを出す。
 ///
-/// 以前はATTの直前に独自の事前説明ダイアログ(「次へ」「あとで」)を挟んでいたが、App Review(5.1.1)で
-/// 「あとで」による先送りが許可への誘導とみなされ却下された(2026-10)。「あとで」を消すと事前説明は
-/// ATTダイアログ自身の説明文(NSUserTrackingUsageDescription)と同じ内容を繰り返すだけになるため、
-/// 事前説明ごと廃止し、Appleのダイアログを直接出す。
+/// 経緯: 以前は「検索成功4回目」まで遅らせていたが、App Reviewで2回続けて「ATTの要求が
+/// 見つからない」と却下された(審査メモの手順が読まれない)。またAppleの要件は「トラッキングに
+/// 使える情報を集める前に要求すること」で、広告が読み込まれた後に要求する作りは弱かった。
+/// そのため起動直後に出す方式へ変えた(2026-10)。事前説明ダイアログは5.1.1で却下されたため置かない。
 ///
-/// ReviewPromptControllerと同じ書き方に揃える(@MainActor final class、static let shared、
-/// UserDefaults永続化、チューニング定数はPolicyへ集約)。
+/// 注意: アプリが前面(active)でないときに要求するとダイアログが出ないまま終わる。また他の
+/// システムダイアログ(カメラ許可)と重なると出ないことがあるため、カメラ許可が決まってから
+/// 少し待って要求する。
 @MainActor
 final class AttPromptController {
     static let shared = AttPromptController()
 
-    /// SettingsStore/ReviewPromptControllerとは別系統のキー。
-    /// スキャン回数はReviewPromptController.Keys.searchCount(レビュー依頼用)と
-    /// 用途が異なる(ATTは閾値4回でごく早期に判定したい)ため、共用せず専用キーを持つ。
-    private enum Keys {
-        static let scanCount = "att.scanCount"
-    }
+    /// 要求中の多重呼び出しを防ぐ(起動時とscenePhase変化・カメラ許可確定が重なるため)。
+    private var isRequesting = false
 
-    /// チューニング対象のポリシー定数。値を変えるときはここだけを見ればよいようにまとめる。
-    private enum Policy {
-        /// ATTを要求してよくなる最低スキャン成功回数。
-        static let minScanCountToRequest = 4
-    }
-
-    private let defaults: UserDefaults
-
-    init(defaults: UserDefaults = .standard) {
-        self.defaults = defaults
-    }
-
-    /// 検索(スキャン)が成功するたびに呼ぶ。カウントを+1し、条件を満たせばATTを要求する。
-    func recordScanSucceeded() {
-        defaults.set(defaults.integer(forKey: Keys.scanCount) + 1, forKey: Keys.scanCount)
-        requestIfNeeded()
-    }
-
-    /// 条件をすべて満たしていればAppleのATTダイアログを要求する。
+    /// 起動時・前面復帰時・カメラ許可確定時に呼ぶ。条件を満たしていればATTを要求する。
     /// 許可の有無に関わらず広告は表示できる(未許可時は非パーソナライズ広告)。
-    private func requestIfNeeded() {
-        guard AdsConfig.enabled else { return }
-
-        // 既に許可/拒否済みなら二度と出さない(未回答のときのみ判定する)。
+    func requestIfNeeded() async {
+        guard AdsConfig.enabled, !isRequesting else { return }
+        // 既に許可/拒否済みなら二度と出さない(OSも1アプリ1回しか出さない)。
         guard ATTrackingManager.trackingAuthorizationStatus == .notDetermined else { return }
+        // カメラ許可ダイアログと重ならないよう、カメラの可否が決まるまで待つ
+        // (カメラ許可確定時に再度呼ばれる)。
+        guard AVCaptureDevice.authorizationStatus(for: .video) != .notDetermined else { return }
 
-        guard defaults.integer(forKey: Keys.scanCount) >= Policy.minScanCountToRequest else { return }
+        isRequesting = true
+        defer { isRequesting = false }
+
+        // 直前のダイアログが閉じ切ってから出すため少し待つ。
+        try? await Task.sleep(nanoseconds: 1_000_000_000)
+        guard UIApplication.shared.applicationState == .active,
+              ATTrackingManager.trackingAuthorizationStatus == .notDetermined else { return }
 
         // ATTダイアログとレビュー依頼が続けて出ないよう、5分間レビュー依頼を抑制する。
         ReviewPromptController.shared.recordNegativeEvent()
-        ATTrackingManager.requestTrackingAuthorization { _ in }
+        _ = await ATTrackingManager.requestTrackingAuthorization()
     }
 }

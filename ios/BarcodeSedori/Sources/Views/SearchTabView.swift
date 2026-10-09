@@ -139,8 +139,6 @@ final class SearchTabViewModel: ObservableObject {
             latestResult = result
             isSearching = false
             ReviewPromptController.shared.recordSearchSucceeded()
-            // ATT(トラッキング許可)事前説明の表示要否を判定する(4回スキャンしたら候補になる)。
-            AttPromptController.shared.recordScanSucceeded()
             // 検索経路(バーコード/OCR/手入力)のみを送る。コード自体・商品名は送らない(DPP制約)。
             Analytics.shared.capture(.searchSucceeded(source: source))
             // 無料枠ユニットの残量をローカルへ反映する(Pro・SP-API連携済みはquota==nilで何もしない)。

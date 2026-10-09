@@ -261,6 +261,8 @@ final class ScannerContainerView: UIView {
         // カメラ権限を明示的にリクエストしてから設定・起動する。
         // (権限確定済みの場合はコールバックが即時に呼ばれる)
         AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
+            // カメラの可否が決まったので、続けて初回のATT要求を行う(許可・拒否どちらでも)。
+            Task { @MainActor in await AttPromptController.shared.requestIfNeeded() }
             guard granted, let self else { return }
             self.sessionQueue.async {
                 self.configureSessionIfNeeded()
