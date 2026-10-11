@@ -47,7 +47,7 @@ struct FeeInfo: Codable, Equatable {
 }
 
 /// 新品/中古の最安値ペア。Keepa経路の送料込み最安値(landedPrices)と、
-/// 送料別の最安値(prices.new/used)のフォールバック保持の両方に使う。
+/// Keepaの最安値(prices.new/used。日本では送料込み)のフォールバック保持の両方に使う。
 struct LandedPrices: Codable, Equatable {
     let new: Int?
     let used: Int?
@@ -55,7 +55,7 @@ struct LandedPrices: Codable, Equatable {
 
 /// 出品まわりの純粋ロジック(swiftc単体コンパイルで検証可能なようViewから分離)。
 enum ListingModels {
-    /// Keepa経路向けのフォールバック最安値。送料込み(landed)を優先し、無ければ送料別の最安値を使う。
+    /// Keepa経路向けのフォールバック最安値。送料込み(landed)を優先し、無ければprices.new/used(日本のKeepaでは送料込みと実データで確認済み)を使う。
     /// SP-APIのオファー一覧が無い(未連携)ユーザーでも出品価格が空欄にならないようにするため。
     static func fallbackLowestPrice(
         landed: LandedPrices?,
@@ -109,7 +109,7 @@ enum ListingModels {
         landedPrices: LandedPrices? = nil,
         plainPrices: LandedPrices? = nil
     ) -> Int? {
-        // SP-APIのオファーが取れなければKeepaの最安値(送料込み→送料別)へフォールバックする。
+        // SP-APIのオファーが取れなければKeepaの最安値(landedPrices→prices)へフォールバックする。
         guard let lowest = bucketLowestPrice(offers: offers, condition: condition)
             ?? fallbackLowestPrice(landed: landedPrices, plain: plainPrices, condition: condition)
         else { return nil }

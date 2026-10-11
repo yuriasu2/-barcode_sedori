@@ -15,8 +15,10 @@
  *
  * 【stats.current 配列のインデックス(Product.CsvType enum, 0始まり)】
  *   0 = AMAZON              Amazon本体の価格
- *   1 = NEW                 3rd party 新品最安値(送料別)
- *   2 = USED                3rd party 中古最安値(送料別)
+ *   1 = NEW                 3rd party 新品最安値
+ *   2 = USED                3rd party 中古最安値
+ *   ※ amazon.co.jp では NEW/USED の値は送料込み(商品代+配送料)であることを実データで確認した
+ *     (2026-10-12、ISBN 9784581109536: 新品1,320円+送料480円=1,800円、中古188円+送料257円=445円と一致)。
  *   3 = SALES               売れ筋ランキング(Sales Rank)
  *   4 = LISTPRICE           定価
  *   11 = COUNT_NEW          新品出品者数
@@ -55,7 +57,7 @@ const CSV_TYPE = {
   BUY_BOX_SHIPPING: 18,
   // 送料込み最安値の算出用(公式Java SDK Product.CsvType)。
   // 注: offersパラメータ無しのstats.currentにこれらが入っているかは実データ未検証。
-  // 入っていなければ landedPrices は null になり、アプリ側は prices(送料別)へフォールバックする。
+  // 入っていなければ landedPrices は null になり、アプリ側は prices(日本では送料込み)へフォールバックする。
   NEW_FBM_SHIPPING: 7,
   NEW_FBA: 10, // FBA出品の新品価格(配送料無料扱いで送料込み)
   USED_NEW_SHIPPING: 19,

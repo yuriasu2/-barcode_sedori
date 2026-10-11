@@ -68,7 +68,7 @@ struct PurchaseListItem: Codable, Equatable, Identifiable {
     var feeInfo: FeeInfo?
     /// Keepa経路の送料込み最安値。SP-APIのオファーが無いときの出品価格の自動入力に使う。
     var landedPrices: LandedPrices?
-    /// Keepa経路の送料別最安値(SearchPrices.new/used)。landedPricesも無いときの最後のフォールバック。
+    /// Keepa経路の最安値(SearchPrices.new/used。日本では送料込み)。landedPricesも無いときの最後のフォールバック。
     var plainPrices: LandedPrices?
 
     init(

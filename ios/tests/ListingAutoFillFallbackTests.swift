@@ -17,7 +17,7 @@ struct ListingAutoFillFallbackTests {
         // オファー無し: 送料込み優先
         check(ListingModels.autoFillListingPrice(offers: nil, condition: .newNew, shippingIncome: 0, subtractShipping: false, landedPrices: landed, plainPrices: plain) == 1600, "新品はlanded.new")
         check(ListingModels.autoFillListingPrice(offers: nil, condition: .usedGood, shippingIncome: 0, subtractShipping: false, landedPrices: landed, plainPrices: plain) == 700, "中古はlanded.used")
-        // landedが無ければ送料別
+        // landedが無ければprices.new/used
         let noUsedLanded = LandedPrices(new: nil, used: nil)
         check(ListingModels.autoFillListingPrice(offers: nil, condition: .usedGood, shippingIncome: 0, subtractShipping: false, landedPrices: noUsedLanded, plainPrices: plain) == 600, "landed無しはplain.used")
         check(ListingModels.autoFillListingPrice(offers: nil, condition: .newNew, shippingIncome: 0, subtractShipping: false, landedPrices: nil, plainPrices: plain) == 1500, "landed nilはplain.new")
