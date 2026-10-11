@@ -37,8 +37,52 @@ enum ListingConditionType: String, CaseIterable, Identifiable, Codable {
     }
 }
 
+/// Keepa経路の/api/searchが返す手数料情報(カテゴリ紹介料率と成約料の有無)。旧サーバーではnil。
+/// 成約料80円は日本ではメディア系(本・洋書・ミュージック・DVD/ビデオ)のみ。
+struct FeeInfo: Codable, Equatable {
+    /// カテゴリの販売手数料率(%)。取得できなければnil。
+    let referralFeePercent: Double?
+    /// 成約料の有無。true=メディア系、false=非メディア、nil=不明(不明時は書籍想定で80円を計上)。
+    let hasClosingFee: Bool?
+}
+
+/// 新品/中古の最安値ペア。Keepa経路の送料込み最安値(landedPrices)と、
+/// 送料別の最安値(prices.new/used)のフォールバック保持の両方に使う。
+struct LandedPrices: Codable, Equatable {
+    let new: Int?
+    let used: Int?
+}
+
 /// 出品まわりの純粋ロジック(swiftc単体コンパイルで検証可能なようViewから分離)。
 enum ListingModels {
+    /// Keepa経路向けのフォールバック最安値。送料込み(landed)を優先し、無ければ送料別の最安値を使う。
+    /// SP-APIのオファー一覧が無い(未連携)ユーザーでも出品価格が空欄にならないようにするため。
+    static func fallbackLowestPrice(
+        landed: LandedPrices?,
+        plain: LandedPrices?,
+        condition: ListingConditionType
+    ) -> Int? {
+        let landedValue = condition.isNew ? landed?.new : landed?.used
+        if let landedValue { return landedValue }
+        return condition.isNew ? plain?.new : plain?.used
+    }
+
+    /// アプリ内の手数料概算(販売手数料 + 成約料 + 消費税)。円単位で四捨五入。
+    /// - feeInfoがあれば紹介料率とカテゴリの成約料有無を反映する。成約料は`hasClosingFee != false`
+    ///   (true/不明)で80円。feeInfo nilや料率nilは従来の書籍想定(15%+80円)。
+    /// - 販売手数料の計算基礎は出品価格+配送料。消費税は(販売手数料+成約料)の10%。
+    static func estimateFees(
+        price: Int,
+        shipping: Int,
+        feeInfo: FeeInfo?
+    ) -> (referral: Int, closing: Int, tax: Int, total: Int, ratePercent: Double) {
+        let rate = feeInfo?.referralFeePercent ?? 15
+        let referral = Int((Double(price + shipping) * rate / 100).rounded())
+        let closing = feeInfo?.hasClosingFee == false ? 0 : 80
+        let tax = Int((Double(referral + closing) * 0.10).rounded())
+        return (referral, closing, tax, referral + closing + tax, rate)
+    }
+
     /// 仕入れフォームの価格初期値: 新品/中古の2区分(バケット)だけで選ぶ最安値(送料込みlanded)。
     /// コンディションが新品なら新品バケット全体の最安landed、中古系4種なら中古バケット全体の
     /// 最安landedを返す(同コンディション細分での絞り込みはしない)。オファーが無ければnil。
@@ -61,9 +105,14 @@ enum ListingModels {
         offers: OffersResult?,
         condition: ListingConditionType,
         shippingIncome: Int,
-        subtractShipping: Bool
+        subtractShipping: Bool,
+        landedPrices: LandedPrices? = nil,
+        plainPrices: LandedPrices? = nil
     ) -> Int? {
-        guard let lowest = bucketLowestPrice(offers: offers, condition: condition) else { return nil }
+        // SP-APIのオファーが取れなければKeepaの最安値(送料込み→送料別)へフォールバックする。
+        guard let lowest = bucketLowestPrice(offers: offers, condition: condition)
+            ?? fallbackLowestPrice(landed: landedPrices, plain: plainPrices, condition: condition)
+        else { return nil }
         guard subtractShipping, shippingIncome > 0 else { return lowest }
         // 0円・負値はAmazonへ出品できず保存時のバリデーションでも弾かれるため、1円を下限にする。
         return max(1, lowest - shippingIncome)

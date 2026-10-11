@@ -649,9 +649,11 @@ function estimatePoints() {
  * 取得できなければ書籍フォールバック(15%+80円、pricing.fallbackFeesと同一料率)で近似する。
  * @param {object|null} product Keepa Product Object
  * @param {number} landed 送料込み価格
+ * @param {boolean|null} [hasClosingFee] 成約料80円の有無。true=メディア系/false=非メディア(成約料なし)/
+ *   null・未指定=カテゴリ不明。不明時は従来どおり80円を引く(書籍中心のアプリのため書籍想定を維持)。
  * @returns {number} breakEven(小数あり得る)
  */
-function computeKeepaBreakEven(product, landed) {
+function computeKeepaBreakEven(product, landed, hasClosingFee) {
   const referralFeePercent =
     product && typeof product.referralFeePercent === 'number' ? product.referralFeePercent : null;
   const fbaPickAndPackFee =
@@ -661,7 +663,8 @@ function computeKeepaBreakEven(product, landed) {
 
   if (referralFeePercent != null && fbaPickAndPackFee != null) {
     const referralFee = landed * (referralFeePercent / 100);
-    const closingFee = 80; // 書籍カテゴリの成約料(円)
+    // 成約料80円は日本ではメディア系カテゴリのみ。非メディアと判明しているときだけ0円にする。
+    const closingFee = hasClosingFee === false ? 0 : 80;
     return Math.round((landed - referralFee - closingFee - fbaPickAndPackFee) * 100) / 100;
   }
   // 書籍フォールバック: 15%手数料 + 成約料80円(pricing.fallbackFeesと同一料率)
@@ -893,12 +896,13 @@ async function respondKeepaSearchResult(res, converted, isbn13, product, cacheKe
     await graphDataCache.set(graphDataCacheKey(mapped.asin), { series: keepa.extractGraphSeries(product) });
   }
 
+  const hasClosingFee = mapped.feeInfo ? mapped.feeInfo.hasClosingFee : null;
   const profitInputs = {
     listPrice: mapped.listPrice,
     sellerCounts: mapped.sellerCounts,
     breakEven: {
-      new: mapped.prices.new != null ? computeKeepaBreakEven(product, mapped.prices.new) : null,
-      used: mapped.prices.used != null ? computeKeepaBreakEven(product, mapped.prices.used) : null,
+      new: mapped.prices.new != null ? computeKeepaBreakEven(product, mapped.prices.new, hasClosingFee) : null,
+      used: mapped.prices.used != null ? computeKeepaBreakEven(product, mapped.prices.used, hasClosingFee) : null,
     },
   };
 
@@ -912,6 +916,9 @@ async function respondKeepaSearchResult(res, converted, isbn13, product, cacheKe
     releaseDate: mapped.releaseDate,
     modelNumber: null,
     prices: mapped.prices,
+    // Keepa経路のみの追加フィールド(旧アプリは無視する)
+    feeInfo: mapped.feeInfo,
+    landedPrices: mapped.landedPrices,
     profitInputs,
     source: 'keepa',
   };
@@ -2079,4 +2086,5 @@ router.validateNotice = validateNotice;
 // テスト用途にAdMob SSV検証モジュールを公開する(_setKeysForTestでの鍵注入用)。
 router.admobSsv = admobSsv;
 
+router.computeKeepaBreakEven = computeKeepaBreakEven; // テスト用
 module.exports = router;

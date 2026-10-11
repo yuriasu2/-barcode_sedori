@@ -75,10 +75,15 @@ struct SearchResult: Codable, Equatable {
     /// Keepaスロットルのデバッグ情報(X-Keepa-Debugヘッダー付きリクエスト時のみ非nil)。
     /// サーバー側キー名は"_keepaDebug"のためCodingKeysで対応させる。
     let keepaDebug: KeepaDebugInfo?
+    /// Keepa経路のみ: 手数料概算用のカテゴリ情報。旧サーバー・SP-API経路ではnil。
+    /// varにしているのは、メンバーワイズinitの既存呼び出しを変えずに済ませるため(既定nil)。
+    var feeInfo: FeeInfo? = nil
+    /// Keepa経路のみ: 送料込みの新品/中古最安値。旧サーバー・SP-API経路ではnil。
+    var landedPrices: LandedPrices? = nil
 
     private enum CodingKeys: String, CodingKey {
         case codeType, asin, title, isbn13, imageUrl, salesRank, releaseDate, modelNumber
-        case prices, source, offers, profitInputs, quota
+        case prices, source, offers, profitInputs, quota, feeInfo, landedPrices
         case keepaDebug = "_keepaDebug"
     }
 }

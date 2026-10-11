@@ -63,6 +63,13 @@ struct PurchaseListItem: Codable, Equatable, Identifiable {
     var supplier: String?
     /// 自分用の内部メモ(出品には使わない)。
     var memo: String?
+    /// Keepa経路の手数料情報(追加時に検索結果から引き継ぐ)。手数料概算に使う。
+    /// 履歴や商品詳細経由の追加・旧データはnil(従来の15%+80円で概算)。
+    var feeInfo: FeeInfo?
+    /// Keepa経路の送料込み最安値。SP-APIのオファーが無いときの出品価格の自動入力に使う。
+    var landedPrices: LandedPrices?
+    /// Keepa経路の送料別最安値(SearchPrices.new/used)。landedPricesも無いときの最後のフォールバック。
+    var plainPrices: LandedPrices?
 
     init(
         id: UUID = UUID(),
@@ -92,7 +99,10 @@ struct PurchaseListItem: Codable, Equatable, Identifiable {
         shippingIncome: Int? = nil,
         purchaseDate: Date? = nil,
         supplier: String? = nil,
-        memo: String? = nil
+        memo: String? = nil,
+        feeInfo: FeeInfo? = nil,
+        landedPrices: LandedPrices? = nil,
+        plainPrices: LandedPrices? = nil
     ) {
         self.id = id
         self.addedAt = addedAt
@@ -122,6 +132,9 @@ struct PurchaseListItem: Codable, Equatable, Identifiable {
         self.purchaseDate = purchaseDate
         self.supplier = supplier
         self.memo = memo
+        self.feeInfo = feeInfo
+        self.landedPrices = landedPrices
+        self.plainPrices = plainPrices
     }
 
     /// 検索タブの最新結果カードから追加する場合のコンビニエンスinit。
@@ -136,7 +149,10 @@ struct PurchaseListItem: Codable, Equatable, Identifiable {
             // 参考価格はSearchResult直下ではなくProfitInputsの中にある(発売日は直下)。
             listPrice: result.profitInputs?.listPrice,
             releaseDate: result.releaseDate,
-            offersResult: offersResult
+            offersResult: offersResult,
+            feeInfo: result.feeInfo,
+            landedPrices: result.landedPrices,
+            plainPrices: result.prices.map { LandedPrices(new: $0.new, used: $0.used) }
         )
     }
 }

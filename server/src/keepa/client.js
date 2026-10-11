@@ -53,7 +53,67 @@ const CSV_TYPE = {
   COUNT_USED: 12,
   COUNT_COLLECTIBLE: 14,
   BUY_BOX_SHIPPING: 18,
+  // 送料込み最安値の算出用(公式Java SDK Product.CsvType)。
+  // 注: offersパラメータ無しのstats.currentにこれらが入っているかは実データ未検証。
+  // 入っていなければ landedPrices は null になり、アプリ側は prices(送料別)へフォールバックする。
+  NEW_FBM_SHIPPING: 7,
+  NEW_FBA: 10, // FBA出品の新品価格(配送料無料扱いで送料込み)
+  USED_NEW_SHIPPING: 19,
+  USED_VERY_GOOD_SHIPPING: 20,
+  USED_GOOD_SHIPPING: 21,
+  USED_ACCEPTABLE_SHIPPING: 22,
 };
+
+// 成約料(80円)が掛かるメディア系カテゴリのamazon.co.jpルートカテゴリID。
+// 注意: このIDリストおよびproductGroupの文字列は実データ未検証(ローカルにKeepaキーが無いため)。
+// デプロイ後に実商品のrootCategory/productGroupを確認して必ず見直すこと。
+const MEDIA_ROOT_CATEGORY_IDS = new Set([
+  465392, // 本
+  52033011, // 洋書
+  561956, // ミュージック
+  561958, // DVD
+]);
+// productGroupがメディア系かの判定(小文字化して比較)。こちらも実データ未検証。
+const MEDIA_PRODUCT_GROUPS = new Set([
+  'book', 'books', 'music', 'dvd', 'video', 'ビデオ', '本', 'ミュージック', '洋書',
+]);
+
+/**
+ * メディア系カテゴリ(成約料80円あり)か判定する。true=メディア、false=非メディア、null=不明。
+ * rootCategoryを優先し、無ければproductGroupで判定する。どちらも無ければnull。
+ */
+function detectHasClosingFee(product) {
+  if (!product) return null;
+  if (typeof product.rootCategory === 'number') {
+    return MEDIA_ROOT_CATEGORY_IDS.has(product.rootCategory);
+  }
+  if (typeof product.productGroup === 'string' && product.productGroup.trim() !== '') {
+    return MEDIA_PRODUCT_GROUPS.has(product.productGroup.trim().toLowerCase());
+  }
+  return null;
+}
+
+/**
+ * Keepa商品の手数料情報(カテゴリ紹介料率と成約料の有無)。アプリの簡易手数料見積り用。
+ */
+function extractFeeInfo(product) {
+  let referralFeePercent = null;
+  if (product) {
+    if (typeof product.referralFeePercent === 'number') referralFeePercent = product.referralFeePercent;
+    else if (typeof product.referralFeePercentage === 'number') referralFeePercent = product.referralFeePercentage;
+  }
+  return { referralFeePercent, hasClosingFee: detectHasClosingFee(product) };
+}
+
+/** 有効値(>=0)のうち最小を返す。無ければnull。 */
+function minValid(current, indexes) {
+  let min = null;
+  for (const i of indexes) {
+    const v = normalizePrice(current[i]);
+    if (v != null && (min == null || v < min)) min = v;
+  }
+  return min;
+}
 
 function getApiKey() {
   return process.env.KEEPA_API_KEY || null;
@@ -373,6 +433,18 @@ function mapProductToSearchResult(product) {
     listPrice,
     releaseDate,
     sellerCounts,
+    // 以下2つは追加フィールド(旧アプリは無視する)。
+    feeInfo: extractFeeInfo(product),
+    // 送料込み最安値。出品者出荷(送料別)と FBA(送料込み)の安い方。
+    landedPrices: {
+      new: minValid(current, [CSV_TYPE.NEW_FBM_SHIPPING, CSV_TYPE.NEW_FBA]),
+      used: minValid(current, [
+        CSV_TYPE.USED_NEW_SHIPPING,
+        CSV_TYPE.USED_VERY_GOOD_SHIPPING,
+        CSV_TYPE.USED_GOOD_SHIPPING,
+        CSV_TYPE.USED_ACCEPTABLE_SHIPPING,
+      ]),
+    },
     prices: {
       cart: null, // BuyBox取得には追加トークンが必要なため第1段階ではnull
       new: newPrice,

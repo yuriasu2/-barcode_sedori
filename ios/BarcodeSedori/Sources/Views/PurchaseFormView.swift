@@ -35,7 +35,9 @@ final class PurchaseFormViewModel: ObservableObject {
                     offers: draft.offersResult,
                     condition: condition,
                     shippingIncome: shippingToSubtract,
-                    subtractShipping: subtractShippingFromLowest
+                    subtractShipping: subtractShippingFromLowest,
+                    landedPrices: draft.landedPrices,
+                    plainPrices: draft.plainPrices
                 )
             }
             regenerateSkuIfNotEdited()
@@ -104,7 +106,9 @@ final class PurchaseFormViewModel: ObservableObject {
                     offers: draft.offersResult,
                     condition: condition,
                     shippingIncome: shippingToSubtract,
-                    subtractShipping: true
+                    subtractShipping: true,
+                    landedPrices: draft.landedPrices,
+                    plainPrices: draft.plainPrices
                 ) {
                     price = recalculated
                 }
@@ -284,7 +288,9 @@ final class PurchaseFormViewModel: ObservableObject {
                 offers: draft.offersResult,
                 condition: initialCondition,
                 shippingIncome: settings.purchaseUseFbaDefault ? 0 : settings.purchaseShippingIncomeDefault,
-                subtractShipping: settings.purchaseSubtractShippingFromLowest
+                subtractShipping: settings.purchaseSubtractShippingFromLowest,
+                landedPrices: draft.landedPrices,
+                plainPrices: draft.plainPrices
             )
             // SKUプレビュー: まだ仕入れリストへ登録していないため、連番は「消費せず覗き見る」だけにする
             // (実際の採番はadd()保存時にPurchaseListStore.add(_:)が行う)。
@@ -487,11 +493,16 @@ final class PurchaseFormViewModel: ObservableObject {
         let checkAsin = asin
         let checkPrice = price
         let checkFba = useFba
+        let checkFeeInfo: FeeInfo?
+        switch mode {
+        case .add(let draft): checkFeeInfo = draft.feeInfo
+        case .edit(let item): checkFeeInfo = item.feeInfo
+        }
         // 販売手数料の計算基礎は「出品価格+配送料」であって発送費用ではない。
         let checkShipping = shippingIncome ?? 0
 
         guard entitlements.isPro && settings.isListingReady else {
-            feesState = .loaded(Self.estimateFeesDisplay(price: checkPrice, shipping: checkShipping, fba: checkFba))
+            feesState = .loaded(Self.estimateFeesDisplay(price: checkPrice, shipping: checkShipping, fba: checkFba, feeInfo: checkFeeInfo))
             return
         }
 
@@ -522,26 +533,38 @@ final class PurchaseFormViewModel: ObservableObject {
                 } else {
                     // それ以外のAPI失敗(通信断・quota等)は概算フォールバックに切り替える
                     // (「取得できません」で詰まらせない)。
-                    self.feesState = .loaded(Self.estimateFeesDisplay(price: checkPrice, shipping: checkShipping, fba: checkFba))
+                    self.feesState = .loaded(Self.estimateFeesDisplay(price: checkPrice, shipping: checkShipping, fba: checkFba, feeInfo: checkFeeInfo))
                 }
             }
         }
     }
 
-    /// アプリ内概算: 販売手数料15%(出品価格+配送料が基礎) + カテゴリ成約料80円 +
+    /// アプリ内概算: 販売手数料(Keepa経路ならカテゴリ料率、無ければ書籍想定の15%。出品価格+配送料が基礎) +
+    /// カテゴリ成約料80円(メディア系または不明のときのみ。非メディアと判明していれば0円) +
     /// 消費税(小計の10%)。FBA手数料は実額取得(SP-API連携)でしか算出できないため、
     /// FBAトグルONのときは内訳に「連携が必要」の注記だけ出し、合計には含めない。
-    private static func estimateFeesDisplay(price: Int, shipping: Int, fba: Bool) -> FeesDisplay {
-        let referral = Int((Double(price + shipping) * 0.15).rounded())
-        let closing = 80
-        let tax = Int((Double(referral + closing) * 0.10).rounded())
-        let breakdown: [FeesEstimateResult.FeeLine] = [
-            .init(type: "referral", label: "販売手数料", amount: referral),
-            .init(type: "closing", label: "カテゴリ成約料", amount: closing),
-            .init(type: "tax", label: "消費税", amount: tax),
+    private static func estimateFeesDisplay(price: Int, shipping: Int, fba: Bool, feeInfo: FeeInfo?) -> FeesDisplay {
+        let fees = ListingModels.estimateFees(price: price, shipping: shipping, feeInfo: feeInfo)
+        let referral = fees.referral
+        let closing = fees.closing
+        let tax = fees.tax
+        // 料率がカテゴリ由来のときだけ割合をラベルに出す(固定15%と誤解させないため)。
+        let referralLabel: String
+        if feeInfo?.referralFeePercent != nil {
+            let r = fees.ratePercent
+            referralLabel = "販売手数料(\(r == r.rounded() ? String(Int(r)) : String(r))%)"
+        } else {
+            referralLabel = "販売手数料"
+        }
+        var breakdown: [FeesEstimateResult.FeeLine] = [
+            .init(type: "referral", label: referralLabel, amount: referral),
         ]
+        if closing > 0 {
+            breakdown.append(.init(type: "closing", label: "カテゴリ成約料", amount: closing))
+        }
+        breakdown.append(.init(type: "tax", label: "消費税", amount: tax))
         return FeesDisplay(
-            total: referral + closing + tax,
+            total: fees.total,
             breakdown: breakdown,
             isEstimate: true,
             fbaRequiresLinkNote: fba ? "連携が必要" : nil

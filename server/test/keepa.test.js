@@ -1411,3 +1411,57 @@ test('keepa client: getTokenStatusはGET /tokenを叩きtokensLeft/refillRate/re
   assert.match(requestedUrl, /^https:\/\/api\.keepa\.com\/token\?/);
   assert.match(requestedUrl, /key=test-key-for-token/);
 });
+
+// ---------------------------------------------------------------------------
+// feeInfo / landedPrices / breakEven(成約料の有無)
+// ---------------------------------------------------------------------------
+
+test('keepa client: feeInfo はメディアのrootCategoryならhasClosingFee=true、紹介料率を引き継ぐ', () => {
+  const keepa = require('../src/keepa/client');
+  const mapped = keepa.mapProductToSearchResult({
+    asin: 'B000FEE001', rootCategory: 465392, referralFeePercent: 15, stats: { current: [] },
+  });
+  assert.deepEqual(mapped.feeInfo, { referralFeePercent: 15, hasClosingFee: true });
+});
+
+test('keepa client: feeInfo は非メディアのrootCategoryならhasClosingFee=false', () => {
+  const keepa = require('../src/keepa/client');
+  const mapped = keepa.mapProductToSearchResult({
+    asin: 'B000FEE002', rootCategory: 2277721051, referralFeePercent: 8, stats: { current: [] },
+  });
+  assert.deepEqual(mapped.feeInfo, { referralFeePercent: 8, hasClosingFee: false });
+});
+
+test('keepa client: feeInfo はrootCategory無しならproductGroupで判定し、どちらも無ければnull', () => {
+  const keepa = require('../src/keepa/client');
+  assert.equal(keepa.mapProductToSearchResult({ asin: 'A', productGroup: 'Book', stats: {} }).feeInfo.hasClosingFee, true);
+  assert.equal(keepa.mapProductToSearchResult({ asin: 'A', productGroup: 'Toy', stats: {} }).feeInfo.hasClosingFee, false);
+  assert.deepEqual(keepa.mapProductToSearchResult({ asin: 'A', stats: {} }).feeInfo, {
+    referralFeePercent: null, hasClosingFee: null,
+  });
+});
+
+test('keepa client: landedPrices は新品[7,10]・中古[19-22]の有効値最小を取り、-1は無視する', () => {
+  const keepa = require('../src/keepa/client');
+  const current = new Array(23).fill(-1);
+  current[7] = 1800; current[10] = 1600;
+  current[19] = -1; current[20] = 900; current[21] = 700; current[22] = 800;
+  assert.deepEqual(keepa.mapProductToSearchResult({ asin: 'A', stats: { current } }).landedPrices, {
+    new: 1600, used: 700,
+  });
+  const none = new Array(23).fill(-1);
+  assert.deepEqual(keepa.mapProductToSearchResult({ asin: 'A', stats: { current: none } }).landedPrices, {
+    new: null, used: null,
+  });
+  current[10] = -1;
+  assert.equal(keepa.mapProductToSearchResult({ asin: 'A', stats: { current } }).landedPrices.new, 1800);
+});
+
+test('computeKeepaBreakEven: 非メディアは成約料80円を引かず、メディア/不明は引く', () => {
+  const { computeKeepaBreakEven } = freshRoutes();
+  const product = { referralFeePercent: 10, fbaFees: { pickAndPackFee: 300 } };
+  assert.equal(computeKeepaBreakEven(product, 2000, false), 1500); // 2000-200-0-300
+  assert.equal(computeKeepaBreakEven(product, 2000, true), 1420);
+  assert.equal(computeKeepaBreakEven(product, 2000, null), 1420);
+  assert.equal(computeKeepaBreakEven(product, 2000), 1420);
+});
