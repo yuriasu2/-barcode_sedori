@@ -137,7 +137,7 @@ targets:
         # App Store Connectへのアップロードが弾かれる(90474)。ターゲット側に明示すること。
         TARGETED_DEVICE_FAMILY: "1"
         PRODUCT_BUNDLE_IDENTIFIER: jp.sellira.sellerlens
-        MARKETING_VERSION: "1.0.2"
+        MARKETING_VERSION: "1.0.3"
         CURRENT_PROJECT_VERSION: "21"
         # Resources/Assets.xcassets の AppIcon を使う
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
