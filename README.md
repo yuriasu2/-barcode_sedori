@@ -371,6 +371,14 @@ npx wrangler kv key put "config" --binding ADS_CONFIG --remote --path <編集し
 
 購入検証の設定・鍵更新・通知漏れの復旧・ロールバック時の注意は `docs/BILLING-OPERATIONS.md` にまとまっています。署名鍵を更新するときは `BILLING_TOKEN_KEYS` に新旧両方を入れてから `BILLING_TOKEN_KEY_ID` を新鍵へ切り替えます。旧サーバーコードへ戻すと自己申告 Pro の脆弱性が再開するため、通常の障害フォールバックとしては戻しません。
 
+### Keepaトークン残量のSlack通知
+
+共有Keepaキーの残量が `KEEPA_ALERT_THRESHOLD`(既定60、`wrangler.jsonc`)を下回ると、Slack の Incoming Webhook へ1時間に1回まで通知します(復旧通知はなし)。Webhook URL は secret で登録します。未設定なら通知しません。
+
+```bash
+cd server && npx wrangler secret put SLACK_WEBHOOK_URL
+```
+
 ### 別リポジトリ
 
 LP(sellira.jp、プライバシーポリシー、お知らせページ、お問い合わせ、`app-ads.txt`)は `sellira-site`(`~/Claude/Projects/sellira-site`)で管理し、push で Cloudflare Pages に自動デプロイされます。このリポジトリの GitHub は `yuriasu2/-barcode_sedori` です。
@@ -406,6 +414,8 @@ LP(sellira.jp、プライバシーポリシー、お知らせページ、お問�
 ## 実装履歴
 
 新しいものを上に追記します(日付、1〜2行)。
+
+- 2026-11-23 Keepaトークン残量が60を下回るとSlack(#keepaトークン通知)へ通知(1時間に1回まで)。Webhook URLはsecret `SLACK_WEBHOOK_URL`。
 
 - 2026-10-12 バージョンを 1.0.3 (build 21) へ更新し TestFlight 用にアップロード。1.0.2 は承認・公開済み。
 - 2026-10-12 Keepa 経路の検索結果に `feeInfo`(カテゴリの販売手数料率・成約料の有無)を追加して本番デプロイ(Worker Version `8a65a28d`)。アプリは Keepa の最安値で出品価格を自動入力し、カテゴリ別の手数料率で概算(build 21 に収録)。デプロイ前に `wrangler.jsonc` の `UNITS_PER_AD` を本番値の10へ合わせた。

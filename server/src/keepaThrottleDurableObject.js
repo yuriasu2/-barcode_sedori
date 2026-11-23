@@ -40,6 +40,9 @@ export class KeepaThrottleDO {
     // 'global'は絶対にtrueにならない(=storageへ一切書かない)。無料枠書き込み上限を
     // 保護するための安全条件。
     this.isDemoInstance = false;
+    // トークン残量アラート(keepaTokenAlert.js)の最終送信時刻。メモリのみで保持する
+    // (storageへ書かず無料枠の書き込み上限を守る。退避されても重複通知が1回出る程度)。
+    this.lastAlertAt = 0;
   }
 
   /**
@@ -105,6 +108,14 @@ export class KeepaThrottleDO {
       const tokensLeft = parseInt(url.searchParams.get('tokensLeft'), 10);
       this.core.reportTokensLeft(tokensLeft);
       return Response.json({ ok: true });
+    }
+    if (request.method === 'POST' && url.pathname === '/alert-gate') {
+      // DOは直列実行なので、判定と記録は競合しない(複数Isolateからでも1時間に1回だけtrue)。
+      const intervalMs = parseInt(url.searchParams.get('intervalMs'), 10) || 3600000;
+      const now = Date.now();
+      if (now - this.lastAlertAt < intervalMs) return Response.json({ send: false });
+      this.lastAlertAt = now;
+      return Response.json({ send: true });
     }
     if (request.method === 'POST' && url.pathname === '/exhausted') {
       this.core.reportExhausted();

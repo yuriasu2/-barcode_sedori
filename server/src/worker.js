@@ -54,6 +54,10 @@ export default {
     globalThis.__ipRateLimitDO = env.IP_RATE_LIMIT || null;
     globalThis.__billingDO = env.BILLING || null;
 
+    // 検索を待たせずに送るバックグラウンド処理(Keepaトークン残量のSlack通知)を
+    // ctx.waitUntilへ渡すための橋渡し(routes.jsにctxを引き回す仕組みが無いため)。
+    globalThis.__execCtx = ctx;
+
     const url = new URL(request.url);
 
     // 共有キャッシュ(sharedCache.js)がCache APIのキャッシュキーURLを組み立てるためのオリジン。

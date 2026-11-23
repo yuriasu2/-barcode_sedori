@@ -37,6 +37,10 @@
     // 環境変数は無い。適応ブレーキの上限はコード内定数(BRAKE_CAP_MS)。
     // プランを20トークン/分へ上げたらここだけ更新してデプロイする。
     "KEEPA_REFILL_PER_MIN": "5",
+    // 共有Keepaキーの残トークンがこの値を下回るとSlackへ通知する(1時間に1回まで、復旧通知なし)。
+    // 通知先のIncoming Webhook URLは秘密なのでvarsに書かず、
+    // `npx wrangler secret put SLACK_WEBHOOK_URL` で登録する(未設定なら通知しない)。
+    "KEEPA_ALERT_THRESHOLD": "60",
     // 共有Keepaキーを消費するリクエストの、クライアントIP単位のレート制限(回/分)。
     // アプリ側の検索クールダウンはクライアント実装のためcurlには効かない。
     // 値は共有キー自体の補充レート(KEEPA_REFILL_PER_MIN=5トークン/分)にあえて

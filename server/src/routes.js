@@ -12,6 +12,7 @@ const oauth = require('./oauth');
 const keepa = require('./keepa/client');
 const deviceQuota = require('./deviceQuota');
 const keepaThrottle = require('./keepaThrottle');
+const keepaTokenAlert = require('./keepaTokenAlert');
 const keepaCoalesce = require('./keepaCoalesce');
 const ipRateLimit = require('./ipRateLimit');
 const admobSsv = require('./admobSsv');
@@ -448,6 +449,15 @@ async function fetchKeepaProductCoalesced({ instance, coalesceKey, fetchParams, 
       // 壊さないようにする)。デモモードのときも報告しない(seedした値を維持するため)。
       if (!isByo && !isDemo && Number.isFinite(result.tokensLeft)) {
         await keepaThrottle.reportTokensLeft(result.tokensLeft, instance);
+        // 残量が少ないときだけSlackへ通知(1時間に1回まで)。検索を遅らせない・失敗させないため
+        // awaitせず、Workersではwaitを延長するためctx.waitUntilへ渡す(worker.jsがglobalThisへ橋渡し)。
+        const alertPromise = keepaTokenAlert.maybeAlertLowTokens(result.tokensLeft);
+        const execCtx = globalThis.__execCtx;
+        // 同じisolateで並行する別リクエストのctxを指している可能性があり、そのリクエストが
+        // 終了済みだとwaitUntilが例外を投げ得るため、ここで握りつぶして検索に影響させない。
+        try {
+          if (execCtx && typeof execCtx.waitUntil === 'function') execCtx.waitUntil(alertPromise);
+        } catch (_) { /* 通知は取りこぼしてよい */ }
       }
       return result;
     } catch (err) {

@@ -415,6 +415,34 @@ async function reportExhausted(instance = 'global') {
   }
 }
 
+// アラート送信の重複抑止(インメモリ経路: Node/テスト用)。
+let memLastAlertAt = 0;
+
+/**
+ * トークン残量アラートを今送ってよいかを原子的に判定し、送ってよければ送信時刻を記録する。
+ * 本番はDO(global)で判定するため、複数Isolateから同時に呼ばれても1時間に1回しか通らない。
+ * DOのlastAlertAtはメモリのみ(storage非使用。退避されても最悪1回余分に通知されるだけ)。
+ * DO障害時はfalse(通知が欠けるだけで検索に影響させない。重複通知より安全側)。
+ * @param {number} intervalMs
+ * @returns {Promise<boolean>}
+ */
+async function alertGate(intervalMs) {
+  const binding = getDurableBinding();
+  if (!binding) {
+    const now = Date.now();
+    if (now - memLastAlertAt < intervalMs) return false;
+    memLastAlertAt = now;
+    return true;
+  }
+  try {
+    const body = await callDurableObject(binding, 'alert-gate', { intervalMs: String(intervalMs) });
+    return body.send === true;
+  } catch (err) {
+    console.error('[keepaThrottle] DO alert-gate failed (ignored):', err.message);
+    return false;
+  }
+}
+
 /**
  * デバッグ表示用: 現在の推定状態のスナップショット(観測のみ、副作用なし)。
  * DO障害時はnullを返す(可用性優先のacquireと違い、デバッグ情報が取れないだけで
@@ -462,6 +490,7 @@ async function seedDemoState({ tokens, ratePerMin, refillPerMin } = {}) {
 function _resetForTest() {
   for (const c of cores.values()) c.destroy();
   cores.clear();
+  memLastAlertAt = 0;
 }
 
 module.exports = {
@@ -469,6 +498,7 @@ module.exports = {
   reportTokensLeft,
   reportExhausted,
   debugSnapshot,
+  alertGate,
   seedDemoState,
   ThrottleCore,
   readThrottleConfig,
